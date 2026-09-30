@@ -5,14 +5,17 @@ import { spawn } from 'node:child_process';
 import assert from 'node:assert/strict';
 import yaml from 'js-yaml';
 import { gateway } from './server.mjs';
+import { ompThinking } from './effort.mjs';
 
 // 真实 OMP 连接本地合成网关，只读临时文件；不启动 Claude，不使用真实模型密钥。
 const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'relay-omp-'));
 const token = 'synthetic-omp-test';
+const effort = process.env.PROBE_EFFORT || 'medium';
 let calls = 0;
 const app = await gateway({ token, port: 0, execute: async request => {
   calls++;
-  console.log(JSON.stringify({ request: calls, fields: Object.keys(request).sort(), toolCount: request.tools?.length || 0 }));
+  assert.equal(request.reasoning_effort, effort, 'OMP 必须逐轮传递所选思考强度');
+  console.log(JSON.stringify({ request: calls, effort: request.reasoning_effort, fields: Object.keys(request).sort(), toolCount: request.tools?.length || 0 }));
   if (calls === 1) {
     assert(request.tools.some(tool => tool.function.name === 'read'));
     return { role: 'assistant', content: null, tool_calls: [{ id: 'omp_probe', type: 'function', function: { name: 'read', arguments: JSON.stringify({ path: path.join(folder, 'proof.txt') }) } }] };
@@ -24,8 +27,8 @@ try {
   const agent = path.join(folder, 'agent');
   await fs.mkdir(agent);
   await fs.writeFile(path.join(folder, 'proof.txt'), 'OMP_SYNTHETIC_PROOF');
-  await fs.writeFile(path.join(agent, 'models.yml'), yaml.dump({ providers: { 'relay-probe': { api: 'openai-completions', baseUrl: `http://127.0.0.1:${app.port}/v1`, apiKey: token, compat: { supportsDeveloperRole: false }, models: [{ id: 'claude-code-sonnet', name: 'Synthetic', input: ['text'], reasoning: false, contextWindow: 64000, maxTokens: 8192 }] } } }));
-  const child = spawn(process.env.OMP_BIN || 'omp', ['--model', 'relay-probe/claude-code-sonnet', '--smol', 'relay-probe/claude-code-sonnet', '--slow', 'relay-probe/claude-code-sonnet', '--plan', 'relay-probe/claude-code-sonnet', '--no-title', '--no-session', '--no-extensions', '--no-skills', '--no-rules', '--no-lsp', '--tools', 'read', '--max-time', '45', '-p', '读取 proof.txt，然后回答测试结果'], { cwd: folder, windowsHide: true, env: { ...process.env, PI_CODING_AGENT_DIR: agent, OMP_PROFILE: '', NO_PROXY: '127.0.0.1,localhost', no_proxy: '127.0.0.1,localhost' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  await fs.writeFile(path.join(agent, 'models.yml'), yaml.dump({ providers: { 'relay-probe': { api: 'openai-completions', baseUrl: `http://127.0.0.1:${app.port}/v1`, apiKey: token, compat: { supportsDeveloperRole: false }, models: [{ id: 'claude-code-sonnet', name: 'Synthetic', input: ['text'], ...ompThinking('claude-code-sonnet'), contextWindow: 64000, maxTokens: 8192 }] } } }));
+  const child = spawn(process.env.OMP_BIN || 'omp', ['--model', 'relay-probe/claude-code-sonnet', '--thinking', effort, '--smol', 'relay-probe/claude-code-sonnet', '--slow', 'relay-probe/claude-code-sonnet', '--plan', 'relay-probe/claude-code-sonnet', '--no-title', '--no-session', '--no-extensions', '--no-skills', '--no-rules', '--no-lsp', '--tools', 'read', '--max-time', '45', '-p', '读取 proof.txt，然后回答测试结果'], { cwd: folder, windowsHide: true, env: { ...process.env, PI_CODING_AGENT_DIR: agent, OMP_PROFILE: '', NO_PROXY: '127.0.0.1,localhost', no_proxy: '127.0.0.1,localhost' }, stdio: ['ignore', 'pipe', 'pipe'] });
   let output = '';
   child.stdout.on('data', value => { output = (output + value).slice(-16000); });
   child.stderr.on('data', value => { output = (output + value).slice(-16000); });

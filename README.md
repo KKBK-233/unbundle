@@ -30,6 +30,8 @@
 
 0.5.3 修复配置导入、流式工具重建和参数校验，并增加真实 CLI 的上游契约探针。审计中哪些判断成立、哪些需要收窄，见 [审计复核](docs/audit-0.5.3.md)。
 
+0.6.0 接通思考强度：OMP → `reasoning_effort` → 官方 CLI `--effort`，不增加思考内容展示。
+
 ### 兼容边界
 
 - 仅接受开头连续的 `system/developer` 指令；中途插入返回 `400 UNSUPPORTED_MESSAGE_LAYOUT`。
@@ -110,6 +112,20 @@ sudo bash deploy/model-login.sh
 
 OMP 云端供应商 ID 保留 `velella-cloud`，兼容已有配置；模型为 `claude-code-sonnet`、`claude-code-opus`、`claude-code-haiku`。从目标项目目录调用仓库中的 `omp-cloud.ps1`，即可让本地工具操作该项目。
 
+### 选择思考强度
+
+Sonnet、Opus 支持 `low`、`medium`、`high`、`xhigh`、`max`，新导入的 OMP 配置默认 `medium`。Haiku 暂不提供 effort 控制。启动时例如：
+
+```powershell
+.\omp-cloud.ps1 --thinking high
+```
+
+已有配置先运行 `npm run import:omp -- --update-thinking`。该命令先核对令牌和入口，再备份并更新本 provider 的模型能力，保留默认模型和其他 provider。迁移目录时可用 `GATEWAY_TOKEN_FILE` 指向原来的 `cloud-token`；不要为此重建令牌。
+
+其他 Harness 发送顶层 `reasoning_effort`；未设置、`null` 或 `auto` 使用 CLI 默认。`off/none/minimal` 不作隐式转换，返回 `400 UNSUPPORTED_REASONING_EFFORT`。OMP 的可选档位由模型的 `thinking.efforts` 声明，不提供关闭思考选项。强度只影响 CLI 参数，不写入用户提示词，不返回 `reasoning_content`。
+
+该映射与 CLI 2.1.277 配套验收：真实 OMP 五档、云端 Sonnet/Opus 共十种组合均通过回环模拟上游，实际发送的是 `output_config.effort`。这验证参数传递，不证明订阅权限、实际思考量或费用。模型能力说明见 [Claude Code 官方文档](https://code.claude.com/docs/en/model-config#adjust-effort-level)，客户端字段见 [OMP 模型文档](https://github.com/can1357/oh-my-pi/blob/main/docs/models.md)。
+
 ## 从 0.1.0 迁移
 
 - 原 `model-gateway/start.ps1`、`omp.ps1` 和本地 DeepSeek 服务入口已被云端路线替换；新版使用根目录 `omp-cloud.ps1`。
@@ -133,6 +149,7 @@ npm run check:transport
 ```bash
 cd /home/harness/app
 sudo -u harness /usr/local/bin/velella-node model-gateway/cloud-probe.mjs --self-test
+sudo -u harness /usr/local/bin/velella-node model-gateway/effort-cloud-probe.mjs
 ```
 
 探针验证精确工具集合、稳定的缓存前缀、输出上限和缓存断点，报告环境信息是否进入提示词。当前 CLI 会在缓存断点后追加含 cwd 的环境消息；每轮随机请求目录未进入受控提示词。模拟上游不能证明真实缓存命中、计费或 Pro/Max OAuth 可用。

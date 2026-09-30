@@ -7,6 +7,7 @@ import readline from 'node:readline';
 import { compileContext } from './context.mjs';
 import { CliEvents } from './cli-events.mjs';
 import { validateRequest } from './request.mjs';
+import { resolveEffort } from './effort.mjs';
 
 // 每轮独立进程、逐消息输入；工作目录固定，凭据继续由官方 CLI 管理。
 export async function infer(request, { cli, home, configDir = path.join(home, '.claude'), model, signal, onText, timeoutMs = 180000, spawnProcess = spawn, testUpstream, cacheBreakpoint = '5m', maxOutputTokens = 8192, killGraceMs = 2000, maxCliOutputBytes = 16 * 1024 * 1024 }) {
@@ -66,11 +67,16 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1', DISABLE_AUTOUPDATER: '1',
       ENABLE_TOOL_SEARCH: 'false', MCP_TOOL_TIMEOUT: String(timeoutMs), CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(maxOutputTokens) });
     // 测试上游只经显式参数注入，正式订阅入口不会传入此参数。
-    if (testUpstream) Object.assign(env, { ANTHROPIC_BASE_URL: testUpstream.baseUrl, ANTHROPIC_AUTH_TOKEN: testUpstream.token, ANTHROPIC_MODEL: model,
-      ANTHROPIC_DEFAULT_SONNET_MODEL: model, ANTHROPIC_DEFAULT_HAIKU_MODEL: model, ANTHROPIC_DEFAULT_OPUS_MODEL: model });
+    if (testUpstream) {
+      Object.assign(env, { ANTHROPIC_BASE_URL: testUpstream.baseUrl, ANTHROPIC_AUTH_TOKEN: testUpstream.token });
+      if (!testUpstream.preserveModelAliases) Object.assign(env, { ANTHROPIC_MODEL: model,
+        ANTHROPIC_DEFAULT_SONNET_MODEL: model, ANTHROPIC_DEFAULT_HAIKU_MODEL: model, ANTHROPIC_DEFAULT_OPUS_MODEL: model });
+    }
     const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,
       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',
       '--allowedTools', 'mcp__omp__*', '--no-session-persistence', '--max-turns', '2', '--model', model, '--system-prompt-file', promptFile];
+    const effort = resolveEffort(request);
+    if (effort) args.push('--effort', effort);
     await fs.writeFile(mcp, JSON.stringify({ mcpServers: available.length ? { omp: { type: 'http', url: `http://127.0.0.1:${server.address().port}/mcp`, headers: { Authorization: `Bearer ${bearer}` } } } : {} }), { mode: 0o600 });
     await fs.writeFile(promptFile, systemPrompt, { mode: 0o600 });
     signal?.throwIfAborted();
