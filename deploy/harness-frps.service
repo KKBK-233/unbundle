@@ -1,0 +1,24 @@
+[Unit]
+Description=Velella private encrypted transport
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=harness
+Group=harness
+WorkingDirectory=/etc/harness-frp
+ExecStart=/usr/local/bin/harness-frps -c /etc/harness-frp/frps.toml
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=128M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target

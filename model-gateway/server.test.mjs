@@ -7,7 +7,7 @@ test('模型入口认证、单请求限制与断线取消',async()=>{
   assert.equal((await fetch(base+'/v1/models')).status,401);
   assert.equal((await fetch(base+'/v1/models',{headers:{...headers,Origin:'https://untrusted.invalid'}})).status,403);
   assert.equal((await fetch(base+'/v1/models',{headers})).status,200);
-  const body=JSON.stringify({model:'claude-code-deepseek',messages:[{role:'user',content:'hi'}]});
+  const body=JSON.stringify({model:'claude-code-sonnet',messages:[{role:'user',content:'hi'}]});
   const controller=new AbortController();const pending=fetch(base+'/v1/chat/completions',{method:'POST',headers,body,signal:controller.signal});
   const rejection=assert.rejects(pending,/abort/i);await began;
   assert.equal((await fetch(base+'/v1/chat/completions',{method:'POST',headers,body})).status,429);
@@ -15,30 +15,18 @@ test('模型入口认证、单请求限制与断线取消',async()=>{
  }finally{await server.close();}
 });
 
-// 对标准 JSON/SSE 内容与错误响应做最小协议回归。
-test('模型列表、JSON 回答、SSE 工具调用和无效请求', async () => {
- const tool = {id:'call_test',type:'function',function:{name:'read',arguments:'{"path":"proof.txt"}'}};
- const server = await gateway({token:'test-secret',port:0,execute:async body => body.stream ? {role:'assistant',content:null,tool_calls:[tool]} : {role:'assistant',content:'hello'}});
- const base = `http://127.0.0.1:${server.port}`;
- const headers = {Authorization:'Bearer test-secret','content-type':'application/json'};
- const request = body => fetch(base+'/v1/chat/completions',{method:'POST',headers,body:JSON.stringify(body)});
- try {
-  const models = await (await fetch(base+'/v1/models',{headers})).json();
-  assert.equal(models.data[0].id,'claude-code-deepseek');
-  const body = {model:'claude-code-deepseek',messages:[{role:'user',content:'hi'}]};
-  const response = await (await request(body)).json();
-  assert.equal(response.choices[0].message.content,'hello');
-  assert.equal(response.choices[0].finish_reason,'stop');
-  const stream = await request({...body,stream:true});
-  assert.match(stream.headers.get('content-type'),/text\/event-stream/);
-  const raw = await stream.text();
-  const chunks = raw.split('\n').filter(line=>line.startsWith('data: {')).map(line=>JSON.parse(line.slice(6)));
-  assert.equal(chunks.find(c=>c.choices[0].delta.tool_calls)?.choices[0].delta.tool_calls[0].function.name,'read');
-  assert.equal(chunks.at(-1).choices[0].finish_reason,'tool_calls');
-  assert(raw.endsWith('data: [DONE]\n\n'));
-  assert.equal((await request({...body,model:'unknown'})).status,400);
-  assert.equal((await request({model:body.model})).status,400);
-  assert.equal((await fetch(base+'/v1/chat/completions',{method:'POST',headers,body:'invalid'})).status,400);
-  assert.equal((await fetch(base+'/not-found',{headers})).status,404);
- } finally { await server.close(); }
+test('登录错误先返回状态码，流式片段在执行完成前到达且不重复',async()=>{
+ let release;const gate=new Promise(r=>release=r);let ready;const began=new Promise(r=>ready=r);
+ const server=await gateway({token:'stream-test',port:0,beforeExecute:body=>{if(body.messages[0].content==='auth')throw Object.assign(new Error('AUTH_REQUIRED'),{status:503,code:'AUTH_REQUIRED'});},execute:async(_body,_signal,onText)=>{onText('FIRST');ready();await gate;return {role:'assistant',content:'FIRST'};}});
+ const headers={Authorization:'Bearer stream-test','content-type':'application/json'},base=`http://127.0.0.1:${server.port}`;
+ const body=content=>JSON.stringify({model:'claude-code-sonnet',messages:[{role:'user',content}],stream:true});
+ try{
+  const denied=await fetch(base+'/v1/chat/completions',{method:'POST',headers,body:body('auth')});
+  assert.equal(denied.status,503);assert.equal((await denied.json()).error.code,'AUTH_REQUIRED');
+  const response=await fetch(base+'/v1/chat/completions',{method:'POST',headers,body:body('stream')});await began;
+  const reader=response.body.getReader();let output='';
+  while(!output.includes('FIRST')){const part=await reader.read();assert(!part.done);output+=new TextDecoder().decode(part.value);}
+  release();while(true){const part=await reader.read();if(part.done)break;output+=new TextDecoder().decode(part.value);}
+  assert.equal(output.split('FIRST').length-1,1);assert(output.includes('[DONE]'));
+ }finally{release();await server.close();}
 });

@@ -1,90 +1,119 @@
 # Claude Code Relay
 
-**让 OMP 管工具和审批，让 Claude Code 提供推理。**
+把云服务器上的官方 Claude Code CLI 包装成 OpenAI Chat Completions 兼容入口，让本地 OMP 或其他 Harness 使用 Claude Pro/Max 会话。
 
-这是一个独立的本地模型适配器，不依赖 Goose，也不重新实现完整 agent harness。当前使用 Claude Code 调用 DeepSeek，向 OMP 提供有限兼容的 Chat Completions 接口。
-
-> 实验版：不是透明模型 API 代理，不是真正的逐 token 流式输出，也不支持 Claude 套餐登录。真实 DeepSeek Key 的效果尚未验收。
+云端运行官方 CLI，本地保留工作区、工具与审批。本项目为非官方实验性适配器；真实端到端测试使用 DeepSeek API，Claude Pro/Max 登录和额度尚未验收。
 
 ```text
-OMP（工作区、工具、审批）
-  ↓ HTTP /v1/chat/completions
-Claude Code Relay（仅回环监听）
-  ↓ 隔离配置的 Claude Code CLI
-DeepSeek（推理）
-  ↓ 工具调用被截获，不在适配器执行
-OMP 执行工具 → 回传结果 → 下一轮推理
+本地 Harness / OMP
+  └─ OpenAI 兼容请求
+      └─ frp STCP + 双向 TLS
+          └─ 云端模型网关
+              └─ 官方 Claude Code CLI
+                  └─ Claude Pro/Max OAuth
 ```
 
-## 快速开始（Windows）
+工具仍由本地 Harness 执行。云端网关只把调用方工具映射为临时 MCP 工具，并把工具请求返回给调用方；它不会在云服务器上开放 Bash、Read、Write 或 Edit。
 
-需要 Node.js 24+、npm、已安装并可启动的 OMP，以及你自己的 DeepSeek API Key。Claude Code 通过锁定版本的 npm 依赖安装，不包含在仓库内；使用它仍须遵守相应提供方的条款。
+## 当前范围
+
+- 单用户、单请求串行执行。
+- `/v1/models`、`/v1/chat/completions` 和 `/status`。
+- 流式文本与 function tool calls。
+- OMP 配置增量导入，修改前自动备份。
+- frp STCP、载荷加密、双向 TLS 和独立 Bearer Token。
+- Claude Code CLI 自己保存 OAuth；网关不读取或转发 OAuth Token。
+
+当前只处理文本消息。图片、音频、多用户、并行会话和公共服务不在首版范围内。
+
+0.5.0 支持一轮多个工具调用、逐消息输入块、可配置缓存断点与实际用量回传。每次请求仍启动独立 CLI；缓存是否命中由上游决定。方案来源、边界和验证方式见 [社区方案取舍](docs/community-design.md)。
+
+## 目录
+
+| 路径 | 用途 |
+| --- | --- |
+| `model-gateway/` | OpenAI 兼容网关、Claude Code 适配、OMP 导入和测试 |
+| `src/frp.mjs` | frp 双向 TLS 配置生成 |
+| `deploy/` | Linux systemd 与证书安装脚本 |
+| `config/cloud.example.json` | 本地云服务器配置示例 |
+| `omp-cloud.ps1` | Windows 一键启动隧道和 OMP |
+
+运行态文件统一写入 `.local/`，该目录已从 Git 排除。
+
+## 本地准备
+
+要求：本地 Windows、Node.js 22+、Python 3、`cryptography`、frp 0.71 和 OMP；云端 Linux 需单独安装官方 Claude Code。仓库不包含第三方二进制。
 
 ```powershell
 git clone https://github.com/KKBK-233/claude-code-relay.git
 cd claude-code-relay
 npm ci
-npm run import:omp
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\model-gateway\start.ps1
+New-Item -ItemType Directory -Force .local | Out-Null
+Copy-Item config/cloud.example.json .local/cloud.json
 ```
 
-启动脚本会隐藏输入 DeepSeek Key；已有 `DEEPSEEK_API_KEY` 时直接使用，不将真实 Key 写入 OMP 配置。保持此终端运行。
-
-在**你要操作的项目目录**另开终端，调用本仓库中的 OMP 启动脚本：
+先编辑 `.local/cloud.json` 的服务器地址和 frp 端口，再生成配置：
 
 ```powershell
-# 将路径替换为你实际克隆的位置；不要切换到适配器目录再操作目标项目。
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\path\to\claude-code-relay\model-gateway\omp.ps1
+python deploy/create-frp-pki.py
+python deploy/create-model-client-cert.py
+npm run prepare:cloud
+npm run import:omp
 ```
 
-OMP 模型名称：`claude-code-relay/claude-code-deepseek`。本机接口：`http://127.0.0.1:18795/v1`。
+当前启动脚本使用固定路径 `.local/frp/frp_0.71.0_windows_amd64/frpc.exe`；将下载的 frp 解压到该位置。生成目录包含私钥、令牌和部署配置，不能提交。
 
-启动脚本仅为本次 OMP 进程追加 `NO_PROXY=127.0.0.1,localhost`，保留已有值，不修改系统代理或审批配置。退出服务终端即停止服务。
+## 云端部署
 
-## 配置与迁移
+部署脚本是针对已准备好环境的模板，并非完整服务器安装器。它使用 `harness` 系统用户、`/home/harness/app` 应用目录和 `/home/harness/model-gateway` 状态目录，需要先创建用户并准备以下路径：
 
-- `npm run import:omp` 在 `~/.omp/agent/models.yml` 中增量新增供应商，并在同目录备份原配置；不会修改默认模型、其他供应商或旧适配器入口。
-- 同名入口已存在时，不静默覆盖；本地令牌丢失或不匹配会报错，需要先核对原配置与备份。
-- OMP `apiKey` 是随机生成的本地访问令牌，不是 DeepSeek Key。令牌保存在 `.local/model-gateway/token`，不要上传或分享。
-- `.local/` 还可能包含 Claude Code 的本地配置、请求状态和集成测试目录，均被 Git 忽略。这种目录隔离**不是操作系统沙箱**，不代表敏感数据完全不落盘。
-- 默认模型上游是 `https://api.deepseek.com/anthropic`，模型为 `deepseek-flash`；本项目不迁移云端凭据或启用云端服务。
-- `OMP_MODELS_FILE` 可指定导入配置路径；`OMP_CLI` 可指定 OMP 可执行文件；`CLAUDE_CODE_CLI` 可指定 Claude Code 可执行文件。使用自定义配置文件时，需自行确保 OMP 加载同一配置。
-- 同一端口不能同时运行新旧适配器；遇到占用请先停止旧服务，不要直接结束不明进程。
+- Node.js：`/home/harness/app/node/bin/node`。
+- 官方 Claude Code：`/home/harness/.local/bin/claude`。
+- Linux frp：`/home/harness/app/.local/frp/frp_0.71.0_linux_amd64/`。
+- 私有部署配置：`.local/frp/` 的服务器配置、令牌、CA 公证书、服务器证书与私钥；`.local/model-gateway/` 的 `cloud-token`、`cloud-frpc.toml`、`cloud.crt`、`cloud.key`。
 
-## 能力与边界
+CA 私钥和本地客户端私钥保留本地，不要把整个 `.local` 上传。脚本使用 `restorecon` 与 `firewall-cmd`，当前实际部署验证平台为启用 SELinux 的 openEuler；其他发行版应先检查脚本。安装脚本的端口检查和防火墙规则固定为 TCP 18469，使用其他端口时需同步调整。准备完毕后，在服务器应用目录执行：
 
-| 项目 | 当前行为 |
-| --- | --- |
-| 工具与审批 | OMP 负责；适配器只截获调用并返回 `tool_calls` |
-| HTTP 接口 | `GET /v1/models`、`POST /v1/chat/completions` |
-| 安全边界 | 仅 `127.0.0.1`、Bearer 认证、拒绝带 Origin 的请求、单活跃请求 |
-| 对话历史 | 每次新建 Claude Code 会话，将完整 messages 编码为 JSON 材料；不是原生消息透传 |
-| 流式输出 | SSE 等待期间发心跳，一轮结束后返回内容；不是逐 token 输出 |
-| 工具调用 | 单次串行调用，支持 `tool_choice: auto/none`；不执行 MCP 工具实际动作 |
-| 不支持 | 图片、音频、并行工具、严格结构化输出、Claude 套餐登录、云端推理接入 |
-| 计量 | 无准确 token/费用计量，未完整映射 temperature/max_tokens 等参数 |
-| 上下文 | 64000 是客户端声明上限，不是实测模型容量 |
-| 平台 | Windows 本地验证；其他平台不能因代码有路径分支就视为验收通过 |
+```bash
+sudo bash deploy/install-frp.sh
+sudo bash deploy/install-model-gateway.sh
+sudo bash deploy/model-login.sh
+```
 
-客户端项目内容、对话和工具结果将作为推理输入交给 Claude Code/DeepSeek。不要向不受信任的上游提供敏感工作区内容。不同角色的消息经 JSON 包装后，指令层级与长上下文行为可能不同于原生模型 API。
+只需向公网开放 frps 的 TCP 端口。模型网关只监听 `127.0.0.1:18796`，由 STCP visitor 访问。
+
+## 使用
+
+```powershell
+# 只检查隧道和登录状态
+.\omp-cloud.ps1 --check
+
+# 启动 OMP
+.\omp-cloud.ps1
+```
+
+其他 Harness 可连接 `http://127.0.0.1:18796/v1`，Bearer Token 位于 `.local/model-gateway/cloud-token`。
+
+OMP 云端供应商 ID 保留 `velella-cloud`，兼容已有配置；模型为 `claude-code-sonnet`、`claude-code-opus`、`claude-code-haiku`。从目标项目目录调用仓库中的 `omp-cloud.ps1`，即可让本地工具操作该项目。
+
+## 从 0.1.0 迁移
+
+- 原 `model-gateway/start.ps1`、`omp.ps1` 和本地 DeepSeek 服务入口已被云端路线替换；新版使用根目录 `omp-cloud.ps1`。
+- 原端口 `18795` 与 OMP 供应商 `claude-code-relay/claude-code-deepseek` 不再由新版提供。停止旧服务，完成云端部署后选择 `velella-cloud/claude-code-sonnet`。
+- 旧 OMP 配置与 `.local` 文件不会由 Git 更新自动删除。`import:omp` 仅新增云端供应商，保留原入口供核对；它不迁移旧令牌或 DeepSeek Key。
+- 已有云端部署继续使用原证书、令牌、服务名和 provider ID，无需为了项目改名重新生成。
+- DeepSeek 的真实测试结果见 [复测报告](docs/deepseek-comparison.md)。专用测试适配器未作为常驻服务发布。
+- 旧版代码保留在 Git 历史提交 `37daed4`。
 
 ## 验证
 
 ```powershell
-npm test             # HTTP 与配置导入回归，无需 Key 或 OMP
-npm run test:engine  # 真实 Claude Code + 回环模拟模型；无需真实 Key
-npm run test:omp     # 真实 OMP + 模拟输出，执行一次只读工具
-npm run test:e2e     # 真实 OMP → 真实 Claude Code → OMP 只读工具 → 继续回答
+npm test
+npm run check:transport
 ```
 
-后两项需先导入模型、安装 OMP，并确保端口 18795 空闲。测试仅在新建测试目录中使用 `read`；测试子进程设置自动审批，不修改用户的持久审批配置。模型上游始终为回环模拟接口，不消耗 DeepSeek 额度；通过测试不代表真实 DeepSeek 模型表现或生产安全已经验收。
+`npm test` 不调用真实 Claude。`check:transport` 需要隧道和云端服务已经运行。
 
-## 目录
+## 发布状态
 
-- `model-gateway/engine.mjs`：启动 Claude Code，映射与截获 MCP 工具调用。
-- `model-gateway/server.mjs`：本地 HTTP/SSE、认证、请求互斥与取消。
-- `model-gateway/import-omp.mjs`：备份、增量导入与保留已有配置。
-- `model-gateway/config.mjs`：名称、路径和可执行文件定位。
-- `model-gateway/start.ps1` / `omp.ps1`：Windows 启动入口。
-
-本项目是非官方适配器，与 Anthropic、DeepSeek、OMP 或 Goose 不存在官方隶属关系。仓库不分发第三方二进制、个人配置、令牌或历史会话。
+仓库名称和包名统一为 `claude-code-relay`；部署服务名沿用 `velella-*` 以兼容已安装服务。当前没有开源许可证，仓库可见性保持不变。公开发布前参照 [OPEN_SOURCE_REVIEW.md](OPEN_SOURCE_REVIEW.md) 决定许可证。

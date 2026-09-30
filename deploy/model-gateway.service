@@ -1,0 +1,25 @@
+[Unit]
+Description=Velella private Claude model gateway
+After=network-online.target
+
+[Service]
+Type=simple
+User=harness
+Group=harness
+WorkingDirectory=/home/harness/app
+ExecStart=/usr/local/bin/velella-node /home/harness/app/model-gateway/cloud-server.mjs
+Environment=PATH=/home/harness/app/node/bin:/usr/local/bin:/usr/bin:/bin
+Environment=GATEWAY_CONTEXT_DIAGNOSTICS=1
+Restart=on-failure
+RestartSec=3
+KillMode=control-group
+TimeoutStopSec=15
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/harness/model-gateway /home/harness/state/runtime-home
+
+[Install]
+WantedBy=multi-user.target
