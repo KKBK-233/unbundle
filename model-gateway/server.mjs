@@ -1,12 +1,13 @@
 import http from 'node:http';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { validateRequest } from './request.mjs';
 
 const DEFAULT_MODELS = [
   { id: 'claude-code-sonnet', object: 'model', owned_by: 'velella-cloud' },
 ];
 
 // 提供最小 OpenAI Chat Completions 兼容层，并串行化单个 Claude Code 会话。
-export async function gateway({ token, port = 18796, execute, models = DEFAULT_MODELS, beforeExecute, status } = {}) {
+export async function gateway({ token, port = 18796, execute, models = DEFAULT_MODELS, beforeExecute, status, maxOutputTokens = 8192 } = {}) {
   if (!token) throw new Error('Missing gateway token');
   if (typeof execute !== 'function') throw new Error('Missing gateway executor');
 
@@ -69,6 +70,7 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
       let body;
       try { body = JSON.parse(Buffer.concat(parts).toString('utf8')); }
       catch { json(400, { error: { message: 'Invalid JSON' } }); return; }
+      validateRequest(body, { maxOutputTokens });
       if (!models.some(model => model.id === body.model)) {
         json(400, { error: { message: 'Unknown model' } });
         return;

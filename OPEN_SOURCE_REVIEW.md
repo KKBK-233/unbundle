@@ -1,4 +1,4 @@
-# 开源前复核
+# 公开仓库复核
 
 ## 已完成
 
@@ -9,10 +9,10 @@
 - 网关默认只监听回环地址，并限制单请求执行。
 - 工具由调用方执行，云端不暴露文件或命令工具。
 
-## 发布前需要决定
+## 待决定
 
 - 许可证：建议在 MIT 和 Apache-2.0 中选择后再添加 `LICENSE`。
-- 项目名、包名已统一为 `claude-code-relay`；`velella-cloud` provider 和服务名保留兼容。当前 GitHub 仓库保持私有。
+- 项目名、包名已统一为 `claude-code-relay`；`velella-cloud` provider 和服务名保留兼容。2026-09-30 核验 GitHub 仓库已公开；代码公开不等于已授予开源许可证。
 - 是否把部署模板中的 `harness` 用户和 `/home/harness` 路径改成可配置安装前缀。
 - 是否补充 Linux 自动安装 Node.js、frp 和官方 Claude Code CLI 的流程。
 - 是否支持 OMP 之外的 Harness 配置示例。

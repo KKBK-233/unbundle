@@ -6,10 +6,12 @@ import { randomBytes } from 'node:crypto';
 import readline from 'node:readline';
 import { compileContext } from './context.mjs';
 import { CliEvents } from './cli-events.mjs';
+import { validateRequest } from './request.mjs';
 
 // 每轮独立进程、逐消息输入；工作目录固定，凭据继续由官方 CLI 管理。
 export async function infer(request, { cli, home, configDir = path.join(home, '.claude'), model, signal, onText, timeoutMs = 180000, spawnProcess = spawn, testUpstream, cacheBreakpoint = '5m', maxOutputTokens = 8192, killGraceMs = 2000, maxCliOutputBytes = 16 * 1024 * 1024 }) {
   if (!Number.isInteger(maxOutputTokens) || maxOutputTokens < 256 || maxOutputTokens > 65536) throw new Error('输出 token 上限无效');
+  maxOutputTokens = validateRequest(request, { maxOutputTokens });
   if (!Number.isSafeInteger(maxCliOutputBytes) || maxCliOutputBytes < 1) throw new Error('CLI 输出字节上限无效');
   const { systemPrompt, input, available, exposedTools, metrics } = compileContext(request, { cacheBreakpoint });
   if (process.env.GATEWAY_CONTEXT_DIAGNOSTICS === '1') console.error(JSON.stringify({ type: 'gateway_context_bytes', ...metrics }));

@@ -4,7 +4,9 @@ set -euo pipefail
 app=/home/harness/app
 state=/home/harness/model-gateway
 source_dir="$app/.local/model-gateway"
-install -d -o harness -g harness -m 700 "$state" "$state/runtime-home" "$state/pki"
+# 在覆盖已安装程序前检查协议版本；保留旧认证目录，避免登录失效。
+"$app/node/bin/node" "$app/model-gateway/cli-compat.mjs" /home/harness/.local/bin/claude
+install -d -o harness -g harness -m 700 "$state" "$state/runtime-home" "$state/pki" /home/harness/state/runtime-home /home/harness/state/runtime-home/.claude
 install -o harness -g harness -m 600 "$source_dir/cloud-token" "$state/token"
 install -o harness -g harness -m 600 "$source_dir/cloud-frpc.toml" "$state/frpc.toml"
 for file in cloud.crt cloud.key; do

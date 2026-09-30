@@ -16,7 +16,6 @@ test('指令只传一次，工具定义不嵌入历史，调用方原始内容�
     { role: 'user', content: '重复原文应保留' },
     { role: 'assistant', content: null, tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'read_file', arguments: '{"path":"a.txt"}' } }] },
     { role: 'tool', tool_call_id: 'call_1', content: '重复原文应保留' },
-    { role: 'system', content: 'MID_CONVERSATION_INSTRUCTION' },
   ];
   const request = { messages, tools };
   const original = structuredClone(request);

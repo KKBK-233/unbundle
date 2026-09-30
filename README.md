@@ -28,6 +28,16 @@
 
 0.5.0 支持一轮多个工具调用、逐消息输入块、可配置缓存断点与实际用量回传。每次请求仍启动独立 CLI；缓存是否命中由上游决定。方案来源、边界和验证方式见 [社区方案取舍](docs/community-design.md)。
 
+0.5.3 修复配置导入、流式工具重建和参数校验，并增加真实 CLI 的上游契约探针。审计中哪些判断成立、哪些需要收窄，见 [审计复核](docs/audit-0.5.3.md)。
+
+### 兼容边界
+
+- 仅接受开头连续的 `system/developer` 指令；中途插入返回 `400 UNSUPPORTED_MESSAGE_LAYOUT`。
+- 支持 `tool_choice: auto/none`、`n: 1`、`parallel_tool_calls: true`、`store: false` 和 `stream_options.include_usage`。
+- `max_tokens` 或 `max_completion_tokens` 二选一，支持 256 到服务端上限（默认 8192），实际传给 CLI。`store: false` 表示网关不提供响应存储功能，不代表上游的留存政策。
+- `temperature`、`top_p`、`stop`、`response_format` 等未实现参数返回 `400 UNSUPPORTED_PARAMETER`，不再静默忽略。值为 `null` 视为未设置。
+- OMP 的 `contextWindow: 64000` 是暂定压缩阈值，不代表 Claude 模型的真实上下文上限。提高前需要长对话验收。
+
 ## 目录
 
 | 路径 | 用途 |
@@ -72,7 +82,7 @@ npm run import:omp
 - Linux frp：`/home/harness/app/.local/frp/frp_0.71.0_linux_amd64/`。
 - 私有部署配置：`.local/frp/` 的服务器配置、令牌、CA 公证书、服务器证书与私钥；`.local/model-gateway/` 的 `cloud-token`、`cloud-frpc.toml`、`cloud.crt`、`cloud.key`。
 
-CA 私钥和本地客户端私钥保留本地，不要把整个 `.local` 上传。脚本使用 `restorecon` 与 `firewall-cmd`，当前实际部署验证平台为启用 SELinux 的 openEuler；其他发行版应先检查脚本。安装脚本的端口检查和防火墙规则固定为 TCP 18469，使用其他端口时需同步调整。准备完毕后，在服务器应用目录执行：
+CA 私钥和本地客户端私钥保留本地，不要把整个 `.local` 上传。脚本使用 `restorecon` 与 `firewall-cmd`，当前实际部署验证平台为启用 SELinux 的 openEuler；其他发行版应先检查脚本。端口检查和防火墙规则读取生成配置的 `bindPort`。准备完毕后，在服务器应用目录执行：
 
 ```bash
 sudo bash deploy/install-frp.sh
@@ -81,6 +91,10 @@ sudo bash deploy/model-login.sh
 ```
 
 只需向公网开放 frps 的 TCP 端口。模型网关只监听 `127.0.0.1:18796`，由 STCP visitor 访问。
+
+安装和服务启动只接受已验收的 Claude CLI `2.1.277`，版本清单在 `model-gateway/cli-compat.mjs`。升级 CLI 先做隔离协议验收，再更新清单。
+
+认证目录继续使用 `/home/harness/state/runtime-home/.claude`，运行 HOME 使用 `/home/harness/model-gateway/runtime-home`。安装脚本会创建两处目录；登录脚本与服务入口采用相同认证路径，无需移动旧 OAuth 文件。自定义 `CLAUDE_CONFIG_DIR` 时还需同步登录命令及 systemd 的可写路径。
 
 ## 使用
 
@@ -114,6 +128,15 @@ npm run check:transport
 
 `npm test` 不调用真实 Claude。`check:transport` 需要隧道和云端服务已经运行。
 
+安装 OMP 后，可执行 `node model-gateway/omp-probe.mjs`，在临时配置中验证真实 OMP 的两轮工具往返，不使用模型 API。云端执行以下命令，用官方 CLI 连接回环模拟上游；使用临时端口，不停正式服务：
+
+```bash
+cd /home/harness/app
+sudo -u harness /usr/local/bin/velella-node model-gateway/cloud-probe.mjs --self-test
+```
+
+探针验证精确工具集合、稳定的缓存前缀、输出上限和缓存断点，报告环境信息是否进入提示词。当前 CLI 会在缓存断点后追加含 cwd 的环境消息；每轮随机请求目录未进入受控提示词。模拟上游不能证明真实缓存命中、计费或 Pro/Max OAuth 可用。
+
 ## 发布状态
 
-仓库名称和包名统一为 `claude-code-relay`；部署服务名沿用 `velella-*` 以兼容已安装服务。当前没有开源许可证，仓库可见性保持不变。公开发布前参照 [OPEN_SOURCE_REVIEW.md](OPEN_SOURCE_REVIEW.md) 决定许可证。
+仓库名称和包名统一为 `claude-code-relay`；部署服务名沿用 `velella-*` 以兼容已安装服务。仓库当前公开，尚未添加开源许可证；待办见 [OPEN_SOURCE_REVIEW.md](OPEN_SOURCE_REVIEW.md)。

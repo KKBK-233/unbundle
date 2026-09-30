@@ -21,6 +21,7 @@ export function compileContext(request, { cacheBreakpoint = '5m' } = {}) {
   let start = 0;
   while (start < request.messages.length && ['system', 'developer'].includes(request.messages[start].role)) start++;
   const instructions = request.messages.slice(0, start);
+  if (request.messages.slice(start).some(message => ['system', 'developer'].includes(message.role))) throw Object.assign(new Error('暂不支持对话中途插入 system/developer 指令'), { code: 'UNSUPPORTED_MESSAGE_LAYOUT' });
   const instructionJson = instructions.length ? stableJson(instructions) : '';
   const systemPrompt = RELAY_PROMPT + (instructionJson ? `\nCaller instructions:\n${instructionJson}` : '');
   const blocks = request.messages.slice(start).map(message => ({ type: 'text', text: stableJson(message) }));
