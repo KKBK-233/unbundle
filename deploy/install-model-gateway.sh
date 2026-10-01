@@ -13,11 +13,11 @@ for file in cloud.crt cloud.key; do
   install -o harness -g harness -m 600 "$source_dir/$file" "$state/pki/$file"
 done
 install -m 755 "$app/.local/frp/frp_0.71.0_linux_amd64/frpc" /usr/local/bin/velella-frpc
-restorecon -F /usr/local/bin/velella-frpc
+if command -v restorecon >/dev/null 2>&1; then restorecon -F /usr/local/bin/velella-frpc; fi
 # systemd 服务使用标准可执行目录，避免用户主目录的 SELinux 执行标签。
 install -m 755 "$app/node/bin/node" /usr/local/bin/velella-node
 install -m 755 /home/harness/.local/bin/claude /usr/local/bin/velella-claude
-restorecon -F /usr/local/bin/velella-node /usr/local/bin/velella-claude
+if command -v restorecon >/dev/null 2>&1; then restorecon -F /usr/local/bin/velella-node /usr/local/bin/velella-claude; fi
 chown -R harness:harness "$app/model-gateway"
 runuser -u harness -- /usr/local/bin/velella-frpc verify -c "$state/frpc.toml"
 install -m 644 "$app/deploy/model-gateway.service" /etc/systemd/system/velella-model-gateway.service

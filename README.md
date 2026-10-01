@@ -139,6 +139,8 @@ Sonnet、Opus 支持 `low`、`medium`、`high`、`xhigh`、`max`，新导入的 
 
 ## 验证
 
+云服务器更换与 Ubuntu 安装说明见 [迁移说明](docs/server-migration.md)。
+
 ```powershell
 npm test
 npm run check:transport

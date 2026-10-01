@@ -14,8 +14,11 @@ for file in ca.crt server.crt server.key; do
 done
 install -o root -g harness -m 640 "$source_dir/token" "$target/token"
 install -o root -g harness -m 640 "$source_dir/frps.server.toml" "$target/frps.toml"
-restorecon -F /usr/local/bin/harness-frps
-restorecon -RF "$target"
+# Ubuntu 通常不启用 SELinux；有标签管理工具时才恢复标签。
+if command -v restorecon >/dev/null 2>&1; then
+  restorecon -F /usr/local/bin/harness-frps
+  restorecon -RF "$target"
+fi
 runuser -u harness -- /usr/local/bin/harness-frps verify -c "$target/frps.toml"
 install -m 644 "$app/deploy/harness-frps.service" /etc/systemd/system/harness-frps.service
 systemctl daemon-reload
@@ -28,6 +31,12 @@ done
 systemctl is-active --quiet harness-frps
 ss -Hltn "sport = :$port" | grep -q .
 # 不重载整个防火墙，只添加本服务的 TLS 接入端口。
-firewall-cmd --zone=public --add-port="$port/tcp"
-firewall-cmd --permanent --zone=public --add-port="$port/tcp"
+if command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
+  firewall-cmd --zone=public --add-port="$port/tcp"
+  firewall-cmd --permanent --zone=public --add-port="$port/tcp"
+elif command -v ufw >/dev/null 2>&1 && LC_ALL=C ufw status | grep -q '^Status: active'; then
+  ufw allow "$port/tcp" comment 'Claude relay TLS'
+else
+  printf '未检测到运行中的 firewalld/UFW，请在现有防火墙放行 %s/TCP。\n' "$port" >&2
+fi
 printf 'frps 已启动：%s/TCP；模型入口继续只监听云端回环地址。\n' "$port"
