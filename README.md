@@ -112,6 +112,18 @@ sudo bash deploy/model-login.sh
 
 其他 Harness 可连接 `http://127.0.0.1:18796/v1`，Bearer Token 位于 `.local/model-gateway/cloud-token`。
 
+### Windows 登录后自动启动隧道
+
+完成私有配置后执行一次：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\install-local-frp-autostart.ps1
+```
+
+它注册当前用户的登录计划任务；没有注册权限时改用当前用户启动目录。隧道隐藏运行，不保存 Windows 密码，不启动 OMP，不调用模型。登录后直接在项目目录执行 `omp`，进入界面再选择云端模型即可。电脑尚未登录 Windows 时不会启动；云端服务仍由 systemd 开机启动。
+
+后台维护器检测同一隧道的现有进程，避免与 `omp-cloud.ps1` 重复绑定端口；进程退出后等待十秒重新启动。单实例锁防止重复维护器。运行日志及上一份日志保存在 `.local/model-gateway/autostart-frp.*.log`。
+
 OMP 云端供应商 ID 保留 `velella-cloud`，兼容已有配置；模型为 `claude-code-sonnet`、`claude-code-opus`、`claude-code-haiku`。从目标项目目录调用仓库中的 `omp-cloud.ps1`，即可让本地工具操作该项目。
 
 ### 选择思考强度
