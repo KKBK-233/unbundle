@@ -32,6 +32,8 @@
 
 0.6.0 接通思考强度：OMP → `reasoning_effort` → 官方 CLI `--effort`，不增加思考内容展示。
 
+0.6.1 修复首次真实订阅请求发现的缓存 TTL 冲突：默认 5m 断点同时设置官方 CLI 的 `FORCE_PROMPT_CACHING_5M=1`，避免订阅模式在其后追加 1h 断点。选择 1h 时同步设置 `CLAUDE_CODE_PROMPT_CACHE_TTL`；`off` 只关闭网关自身断点，CLI 仍自行管理缓存。
+
 ### 兼容边界
 
 - 仅接受开头连续的 `system/developer` 指令；中途插入返回 `400 UNSUPPORTED_MESSAGE_LAYOUT`。

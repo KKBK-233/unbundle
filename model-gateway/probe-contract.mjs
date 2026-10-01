@@ -6,6 +6,13 @@ const hash = value => createHash('sha256').update(stableJson(value)).digest('hex
 // 精确比较工具集合；前缀比较忽略可合法移动的缓存断点，元数据不计入提示词。
 export function inspectUpstream(body, request, previous) {
   const compiled = compileContext(request);
+  const cacheBlocks = [...(body.tools || []), ...(Array.isArray(body.system) ? body.system : []), ...(body.messages || []).flatMap(message => Array.isArray(message.content) ? message.content : [])];
+  let sawShort = false;
+  for (const block of cacheBlocks) if (block.cache_control) {
+    const ttl = block.cache_control.ttl || '5m';
+    assert(!(ttl === '1h' && sawShort), '上游不能在 5m 缓存断点后追加 1h 断点');
+    if (ttl === '5m') sawShort = true;
+  }
   const expected = compiled.available.map(tool => `mcp__omp__${tool.name}`).sort();
   assert.deepEqual((body.tools || []).map(tool => tool.name).sort(), expected, '上游工具集合必须与调用方完全相等');
   const blocks = body.messages?.flatMap(message => Array.isArray(message.content) ? message.content : []) || [];

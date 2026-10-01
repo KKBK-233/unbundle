@@ -66,6 +66,9 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: configDir,
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1', DISABLE_AUTOUPDATER: '1',
       ENABLE_TOOL_SEARCH: 'false', MCP_TOOL_TIMEOUT: String(timeoutMs), CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(maxOutputTokens) });
+    // 订阅 CLI 默认可能追加 1h 断点；统一 TTL，避免出现 5m 后接 1h 的非法顺序。
+    if (cacheBreakpoint === '5m') env.FORCE_PROMPT_CACHING_5M = '1';
+    if (cacheBreakpoint === '1h') env.CLAUDE_CODE_PROMPT_CACHE_TTL = '1h';
     // 测试上游只经显式参数注入，正式订阅入口不会传入此参数。
     if (testUpstream) {
       Object.assign(env, { ANTHROPIC_BASE_URL: testUpstream.baseUrl, ANTHROPIC_AUTH_TOKEN: testUpstream.token });

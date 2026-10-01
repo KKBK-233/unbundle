@@ -110,6 +110,9 @@ test('探针精确拒绝额外工具，并将提示词变化与元数据变化�
   const nextBody = { ...withEnvironment, messages: [JSON.parse(compileContext(nextInput).input).message, withEnvironment.messages.at(-1)] };
   assert.doesNotThrow(() => inspectUpstream(nextBody, nextInput, first.snapshot));
   assert.equal(first.report.afterBreakpointBlocks, 1);
+  const conflicting = structuredClone(withEnvironment);
+  conflicting.messages.at(-1).content[0].cache_control = { type: 'ephemeral', ttl: '1h' };
+  assert.throws(() => inspectUpstream(conflicting, input), /5m 缓存断点后追加 1h/);
   const reordered = { ...nextBody, messages: [{ role: 'user', content: [...nextBody.messages[0].content].reverse() }] };
   assert.throws(() => inspectUpstream(reordered, nextInput), /按顺序/);
 });
