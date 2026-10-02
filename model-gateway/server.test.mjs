@@ -1,4 +1,24 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {gateway} from './server.mjs';
+
+// 验证桌面客户端小输出探针可通过 HTTP 入口，同时无效额度不进入推理进程。
+test('小输出上限原样传递，非法额度仍返回 400', async () => {
+ const limits = [];
+ const server = await gateway({ token: 'probe-test', port: 0, execute: async body => {
+  limits.push(body.max_tokens ?? body.max_completion_tokens);
+  return { role: 'assistant', content: 'OK' };
+ }});
+ const invoke = body => fetch(`http://127.0.0.1:${server.port}/v1/chat/completions`, {
+  method: 'POST', headers: { Authorization: 'Bearer probe-test', 'content-type': 'application/json' },
+  body: JSON.stringify({ model: 'claude-code-sonnet', messages: [{ role: 'user', content: 'probe' }], ...body }),
+ });
+ try {
+  for (const field of ['max_tokens', 'max_completion_tokens']) {
+   for (const limit of [1, 16, 255, 8192]) assert.equal((await invoke({ [field]: limit })).status, 200);
+   for (const limit of [0, -1, 1.5, '1', 8193]) assert.equal((await invoke({ [field]: limit })).status, 400);
+  }
+  assert.deepEqual(limits, [1, 16, 255, 8192, 1, 16, 255, 8192]);
+ } finally { await server.close(); }
+});
 test('模型入口认证、单请求限制与断线取消',async()=>{
  let started,aborted;const began=new Promise(r=>started=r),stopped=new Promise(r=>aborted=r);
  const server=await gateway({token:'test-secret',port:0,execute:async(_body,signal)=>{started();await new Promise(resolve=>signal.addEventListener('abort',()=>{aborted();resolve();},{once:true}));return {role:'assistant',content:'stopped'};}});

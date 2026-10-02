@@ -15,7 +15,8 @@ export function validateRequest(body, { maxOutputTokens = 8192 } = {}) {
   if (body.stream_options != null && (typeof body.stream_options !== 'object' || Array.isArray(body.stream_options) || Object.keys(body.stream_options).some(key => key !== 'include_usage') || (body.stream_options.include_usage != null && typeof body.stream_options.include_usage !== 'boolean'))) fail('stream_options 仅支持 include_usage 布尔值');
   if (body.max_tokens != null && body.max_completion_tokens != null) fail('不能同时指定两个输出长度参数');
   const limit = body.max_completion_tokens ?? body.max_tokens ?? maxOutputTokens;
-  if (!Number.isInteger(limit) || limit < 256 || limit > maxOutputTokens) fail(`输出 token 上限必须是 256..${maxOutputTokens} 的整数`);
+  // 客户端连通性探针可能只请求一个 token，仍须保留调用方指定的实际上限。
+  if (!Number.isInteger(limit) || limit < 1 || limit > maxOutputTokens) fail(`输出 token 上限必须是 1..${maxOutputTokens} 的整数`);
   try { compileContext(body); }
   catch (error) { error.status = 400; error.code ||= 'INVALID_REQUEST'; throw error; }
   return limit;

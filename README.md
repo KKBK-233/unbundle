@@ -34,11 +34,13 @@
 
 0.6.1 修复首次真实订阅请求发现的缓存 TTL 冲突：默认 5m 断点同时设置官方 CLI 的 `FORCE_PROMPT_CACHING_5M=1`，避免订阅模式在其后追加 1h 断点。选择 1h 时同步设置 `CLAUDE_CODE_PROMPT_CACHE_TTL`；`off` 只关闭网关自身断点，CLI 仍自行管理缓存。
 
+0.6.4 允许客户端使用 1..8192 的输出上限进行连通性检查。云端运行 `cloud-probe.mjs --self-test --small-output` 可验证真实 CLI 向回环模拟上游原样传递 1 token 上限，不调用真实模型。
+
 ### 兼容边界
 
 - 仅接受开头连续的 `system/developer` 指令；中途插入返回 `400 UNSUPPORTED_MESSAGE_LAYOUT`。
 - 支持 `tool_choice: auto/none`、`n: 1`、`parallel_tool_calls: true`、`store: false` 和 `stream_options.include_usage`。
-- `max_tokens` 或 `max_completion_tokens` 二选一，支持 256 到服务端上限（默认 8192），实际传给 CLI。`store: false` 表示网关不提供响应存储功能，不代表上游的留存政策。
+- `max_tokens` 或 `max_completion_tokens` 二选一，支持 1 到服务端上限（默认 8192），实际传给 CLI；允许客户端用极小输出上限进行连通性检查。`store: false` 表示网关不提供响应存储功能，不代表上游的留存政策。
 - `temperature`、`top_p`、`stop`、`response_format` 等未实现参数返回 `400 UNSUPPORTED_PARAMETER`，不再静默忽略。值为 `null` 视为未设置。
 - OMP 的 `contextWindow: 64000` 是暂定压缩阈值，不代表 Claude 模型的真实上下文上限。提高前需要长对话验收。
 

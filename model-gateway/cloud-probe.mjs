@@ -17,6 +17,8 @@ const cli = process.env.CLAUDE_BIN || '/usr/local/bin/velella-claude';
 await checkCliVersion(cli);
 const home = await fs.mkdtemp(path.join(state, 'probe-'));
 const selfTest = process.argv.includes('--self-test');
+const smallOutput = process.argv.includes('--small-output');
+if (smallOutput && !selfTest) throw new Error('小输出上限验收仅允许配合 --self-test 使用');
 let activeRequest, previous;
 let calls = 0, service, timer;
 let finish;
@@ -84,7 +86,7 @@ try {
   console.log('CLOUD_PROBE_READY');
   if (selfTest) {
     // 受控两轮复用调用方指令，通过临时 HTTP 端口验收，不占用正式服务。
-    const request = { model: 'claude-code-sonnet', messages: [{ role: 'system', content: '合成验收固定指令' }, { role: 'user', content: '读取 proof.txt' }], tools: [{ type: 'function', function: { name: 'read', description: '读取本地文件', parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } } }], max_tokens: 1024 };
+    const request = { model: 'claude-code-sonnet', messages: [{ role: 'system', content: '合成验收固定指令' }, { role: 'user', content: '读取 proof.txt' }], tools: [{ type: 'function', function: { name: 'read', description: '读取本地文件', parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } } }], max_tokens: smallOutput ? 1 : 1024 };
     const invoke = async () => {
       const response = await fetch(`http://127.0.0.1:${service.port}/v1/chat/completions`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(request), signal: AbortSignal.timeout(40000) });
       const result = await response.json();
