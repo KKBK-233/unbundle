@@ -8,7 +8,13 @@ export function fromAnthropic(body) {
   if (!Array.isArray(body.messages)) fail('messages 必须是数组');
   if (!Number.isInteger(body.max_tokens)) fail('max_tokens 必须是整数');
   const messages = [];
-  if (body.system != null) messages.push({ role: 'system', content: text(body.system) });
+  if (body.system != null) {
+    // 对齐原有转换路径：前端生成的 billing 提示行属于传输元数据，不是调用方规则。
+    // 仅移除每个系统文本块开头的该行，普通正文内引用的相同文字原样保留。
+    const blocks = typeof body.system === 'string' ? [body.system] : Array.isArray(body.system) ? body.system.map(block => text([block])) : [text(body.system)];
+    const instruction = blocks.map(value => value.replace(/^x-anthropic-billing-header:[^\r\n]*(?:\r?\n|$)/, '')).filter(value => value.length).join('\n');
+    if (instruction) messages.push({ role: 'system', content: instruction });
+  }
   for (const message of body.messages) {
     if (!message || !['system', 'developer', 'user', 'assistant'].includes(message.role)) fail('Anthropic 消息角色无效');
     if (typeof message.content === 'string') { messages.push({ role: message.role, content: message.content }); continue; }

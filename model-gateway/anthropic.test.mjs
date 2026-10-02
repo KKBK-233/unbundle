@@ -8,10 +8,23 @@ import { fromAnthropic } from './anthropic.mjs';
 import { gateway } from './server.mjs';
 import { infer } from './engine.mjs';
 import { EFFORTS } from './effort.mjs';
+import { compileContext } from './context.mjs';
 
 const body = { model: 'claude-code-opus', system: [{ type: 'text', text: 'CALLER_RULE' }], max_tokens: 1024,
   messages: [{ role: 'user', content: '合成请求' }], thinking: { type: 'adaptive' }, output_config: { effort: 'high' } };
 const headers = { 'x-api-key': 'test', 'content-type': 'application/json' };
+
+test('原生入口移除前端旋转标记，正文内引用和系统规则原样保留', () => {
+  const compile = marker => compileContext(fromAnthropic({ ...body, system: [
+    { type: 'text', text: `x-anthropic-billing-header: cc_version=synthetic; cch=${marker};\n` },
+    { type: 'text', text: '固定规则\nx-anthropic-billing-header: this is a quoted example' },
+  ] }));
+  const first = compile('one'), second = compile('two');
+  assert.equal(first.systemPrompt, second.systemPrompt);
+  assert(first.systemPrompt.includes('this is a quoted example'));
+  assert(!first.systemPrompt.includes('cc_version=synthetic'));
+  assert.equal(fromAnthropic({ ...body, system: 'x-anthropic-billing-header: synthetic\nKeep this instruction' }).messages[0].content, 'Keep this instruction');
+});
 
 test('Anthropic 保留指令和并行工具结果，拒绝无法兑现的参数', () => {
   const request = fromAnthropic({ ...body, messages: [...body.messages,

@@ -50,6 +50,8 @@
 
 原生入口支持文本、工具调用/结果、流式输出、`thinking: {type: "adaptive"}` 和明确的 `output_config.effort`。不支持精确 `budget_tokens`、强制关闭思考、图片或内置服务器工具；无法兑现的参数返回 400。`metadata` 作为调用方元数据接受，不冒充云端 CLI 的认证或会话身份。
 
+0.7.1 对齐此前 CC Switch 转换路径：移除顶层系统文本块开头由前端生成的 `x-anthropic-billing-header` 元数据行，防止旋转标记破坏前缀缓存。正文内的引用不删改，网关不生成或伪造上游 billing header。
+
 耗时日志的阶段时间均相对请求接收时间：`auth_ready` 为认证完成，`cli_spawned` 为进程启动，`upstream_message_start` 为观察到上游消息开始，`first_thinking`/`first_text`/`first_tool` 为对应内容首次到达，`cli_exit`/`cleanup_complete`/`response_complete` 为收尾。`finished` 汇总成功、取消、超时或失败。未出现的阶段表示未观察到，首个 SSE 外壳不计作首段模型文本。
 
 ### 兼容边界
