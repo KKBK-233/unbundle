@@ -173,6 +173,8 @@ Sonnet、Opus 支持 `low`、`medium`、`high`、`xhigh`、`max`，新导入的 
 
 ## 验证
 
+Windows 桌面只读查询服务器资源、最近请求缓存和官方订阅额度，见[桌面状态查询](docs/desktop-status.md)。
+
 云服务器更换与 Ubuntu 安装说明见 [迁移说明](docs/server-migration.md)。
 
 ```powershell
