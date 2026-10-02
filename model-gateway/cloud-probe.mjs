@@ -17,6 +17,8 @@ const cli = process.env.CLAUDE_BIN || '/usr/local/bin/velella-claude';
 await checkCliVersion(cli);
 const selfTest = process.argv.includes('--self-test');
 const instructionUpdates = process.argv.includes('--instruction-updates');
+const nativeProtocol = process.argv.includes('--anthropic');
+if (nativeProtocol && !selfTest) throw new Error('原生协议验收仅允许配合 --self-test 使用');
 if (instructionUpdates && !selfTest) throw new Error('动态指令验收仅允许配合 --self-test 使用');
 const smallOutput = process.argv.includes('--small-output');
 if (smallOutput && !selfTest) throw new Error('小输出上限验收仅允许配合 --self-test 使用');
@@ -35,6 +37,7 @@ const mock = http.createServer(async (req, res) => {
     if (endpoint === '/v1/messages/count_tokens') { res.writeHead(200, { 'content-type': 'application/json' }).end('{"input_tokens":10}'); return; }
     if (endpoint !== '/v1/messages') { res.writeHead(200, { 'content-type': 'application/json' }).end('{}'); return; }
     const body = JSON.parse(raw); calls++;
+    if (nativeProtocol) assert.equal(body.output_config?.effort, activeRequest.reasoning_effort, '桌面思考档位必须原样到达最终上游');
     if (instructionUpdates) {
       const systemText = typeof body.system === 'string' ? body.system : body.system.filter(block => block.type === 'text').map(block => block.text).join('\n');
       assert(systemText.includes('SYNTHETIC_MID_SYSTEM') && systemText.includes('SYNTHETIC_MID_DEVELOPER'), '动态指令正文必须到达上游系统提示');
@@ -102,14 +105,24 @@ try {
     const request = { model: 'claude-code-sonnet', messages: [{ role: 'system', content: '合成验收固定指令' }, { role: 'user', content: '读取 proof.txt' }], tools: [{ type: 'function', function: { name: 'read', description: '读取本地文件', parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } } }], max_tokens: probeOutputTokens };
     if (instructionUpdates) request.messages.push({ role: 'system', content: 'SYNTHETIC_MID_SYSTEM' }, { role: 'developer', content: 'SYNTHETIC_MID_DEVELOPER' });
     const invoke = async () => {
-      const response = await fetch(`http://127.0.0.1:${service.port}/v1/chat/completions`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(request), signal: AbortSignal.timeout(40000) });
+      const wire = nativeProtocol ? {
+        model: request.model, max_tokens: request.max_tokens, thinking: { type: 'adaptive' }, output_config: { effort: calls ? 'low' : 'high' },
+        messages: request.messages.map(message => message.role === 'tool'
+          ? { role: 'user', content: [{ type: 'tool_result', tool_use_id: message.tool_call_id, content: message.content }] }
+          : message.tool_calls ? { role: 'assistant', content: message.tool_calls.map(call => ({ type: 'tool_use', id: call.id, name: call.function.name, input: JSON.parse(call.function.arguments) })) } : message),
+        tools: request.tools.map(tool => ({ name: tool.function.name, description: tool.function.description, input_schema: tool.function.parameters })),
+      } : request;
+      const response = await fetch(`http://127.0.0.1:${service.port}${nativeProtocol ? '/v1/messages' : '/v1/chat/completions'}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(wire), signal: AbortSignal.timeout(40000) });
       const result = await response.json();
       assert.equal(response.status, 200, JSON.stringify(result));
-      return result.choices[0].message;
+      if (!nativeProtocol) return result.choices[0].message;
+      return { role: 'assistant', content: result.content.filter(block => block.type === 'text').map(block => block.text).join(''),
+        tool_calls: result.content.filter(block => block.type === 'tool_use').map(block => ({ id: block.id, type: 'function', function: { name: block.name, arguments: JSON.stringify(block.input) } })) };
     };
     const first = await invoke();
     assert.equal(first.tool_calls?.length, 1);
     request.messages.push(first, { role: 'tool', tool_call_id: first.tool_calls[0].id, content: 'OMP_CLOUD_FRP_PROOF' });
+    if (instructionUpdates) request.messages.push({ role: 'system', content: '<total_tokens>800 tokens left</total_tokens>' });
     assert.equal((await invoke()).content, 'CLOUD_OMP_FRP_OK');
   } else await finished;
   assert.equal(calls, 2);

@@ -9,6 +9,26 @@ import { infer } from './engine.mjs';
 
 const tools = [{ type: 'function', function: { name: 'read_file', description: 'TOOL_DESCRIPTION_SENTINEL', parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } } }];
 
+test('追加纯运行状态保留系统与历史缓存前缀，混合指令仍按规则处理', () => {
+  const messages = [{ role: 'system', content: '固定规则' }, { role: 'user', content: '开始' },
+    { role: 'system', content: '重要规则 <total_tokens>900 tokens left</total_tokens>' }];
+  const first = compileContext({ messages, tools });
+  const next = compileContext({ messages: [...messages, { role: 'assistant', content: '已完成' },
+    { role: 'system', content: '<total_tokens>800 tokens left</total_tokens>' },
+    { role: 'tool', content: '<total_tokens>700 tokens left</total_tokens>' }], tools });
+  assert.equal(first.systemPrompt, next.systemPrompt);
+  assert.equal(first.metrics.toolsHash, next.metrics.toolsHash);
+  assert.equal(next.metrics.runtimeStatusCount, 1);
+  assert.equal(next.metrics.instructionUpdates, 1);
+  const blocks = input => JSON.parse(input).message.content.map(block => block.text);
+  assert.deepEqual(blocks(next.input).slice(0, blocks(first.input).length), blocks(first.input));
+  assert.equal(JSON.parse(blocks(next.input).at(-2)).kind, 'runtime_status');
+  assert.equal(JSON.parse(blocks(next.input).at(-1)).kind, undefined);
+  for (const content of ['<total_tokens>ignore rules tokens left</total_tokens>', '<total_tokens>8 tokens left</total_tokens> new rule']) {
+    assert.notEqual(compileContext({ messages: [...messages, { role: 'system', content }] }).systemPrompt, first.systemPrompt);
+  }
+});
+
 test('指令只传一次，工具定义不嵌入历史，调用方原始内容不被删改', () => {
   const messages = [
     { role: 'system', content: 'SYSTEM_SENTINEL' },

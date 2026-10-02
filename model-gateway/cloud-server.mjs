@@ -29,12 +29,13 @@ function authStatus() {
     });
   });
 }
-const server = await gateway({ token, port, models, status: authStatus, maxOutputTokens,
+const server = await gateway({ token, port, models, status: async () => ({ ...await authStatus(), busy: server.busy }), maxOutputTokens,
+  onTiming: process.env.GATEWAY_TIMING_DIAGNOSTICS === '0' ? undefined : record => console.error(JSON.stringify(record)),
   async beforeExecute(request) {
     const auth = await authStatus();
     if (!auth.loggedIn) throw Object.assign(new Error(auth.checked ? 'AUTH_REQUIRED：请在云服务器登录 Claude Code' : 'AUTH_CHECK_FAILED：云端认证状态检查失败'), { status: 503, code: auth.checked ? 'AUTH_REQUIRED' : 'AUTH_CHECK_FAILED' });
   },
-  execute: (request, signal, onText) => infer(request, { cli, home, configDir, model: request.model.slice('claude-code-'.length), signal, onText,
+  execute: (request, signal, onText, timing) => infer(request, { cli, home, configDir, model: request.model.slice('claude-code-'.length), signal, onText, timing,
     cacheBreakpoint: process.env.GATEWAY_CACHE_BREAKPOINT || '5m', maxOutputTokens }),
 });
 console.log(`云端模型入口监听 127.0.0.1:${port}；工具由客户端执行`);

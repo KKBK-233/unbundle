@@ -10,12 +10,13 @@ import { validateRequest } from './request.mjs';
 import { resolveEffort } from './effort.mjs';
 
 // 每轮独立进程、逐消息输入；工作目录固定，凭据继续由官方 CLI 管理。
-export async function infer(request, { cli, home, configDir = path.join(home, '.claude'), model, signal, onText, timeoutMs = 180000, spawnProcess = spawn, testUpstream, cacheBreakpoint = '5m', maxOutputTokens = 8192, killGraceMs = 2000, maxCliOutputBytes = 16 * 1024 * 1024 }) {
+export async function infer(request, { cli, home, configDir = path.join(home, '.claude'), model, signal, onText, timing, timeoutMs = 180000, spawnProcess = spawn, testUpstream, cacheBreakpoint = '5m', maxOutputTokens = 8192, killGraceMs = 2000, maxCliOutputBytes = 16 * 1024 * 1024 }) {
   if (!Number.isInteger(maxOutputTokens) || maxOutputTokens < 256 || maxOutputTokens > 128000) throw new Error('输出 token 上限无效');
   maxOutputTokens = validateRequest(request, { maxOutputTokens });
   if (!Number.isSafeInteger(maxCliOutputBytes) || maxCliOutputBytes < 1) throw new Error('CLI 输出字节上限无效');
   const { systemPrompt, input, available, exposedTools, metrics } = compileContext(request, { cacheBreakpoint });
-  if (process.env.GATEWAY_CONTEXT_DIAGNOSTICS === '1') console.error(JSON.stringify({ type: 'gateway_context_bytes', ...metrics, requestedOutputTokens: maxOutputTokens }));
+  timing?.mark('context_ready');
+  if (process.env.GATEWAY_CONTEXT_DIAGNOSTICS === '1') console.error(JSON.stringify({ type: 'gateway_context_bytes', requestId: timing?.requestId, ...metrics, requestedOutputTokens: maxOutputTokens, effort: resolveEffort(request) || 'auto' }));
   await fs.mkdir(home, { recursive: true, mode: 0o700 });
   const cwd = path.join(home, 'workspace');
   await fs.mkdir(cwd, { recursive: true, mode: 0o700 });
@@ -84,6 +85,7 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     await fs.writeFile(promptFile, systemPrompt, { mode: 0o600 });
     signal?.throwIfAborted();
     child = spawnProcess(cli, args, { env, cwd, detached: group, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    child.once('spawn', () => timing?.mark('cli_spawned'));
     const exited = new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
     timer = setTimeout(() => { timedOut = true; terminate(); }, timeoutMs);
     signal?.addEventListener('abort', stop, { once: true });
@@ -100,6 +102,12 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     lines = readline.createInterface({ input: child.stdout });
     lines.on('line', line => {
       let event; try { event = JSON.parse(line); } catch { return; }
+      timing?.mark('cli_first_event');
+      const inner = event.type === 'stream_event' ? event.event : undefined;
+      if (inner?.type === 'message_start') timing?.mark('upstream_message_start');
+      if (inner?.type === 'content_block_delta' && inner.delta?.type === 'thinking_delta') timing?.mark('first_thinking');
+      if (inner?.type === 'content_block_start' && inner.content_block?.type === 'tool_use') timing?.mark('first_tool');
+      if (inner?.type === 'message_delta' && inner.delta?.stop_reason) timing?.mark('upstream_message_end');
       try {
         events.accept(event);
         // 输出达到调用方上限即结束，防止 CLI 自行续写超过这一轮的额度。
@@ -110,8 +118,9 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     child.stdin.on('error', () => {});
     child.stdin.end(input);
     const code = await exited;
+    timing?.mark('cli_exit');
     if (aborted) throw new Error('请求已取消');
-    if (timedOut) throw new Error('推理超时');
+    if (timedOut) throw Object.assign(new Error('推理超时'), { code: 'INFERENCE_TIMEOUT' });
     if (protocolError) throw protocolError;
     if (events.outputLimitReached) return { role: 'assistant', content: events.text, finish_reason: 'length', ...events.usage() };
     if (events.toolEnd && events.calls.size) return { role: 'assistant', content: events.text || null, tool_calls: [...events.calls.values()], ...events.usage() };
@@ -127,5 +136,6 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     if (server.listening) await new Promise(resolve => server.close(resolve));
     await fs.rm(mcp, { force: true }); await fs.rm(promptFile, { force: true });
     await fs.rmdir(work).catch(() => {});
+    timing?.mark('cleanup_complete');
   }
 }

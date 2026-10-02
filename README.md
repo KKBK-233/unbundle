@@ -1,8 +1,8 @@
 # Claude Code Relay
 
-把云服务器上的官方 Claude Code CLI 包装成 OpenAI Chat Completions 兼容入口，让本地 OMP 或其他 Harness 使用 Claude Pro/Max 会话。
+把云服务器上的官方 Claude Code CLI 包装成 OpenAI Chat Completions 和 Anthropic Messages 兼容入口，让本地 Claude Desktop、OMP 或其他 Harness 使用 Claude Pro/Max 会话。
 
-云端运行官方 CLI，本地保留工作区、工具与审批。本项目为非官方实验性适配器；真实端到端测试使用 DeepSeek API，Claude Pro/Max 登录和额度尚未验收。
+云端运行官方 CLI，本地保留工作区、工具与审批。本项目为非官方实验性适配器；单用户订阅登录、真实请求和本地工具往返已验证，长会话容量仍需持续观察。
 
 ```text
 本地 Harness / OMP
@@ -18,7 +18,7 @@
 ## 当前范围
 
 - 单用户、单请求串行执行。
-- `/v1/models`、`/v1/chat/completions` 和 `/status`。
+- `/v1/models`、`/v1/chat/completions`、`/v1/messages` 和 `/status`。
 - 流式文本与 function tool calls。
 - OMP 配置增量导入，修改前自动备份。
 - frp STCP、载荷加密、双向 TLS 和独立 Bearer Token。
@@ -42,9 +42,19 @@
 
 0.6.7 接受 Claude Desktop/CC Switch 保留的中途 `system/developer` 消息。正文只进入系统提示一次，历史原位保留角色和引用；诊断仅统计角色、条数与字节，不记录正文。可用 `cloud-probe.mjs --self-test --instruction-updates` 验证真实 CLI 的最终上游请求。
 
+0.7.0 将中途纯 `<total_tokens>数字 tokens left</total_tokens>` 识别为运行状态并原位留在历史，追加这类状态不再改写系统前缀。混合规则仍按真正指令处理。新增 Anthropic 原生入口，`output_config.effort` 原样传到 CLI，缓存写入/读取独立计数。云端默认记录阶段耗时，`GATEWAY_TIMING_DIAGNOSTICS=0` 可关闭；日志包含关联号、阶段、毫秒数和结果，不包含正文。`cloud-probe.mjs --self-test --instruction-updates --anthropic` 可检查真实 CLI 的最终请求、跨轮缓存前缀和 high/low 档位，全程使用回环模拟上游。
+
+### Claude Desktop / CC Switch
+
+网关更新到 0.7.0 后，将现有供应商的上游格式改成 **Anthropic Messages**，地址使用 `http://127.0.0.1:18796`，保留已有密钥、代理模式和模型映射。这样 `output_config.effort` 不会被 CC Switch 的 OpenAI 模型白名单过滤。OMP 的原有 OpenAI 入口继续可用。
+
+原生入口支持文本、工具调用/结果、流式输出、`thinking: {type: "adaptive"}` 和明确的 `output_config.effort`。不支持精确 `budget_tokens`、强制关闭思考、图片或内置服务器工具；无法兑现的参数返回 400。`metadata` 作为调用方元数据接受，不冒充云端 CLI 的认证或会话身份。
+
+耗时日志的阶段时间均相对请求接收时间：`auth_ready` 为认证完成，`cli_spawned` 为进程启动，`upstream_message_start` 为观察到上游消息开始，`first_thinking`/`first_text`/`first_tool` 为对应内容首次到达，`cli_exit`/`cleanup_complete`/`response_complete` 为收尾。`finished` 汇总成功、取消、超时或失败。未出现的阶段表示未观察到，首个 SSE 外壳不计作首段模型文本。
+
 ### 兼容边界
 
-- 开头和中途的 `system/developer` 指令均支持。中途指令以原始消息位置标记生效范围，系统优先于开发者，同级冲突按后续指令更新；用户、助手和工具内容内的伪角色保留为数据。该语义由系统提示表达，仍需真实模型验证，不能保证与原生多角色协议完全等价。新增指令会改变系统缓存前缀；仅追加普通历史时既有前缀保持稳定。
+- 开头和中途的 `system/developer` 指令均支持。中途指令以原始消息位置标记生效范围，系统优先于开发者，同级冲突按后续指令更新；用户、助手和工具内容内的伪角色保留为数据。该语义由系统提示表达，不能保证与原生多角色协议完全等价。新增真正指令会改变系统缓存前缀；追加普通历史或纯运行余量提示时既有前缀保持稳定。实际命中率还取决于上游缓存和客户端是否改写历史。
 - 支持 `tool_choice: auto/none`、`n: 1`、`parallel_tool_calls: true`、`store: false` 和 `stream_options.include_usage`。
 - `max_tokens` 或 `max_completion_tokens` 二选一，云端默认接受 1..128000，未指定时仍使用 8192；`GATEWAY_MAX_OUTPUT_TOKENS` 可降低接受上限。实际模型的输出上限由官方 CLI 校验。允许客户端用极小输出上限进行连通性检查。`store: false` 表示网关不提供响应存储功能，不代表上游的留存政策。
 - `temperature`、`top_p`、`stop`、`response_format` 等未实现参数返回 `400 UNSUPPORTED_PARAMETER`，不再静默忽略。值为 `null` 视为未设置。

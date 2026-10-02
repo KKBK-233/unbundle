@@ -104,8 +104,10 @@ test('HTTP 接受桌面动态指令，执行层收到完整角色和原始顺序
     executions++;
     assert.deepEqual(body.messages, messages);
     const compiled = compileContext(body);
-    assert.equal(compiled.metrics.instructionUpdates, 2);
-    assert(compiled.systemPrompt.includes('<total_tokens>'));
+    assert.equal(compiled.metrics.instructionUpdates, 1);
+    assert.equal(compiled.metrics.runtimeStatusCount, 1);
+    assert(!compiled.systemPrompt.includes('<total_tokens>'));
+    assert(compiled.input.includes('<total_tokens>'));
     return { role: 'assistant', content: 'ok' };
   } });
   try {

@@ -104,7 +104,7 @@ export class CliEvents {
     const prompt = (upstream.input_tokens || 0) + (upstream.cache_read_input_tokens || 0) + (upstream.cache_creation_input_tokens || 0);
     return { upstream_usage: upstream, usage_complete: complete, ...(complete ? { usage: {
       prompt_tokens: prompt, completion_tokens: upstream.output_tokens, total_tokens: prompt + upstream.output_tokens,
-      prompt_tokens_details: { cached_tokens: upstream.cache_read_input_tokens || 0 },
+      prompt_tokens_details: { cached_tokens: upstream.cache_read_input_tokens || 0, cache_write_tokens: upstream.cache_creation_input_tokens || 0 },
     } } : {}) };
   }
 }
