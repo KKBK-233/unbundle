@@ -40,9 +40,11 @@
 
 0.6.6 区分默认输出预算和允许的上限：云端默认接受客户端显式设置的 1..128000 token；未指定时仍用 8192。可用 `cloud-probe.mjs --self-test --output-tokens=128000` 验证真实 CLI 向模拟上游的预算传递。
 
+0.6.7 接受 Claude Desktop/CC Switch 保留的中途 `system/developer` 消息。正文只进入系统提示一次，历史原位保留角色和引用；诊断仅统计角色、条数与字节，不记录正文。可用 `cloud-probe.mjs --self-test --instruction-updates` 验证真实 CLI 的最终上游请求。
+
 ### 兼容边界
 
-- 仅接受开头连续的 `system/developer` 指令；中途插入返回 `400 UNSUPPORTED_MESSAGE_LAYOUT`。
+- 开头和中途的 `system/developer` 指令均支持。中途指令以原始消息位置标记生效范围，系统优先于开发者，同级冲突按后续指令更新；用户、助手和工具内容内的伪角色保留为数据。该语义由系统提示表达，仍需真实模型验证，不能保证与原生多角色协议完全等价。新增指令会改变系统缓存前缀；仅追加普通历史时既有前缀保持稳定。
 - 支持 `tool_choice: auto/none`、`n: 1`、`parallel_tool_calls: true`、`store: false` 和 `stream_options.include_usage`。
 - `max_tokens` 或 `max_completion_tokens` 二选一，云端默认接受 1..128000，未指定时仍使用 8192；`GATEWAY_MAX_OUTPUT_TOKENS` 可降低接受上限。实际模型的输出上限由官方 CLI 校验。允许客户端用极小输出上限进行连通性检查。`store: false` 表示网关不提供响应存储功能，不代表上游的留存政策。
 - `temperature`、`top_p`、`stop`、`response_format` 等未实现参数返回 `400 UNSUPPORTED_PARAMETER`，不再静默忽略。值为 `null` 视为未设置。

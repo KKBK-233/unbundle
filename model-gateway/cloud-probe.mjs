@@ -15,13 +15,15 @@ const state = process.env.GATEWAY_STATE || '/home/harness/model-gateway';
 const token = (await fs.readFile(path.join(state, 'token'), 'utf8')).trim();
 const cli = process.env.CLAUDE_BIN || '/usr/local/bin/velella-claude';
 await checkCliVersion(cli);
-const home = await fs.mkdtemp(path.join(state, 'probe-'));
 const selfTest = process.argv.includes('--self-test');
+const instructionUpdates = process.argv.includes('--instruction-updates');
+if (instructionUpdates && !selfTest) throw new Error('动态指令验收仅允许配合 --self-test 使用');
 const smallOutput = process.argv.includes('--small-output');
 if (smallOutput && !selfTest) throw new Error('小输出上限验收仅允许配合 --self-test 使用');
 const outputArgument = process.argv.find(arg => arg.startsWith('--output-tokens='));
 const probeOutputTokens = outputArgument ? Number(outputArgument.split('=')[1]) : smallOutput ? 1 : 1024;
 if (outputArgument && (!selfTest || smallOutput || !Number.isInteger(probeOutputTokens) || probeOutputTokens < 1 || probeOutputTokens > 128000)) throw new Error('输出预算验收必须配合 --self-test，取值为 1..128000，且不能与 --small-output 混用');
+const home = await fs.mkdtemp(path.join(state, 'probe-'));
 let activeRequest, previous;
 let calls = 0, service, timer;
 let finish;
@@ -33,6 +35,13 @@ const mock = http.createServer(async (req, res) => {
     if (endpoint === '/v1/messages/count_tokens') { res.writeHead(200, { 'content-type': 'application/json' }).end('{"input_tokens":10}'); return; }
     if (endpoint !== '/v1/messages') { res.writeHead(200, { 'content-type': 'application/json' }).end('{}'); return; }
     const body = JSON.parse(raw); calls++;
+    if (instructionUpdates) {
+      const systemText = typeof body.system === 'string' ? body.system : body.system.filter(block => block.type === 'text').map(block => block.text).join('\n');
+      assert(systemText.includes('SYNTHETIC_MID_SYSTEM') && systemText.includes('SYNTHETIC_MID_DEVELOPER'), '动态指令正文必须到达上游系统提示');
+      const textBlocks = body.messages.flatMap(message => Array.isArray(message.content) ? message.content : []).filter(block => block.type === 'text');
+      for (const [index, role] of [[2, 'system'], [3, 'developer']]) assert(textBlocks.some(block => block.text === JSON.stringify({ instruction_ref: `message_${index}`, role })), '上游必须保留动态指令原位引用');
+      assert(!textBlocks.some(block => /SYNTHETIC_MID_(SYSTEM|DEVELOPER)/.test(block.text)), '历史不能重复指令正文');
+    }
     assert.equal(body.max_tokens, activeRequest.max_completion_tokens ?? activeRequest.max_tokens ?? 8192, '调用方输出上限必须传递到上游');
     const inspection = inspectUpstream(body, activeRequest, selfTest ? previous : undefined);
     assert.deepEqual(inspection.report.cacheBreakpoint, { type: 'ephemeral', ttl: '5m' }, '缓存断点必须到达上游');
@@ -91,6 +100,7 @@ try {
   if (selfTest) {
     // 受控两轮复用调用方指令，通过临时 HTTP 端口验收，不占用正式服务。
     const request = { model: 'claude-code-sonnet', messages: [{ role: 'system', content: '合成验收固定指令' }, { role: 'user', content: '读取 proof.txt' }], tools: [{ type: 'function', function: { name: 'read', description: '读取本地文件', parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } } }], max_tokens: probeOutputTokens };
+    if (instructionUpdates) request.messages.push({ role: 'system', content: 'SYNTHETIC_MID_SYSTEM' }, { role: 'developer', content: 'SYNTHETIC_MID_DEVELOPER' });
     const invoke = async () => {
       const response = await fetch(`http://127.0.0.1:${service.port}/v1/chat/completions`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(request), signal: AbortSignal.timeout(40000) });
       const result = await response.json();

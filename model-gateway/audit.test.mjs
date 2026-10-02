@@ -71,16 +71,15 @@ test('坏 JSON、未结束块和未知工具均不返回部分成功', () => {
   }
 });
 
-test('无效生成参数和中途系统指令在 SSE 或 CLI 启动前返回 400', async () => {
+test('无效生成参数在 SSE 或 CLI 启动前返回 400', async () => {
   let executions = 0;
   const app = await gateway({ token: 'test', port: 0, execute: async () => { executions++; return { role: 'assistant', content: 'ok' }; } });
   try {
-    for (const body of [null, [], { ...request, temperature: 0 }, { ...request, stop: ['stop'] }, { ...request, response_format: { type: 'json_object' } }, { ...request, max_tokens: 99999 }, { ...request, parallel_tool_calls: false }, { ...request, messages: [...request.messages, { role: 'system', content: '中途规则' }] }]) {
+    for (const body of [null, [], { ...request, temperature: 0 }, { ...request, stop: ['stop'] }, { ...request, response_format: { type: 'json_object' } }, { ...request, max_tokens: 99999 }, { ...request, parallel_tool_calls: false }]) {
       const response = await fetch(`http://127.0.0.1:${app.port}/v1/chat/completions`, { method: 'POST', headers: { Authorization: 'Bearer test', 'content-type': 'application/json' }, body: JSON.stringify(body && { ...body, stream: true }) });
       assert.equal(response.status, 400);
       assert.match(response.headers.get('content-type'), /application\/json/);
-      const result = await response.json();
-      if (body?.messages?.length === 2) assert.equal(result.error.code, 'UNSUPPORTED_MESSAGE_LAYOUT');
+      await response.json();
     }
     assert.equal(executions, 0);
     assert.equal(validateRequest({ ...request, max_tokens: 1024 }), 1024);
@@ -93,6 +92,34 @@ test('无效生成参数和中途系统指令在 SSE 或 CLI 启动前返回 400
     assert.throws(() => validateRequest({ ...request, max_tokens: 128001 }, { maxOutputTokens: 128000 }));
     assert.throws(() => validateRequest({ ...request, store: true }));
     assert.throws(() => validateRequest({ ...request, max_tokens: 1024, max_completion_tokens: 1024 }));
+  } finally { await app.close(); }
+});
+
+test('HTTP 接受桌面动态指令，执行层收到完整角色和原始顺序', async () => {
+  const messages = [{ role: 'system', content: '固定规则' }, ...request.messages,
+    { role: 'system', content: '<total_tokens>1000 tokens left</total_tokens>' },
+    { role: 'developer', content: '动态规则' }];
+  let executions = 0;
+  const app = await gateway({ token: 'test', port: 0, execute: async body => {
+    executions++;
+    assert.deepEqual(body.messages, messages);
+    const compiled = compileContext(body);
+    assert.equal(compiled.metrics.instructionUpdates, 2);
+    assert(compiled.systemPrompt.includes('<total_tokens>'));
+    return { role: 'assistant', content: 'ok' };
+  } });
+  try {
+    for (const stream of [false, true]) {
+      const response = await fetch(`http://127.0.0.1:${app.port}/v1/chat/completions`, {
+        method: 'POST', headers: { Authorization: 'Bearer test', 'content-type': 'application/json' },
+        body: JSON.stringify({ ...request, messages, stream }),
+      });
+      assert.equal(response.status, 200);
+      const output = await response.text();
+      if (stream) { assert(output.includes('data: [DONE]')); assert(output.includes('ok')); }
+      else assert.equal(JSON.parse(output).choices[0].message.content, 'ok');
+    }
+    assert.equal(executions, 2);
   } finally { await app.close(); }
 });
 
