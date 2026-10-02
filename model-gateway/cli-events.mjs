@@ -10,6 +10,7 @@ export class CliEvents {
     this.text = '';
     this.sawDelta = false;
     this.toolEnd = false;
+    this.outputLimitReached = false;
     this.blocks = new Map();
   }
 
@@ -39,8 +40,12 @@ export class CliEvents {
   }
 
   accept(event) {
+    // 首次截断即封存本轮输出；进程停止前排队的续写事件不能再追加文本或用量。
+    if (this.outputLimitReached) return;
     if (event.type === 'result') this.result = event;
     if (event.type === 'assistant') {
+      // CLI 自己生成的 API 错误消息不属于模型回复，不能混入文本或历史。
+      if (event.is_api_error_message) return;
       const message = event.message || {};
       this.count(message.id, message.usage);
       for (const block of message.content || []) {
@@ -76,6 +81,10 @@ export class CliEvents {
     }
     if (inner.type === 'message_delta') {
       this.count(this.currentId, inner.usage);
+      if (inner.delta?.stop_reason === 'max_tokens') {
+        if (this.blocks.size || this.calls.size) throw new Error('输出截断时工具消息不完整');
+        this.outputLimitReached = true;
+      }
       if (inner.delta?.stop_reason === 'tool_use') {
         if (this.blocks.size || !this.calls.size) throw new Error('CLI 工具消息不完整');
         this.toolEnd = true;

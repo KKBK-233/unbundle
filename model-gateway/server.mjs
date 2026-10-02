@@ -100,10 +100,10 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
       });
       if (controller.signal.aborted) return;
       // 用量放在响应顶层，避免 Harness 把统计字段写进 assistant 历史。
-      const { usage, upstream_usage, usage_complete, ...message } = execution;
+      const { usage, upstream_usage, usage_complete, finish_reason, ...message } = execution;
       const statistics = { ...(usage ? { usage } : {}), ...(upstream_usage ? { upstream_usage, usage_complete } : {}) };
 
-      const finish = message.tool_calls?.length ? 'tool_calls' : 'stop';
+      const finish = finish_reason === 'length' ? 'length' : message.tool_calls?.length ? 'tool_calls' : 'stop';
       if (body.stream) {
         if (message.content && !streamed) chunk({ content: message.content });
         if (message.tool_calls) chunk({ tool_calls: message.tool_calls.map((call, index) => ({ index, ...call })) });

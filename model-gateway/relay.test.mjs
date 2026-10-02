@@ -15,6 +15,37 @@ const request = { messages: [{ role: 'user', content: '请读文件' }], tools: 
 const stream = event => ({ type: 'stream_event', event });
 const assistant = (id, name = 'mcp__omp__read') => ({ type: 'assistant', message: { id: 'msg_1', content: [{ type: 'tool_use', id, name, input: { path: id } }] } });
 
+// 用进程模拟 CLI 达到输出上限后的续写，验证立即停止及两种 HTTP 响应的结束原因。
+test('文本截断返回 length，停止续写且不暴露 CLI 错误消息', async () => {
+ const home = await fs.mkdtemp(path.join(os.tmpdir(), 'relay-limit-'));
+ const fake = `for await (const c of process.stdin) {};
+  const emit = x => console.log(JSON.stringify(x));
+  emit({type:'stream_event',event:{type:'message_start',message:{id:'limit',usage:{input_tokens:1,output_tokens:0}}}});
+  emit({type:'stream_event',event:{type:'content_block_delta',delta:{type:'text_delta',text:'X'}}});
+  emit({type:'stream_event',event:{type:'message_delta',delta:{stop_reason:'max_tokens'},usage:{output_tokens:1}}});
+  emit({type:'stream_event',event:{type:'content_block_delta',delta:{type:'text_delta',text:'continued output must not leak'}}});
+  emit({type:'assistant',is_api_error_message:true,message:{content:[{type:'text',text:'API error must not leak'}]}});
+  setInterval(()=>{},1000);`;
+ const app = await gateway({ token: 'limit-test', port: 0, execute: (body, signal, onText) => infer(body, {
+  cli: 'fake', home, model: 'mock', signal, onText, timeoutMs: 2000,
+  spawnProcess: (_cli, _args, options) => spawn(process.execPath, ['--input-type=module', '-e', fake], options),
+ }) });
+ try {
+  for (const stream of [false, true]) {
+   const res = await fetch(`http://127.0.0.1:${app.port}/v1/chat/completions`, { method: 'POST',
+    headers: { Authorization: 'Bearer limit-test', 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'claude-code-sonnet', messages: [{role:'user',content:'probe'}], max_tokens: 1, stream }),
+   });
+   assert.equal(res.status, 200);
+   if (stream) { const text = await res.text(); assert(text.includes('"finish_reason":"length"')); assert(!text.includes('must not leak')); }
+   else { const body = await res.json(); assert.equal(body.choices[0].finish_reason, 'length'); assert.equal(body.choices[0].message.content, 'X'); assert.equal(body.usage.completion_tokens, 1); }
+  }
+  const broken = new CliEvents([{name:'read',original:'read'}]); broken.accept(assistant('first'));
+  assert.throws(()=>broken.accept({type:'stream_event',event:{type:'message_delta',delta:{stop_reason:'max_tokens'}}}), /工具消息不完整/);
+  assert.deepEqual(await fs.readdir(home), ['workspace']);
+ } finally { await app.close(); await fs.rm(home, {recursive:true,force:true}); }
+});
+
 test('追加历史保留旧消息块，工具重排不会改变工具定义', () => {
   const base = { ...request, tools: [tool('write'), tool('read')] };
   const before = compileContext(base);

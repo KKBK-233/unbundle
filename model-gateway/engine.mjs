@@ -102,7 +102,9 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
       let event; try { event = JSON.parse(line); } catch { return; }
       try {
         events.accept(event);
-        if (events.toolEnd) terminate();
+        // 输出达到调用方上限即结束，防止 CLI 自行续写超过这一轮的额度。
+        if (events.outputLimitReached) kill('SIGKILL');
+        else if (events.toolEnd) terminate();
       } catch (error) { protocolError = error; terminate(); }
     });
     child.stdin.on('error', () => {});
@@ -111,6 +113,7 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     if (aborted) throw new Error('请求已取消');
     if (timedOut) throw new Error('推理超时');
     if (protocolError) throw protocolError;
+    if (events.outputLimitReached) return { role: 'assistant', content: events.text, finish_reason: 'length', ...events.usage() };
     if (events.toolEnd && events.calls.size) return { role: 'assistant', content: events.text || null, tool_calls: [...events.calls.values()], ...events.usage() };
     if (events.calls.size || events.toolEnd) throw new Error('CLI 工具消息不完整，未返回部分调用');
     if (code !== 0 || !events.result || events.result.is_error) {

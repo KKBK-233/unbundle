@@ -36,6 +36,8 @@
 
 0.6.4 允许客户端使用 1..8192 的输出上限进行连通性检查。云端运行 `cloud-probe.mjs --self-test --small-output` 可验证真实 CLI 向回环模拟上游原样传递 1 token 上限，不调用真实模型。
 
+0.6.5 把上游明确的 `max_tokens` 截断转换成 OpenAI `finish_reason: length`，保留已经生成的文本并停止 CLI 自动续写；不把 CLI 生成的 API 错误说明当作模型回复。截断的工具消息仍拒绝返回。
+
 ### 兼容边界
 
 - 仅接受开头连续的 `system/developer` 指令；中途插入返回 `400 UNSUPPORTED_MESSAGE_LAYOUT`。
