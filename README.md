@@ -38,11 +38,13 @@
 
 0.6.5 把上游明确的 `max_tokens` 截断转换成 OpenAI `finish_reason: length`，保留已经生成的文本并停止 CLI 自动续写；不把 CLI 生成的 API 错误说明当作模型回复。截断的工具消息仍拒绝返回。
 
+0.6.6 区分默认输出预算和允许的上限：云端默认接受客户端显式设置的 1..128000 token；未指定时仍用 8192。可用 `cloud-probe.mjs --self-test --output-tokens=128000` 验证真实 CLI 向模拟上游的预算传递。
+
 ### 兼容边界
 
 - 仅接受开头连续的 `system/developer` 指令；中途插入返回 `400 UNSUPPORTED_MESSAGE_LAYOUT`。
 - 支持 `tool_choice: auto/none`、`n: 1`、`parallel_tool_calls: true`、`store: false` 和 `stream_options.include_usage`。
-- `max_tokens` 或 `max_completion_tokens` 二选一，支持 1 到服务端上限（默认 8192），实际传给 CLI；允许客户端用极小输出上限进行连通性检查。`store: false` 表示网关不提供响应存储功能，不代表上游的留存政策。
+- `max_tokens` 或 `max_completion_tokens` 二选一，云端默认接受 1..128000，未指定时仍使用 8192；`GATEWAY_MAX_OUTPUT_TOKENS` 可降低接受上限。实际模型的输出上限由官方 CLI 校验。允许客户端用极小输出上限进行连通性检查。`store: false` 表示网关不提供响应存储功能，不代表上游的留存政策。
 - `temperature`、`top_p`、`stop`、`response_format` 等未实现参数返回 `400 UNSUPPORTED_PARAMETER`，不再静默忽略。值为 `null` 视为未设置。
 - OMP 的 `contextWindow: 64000` 是暂定压缩阈值，不代表 Claude 模型的真实上下文上限。提高前需要长对话验收。
 

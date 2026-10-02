@@ -19,6 +19,9 @@ const home = await fs.mkdtemp(path.join(state, 'probe-'));
 const selfTest = process.argv.includes('--self-test');
 const smallOutput = process.argv.includes('--small-output');
 if (smallOutput && !selfTest) throw new Error('小输出上限验收仅允许配合 --self-test 使用');
+const outputArgument = process.argv.find(arg => arg.startsWith('--output-tokens='));
+const probeOutputTokens = outputArgument ? Number(outputArgument.split('=')[1]) : smallOutput ? 1 : 1024;
+if (outputArgument && (!selfTest || smallOutput || !Number.isInteger(probeOutputTokens) || probeOutputTokens < 1 || probeOutputTokens > 128000)) throw new Error('输出预算验收必须配合 --self-test，取值为 1..128000，且不能与 --small-output 混用');
 let activeRequest, previous;
 let calls = 0, service, timer;
 let finish;
@@ -63,7 +66,7 @@ const mock = http.createServer(async (req, res) => {
 });
 mock.listen(0, '127.0.0.1'); await once(mock, 'listening');
 try {
-  service = await gateway({ token, port: selfTest ? 0 : 18796,
+  service = await gateway({ token, port: selfTest ? 0 : 18796, maxOutputTokens: Math.max(8192, probeOutputTokens),
     models: [{ id: 'claude-code-sonnet', object: 'model', owned_by: 'velella-cloud' }],
     status: async () => ({ loggedIn: true, checked: true, probe: true }),
     execute: async (request, signal, onText) => {
@@ -76,6 +79,7 @@ try {
         signal,
         onText,
         timeoutMs: 30000,
+        maxOutputTokens: Math.max(8192, probeOutputTokens),
         testUpstream: { baseUrl: `http://127.0.0.1:${mock.address().port}`, token: 'synthetic-only' },
       });
       if (result.content === 'CLOUD_OMP_FRP_OK' && !selfTest) setTimeout(finish, 5000);
@@ -86,7 +90,7 @@ try {
   console.log('CLOUD_PROBE_READY');
   if (selfTest) {
     // 受控两轮复用调用方指令，通过临时 HTTP 端口验收，不占用正式服务。
-    const request = { model: 'claude-code-sonnet', messages: [{ role: 'system', content: '合成验收固定指令' }, { role: 'user', content: '读取 proof.txt' }], tools: [{ type: 'function', function: { name: 'read', description: '读取本地文件', parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } } }], max_tokens: smallOutput ? 1 : 1024 };
+    const request = { model: 'claude-code-sonnet', messages: [{ role: 'system', content: '合成验收固定指令' }, { role: 'user', content: '读取 proof.txt' }], tools: [{ type: 'function', function: { name: 'read', description: '读取本地文件', parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } } }], max_tokens: probeOutputTokens };
     const invoke = async () => {
       const response = await fetch(`http://127.0.0.1:${service.port}/v1/chat/completions`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(request), signal: AbortSignal.timeout(40000) });
       const result = await response.json();

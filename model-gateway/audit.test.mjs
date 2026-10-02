@@ -86,6 +86,11 @@ test('无效生成参数和中途系统指令在 SSE 或 CLI 启动前返回 400
     assert.equal(validateRequest({ ...request, max_tokens: 1024 }), 1024);
     assert.equal(validateRequest({ ...request, max_completion_tokens: 4096 }), 4096);
     assert.equal(validateRequest({ ...request, store: false }), 8192);
+    // 桌面客户端的大输出预算原样接受，未指定时仍沿用小预算。
+    for (const limit of [32768, 64000, 128000]) assert.equal(validateRequest({ ...request, max_tokens: limit }, { maxOutputTokens: 128000 }), limit);
+    assert.equal(validateRequest(request, { maxOutputTokens: 128000 }), 8192);
+    assert.equal(validateRequest(request, { maxOutputTokens: 4096 }), 4096);
+    assert.throws(() => validateRequest({ ...request, max_tokens: 128001 }, { maxOutputTokens: 128000 }));
     assert.throws(() => validateRequest({ ...request, store: true }));
     assert.throws(() => validateRequest({ ...request, max_tokens: 1024, max_completion_tokens: 1024 }));
   } finally { await app.close(); }

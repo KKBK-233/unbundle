@@ -14,9 +14,9 @@ export function validateRequest(body, { maxOutputTokens = 8192 } = {}) {
   if (body.stream != null && typeof body.stream !== 'boolean') fail('stream 必须是布尔值');
   if (body.stream_options != null && (typeof body.stream_options !== 'object' || Array.isArray(body.stream_options) || Object.keys(body.stream_options).some(key => key !== 'include_usage') || (body.stream_options.include_usage != null && typeof body.stream_options.include_usage !== 'boolean'))) fail('stream_options 仅支持 include_usage 布尔值');
   if (body.max_tokens != null && body.max_completion_tokens != null) fail('不能同时指定两个输出长度参数');
-  const limit = body.max_completion_tokens ?? body.max_tokens ?? maxOutputTokens;
-  // 客户端连通性探针可能只请求一个 token，仍须保留调用方指定的实际上限。
-  if (!Number.isInteger(limit) || limit < 1 || limit > maxOutputTokens) fail(`输出 token 上限必须是 1..${maxOutputTokens} 的整数`);
+  // 接受上限与默认预算分开：扩大桌面兼容范围时，不提高未指定参数的请求预算。
+  const limit = body.max_completion_tokens ?? body.max_tokens ?? Math.min(8192, maxOutputTokens);
+  if (!Number.isInteger(limit) || limit < 1 || limit > maxOutputTokens) fail(`输出 token 上限必须是 1..${maxOutputTokens} 的整数${typeof limit === 'number' ? `，收到 ${limit}` : ''}`);
   try { compileContext(body); }
   catch (error) { error.status = 400; error.code ||= 'INVALID_REQUEST'; throw error; }
   return limit;
