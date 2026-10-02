@@ -52,6 +52,8 @@
 
 0.7.1 对齐此前 CC Switch 转换路径：移除顶层系统文本块开头由前端生成的 `x-anthropic-billing-header` 元数据行，防止旋转标记破坏前缀缓存。正文内的引用不删改，网关不生成或伪造上游 billing header。
 
+0.7.2 修复 `/v1/messages?beta=true` 被误判为不存在的路径。推理改为双重时限：默认总时限 600 秒、连续无上游进展 180 秒；思考与工具参数片段算作进展，CLI 自身心跳不算。分别通过 `GATEWAY_TIMEOUT_MS`、`GATEWAY_IDLE_TIMEOUT_MS` 配置（毫秒，上限 1800000）。阶段日志区分 `total_timeout` 和 `idle_timeout`，避免有进展的长思考在固定三分钟时被中断。
+
 耗时日志的阶段时间均相对请求接收时间：`auth_ready` 为认证完成，`cli_spawned` 为进程启动，`upstream_message_start` 为观察到上游消息开始，`first_thinking`/`first_text`/`first_tool` 为对应内容首次到达，`cli_exit`/`cleanup_complete`/`response_complete` 为收尾。`finished` 汇总成功、取消、超时或失败。未出现的阶段表示未观察到，首个 SSE 外壳不计作首段模型文本。
 
 ### 兼容边界

@@ -16,6 +16,8 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
   let busy = false;
   const active = new Set();
   const server = http.createServer(async (req, res) => {
+    // 原生客户端会附加 beta 查询参数；路由只匹配路径，不能将查询串当作模型错误。
+    const pathname = req.url.split('?', 1)[0];
     if (process.env.GATEWAY_DIAGNOSTICS === '1') {
       console.log(req.method, req.url);
       res.on('finish', () => console.log('HTTP', res.statusCode));
@@ -36,17 +38,17 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
       if (!res.headersSent) res.writeHead(statusCode, { 'content-type': 'application/json' });
       res.end(JSON.stringify(value));
     };
-    if (req.method === 'GET' && req.url === '/v1/models') {
+    if (req.method === 'GET' && pathname === '/v1/models') {
       json(200, { object: 'list', data: models });
       return;
     }
-    if (req.method === 'GET' && req.url === '/status' && status) {
+    if (req.method === 'GET' && pathname === '/status' && status) {
       try { json(200, await status()); }
       catch { json(503, { error: { code: 'STATUS_UNAVAILABLE', message: '无法检查云端登录状态' } }); }
       return;
     }
-    const anthropic = req.url === '/v1/messages';
-    if (req.method !== 'POST' || (!anthropic && req.url !== '/v1/chat/completions')) {
+    const anthropic = pathname === '/v1/messages';
+    if (req.method !== 'POST' || (!anthropic && pathname !== '/v1/chat/completions')) {
       json(404, { error: { message: 'Not found' } });
       return;
     }
@@ -140,7 +142,7 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
       outcome = 'success';
       timing.mark('response_complete');
     } catch (error) {
-      outcome = error.code === 'INFERENCE_TIMEOUT' ? 'timeout' : 'error';
+      outcome = ['INFERENCE_TIMEOUT', 'INFERENCE_IDLE_TIMEOUT'].includes(error.code) ? 'timeout' : 'error';
       if (!controller.signal.aborted) {
         const failure = { error: { message: error.message, type: 'gateway_error', code: error.code || 'GATEWAY_ERROR' } };
         if (res.headersSent) {

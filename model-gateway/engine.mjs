@@ -10,7 +10,8 @@ import { validateRequest } from './request.mjs';
 import { resolveEffort } from './effort.mjs';
 
 // 每轮独立进程、逐消息输入；工作目录固定，凭据继续由官方 CLI 管理。
-export async function infer(request, { cli, home, configDir = path.join(home, '.claude'), model, signal, onText, timing, timeoutMs = 180000, spawnProcess = spawn, testUpstream, cacheBreakpoint = '5m', maxOutputTokens = 8192, killGraceMs = 2000, maxCliOutputBytes = 16 * 1024 * 1024 }) {
+export async function infer(request, { cli, home, configDir = path.join(home, '.claude'), model, signal, onText, timing, timeoutMs = 600000, idleTimeoutMs = 180000, spawnProcess = spawn, testUpstream, cacheBreakpoint = '5m', maxOutputTokens = 8192, killGraceMs = 2000, maxCliOutputBytes = 16 * 1024 * 1024 }) {
+  for (const value of [timeoutMs, idleTimeoutMs]) if (!Number.isSafeInteger(value) || value < 1 || value > 1800000) throw new Error('推理超时配置必须为 1..1800000 毫秒');
   if (!Number.isInteger(maxOutputTokens) || maxOutputTokens < 256 || maxOutputTokens > 128000) throw new Error('输出 token 上限无效');
   maxOutputTokens = validateRequest(request, { maxOutputTokens });
   if (!Number.isSafeInteger(maxCliOutputBytes) || maxCliOutputBytes < 1) throw new Error('CLI 输出字节上限无效');
@@ -23,7 +24,7 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
   const work = await fs.mkdtemp(path.join(home, 'request-'));
   const bearer = randomBytes(32).toString('hex');
   const events = new CliEvents(available, onText);
-  let child, timer, killTimer, lines, errors = '', aborted = false, timedOut = false, protocolError;
+  let child, timer, idleTimer, killTimer, lines, errors = '', aborted = false, timedOut = false, idleTimedOut = false, protocolError;
   const group = process.platform !== 'win32';
   // 先温和退出，超时后终止同一进程组，避免残留进程持有输出管道。
   const kill = signalName => {
@@ -35,6 +36,11 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     if (!killTimer) killTimer = setTimeout(() => kill('SIGKILL'), killGraceMs);
   };
   const stop = () => { aborted = true; terminate(); };
+  // 思考与工具参数片段也算上游进展；CLI 自身心跳和 stderr 不延长无进展时限。
+  const refreshProgress = () => {
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => { idleTimedOut = true; timing?.mark('idle_timeout'); terminate(); }, idleTimeoutMs);
+  };
 
   // MCP 仅提供工具定义；tools/call 不执行也不返回虚假结果，由消息结束事件终止 CLI。
   const server = http.createServer(async (req, res) => {
@@ -87,7 +93,8 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     child = spawnProcess(cli, args, { env, cwd, detached: group, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     child.once('spawn', () => timing?.mark('cli_spawned'));
     const exited = new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
-    timer = setTimeout(() => { timedOut = true; terminate(); }, timeoutMs);
+    timer = setTimeout(() => { timedOut = true; timing?.mark('total_timeout'); terminate(); }, timeoutMs);
+    refreshProgress();
     signal?.addEventListener('abort', stop, { once: true });
     if (signal?.aborted) stop();
     child.stderr.on('data', chunk => { errors = (errors + chunk).slice(-2000); });
@@ -104,6 +111,8 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
       let event; try { event = JSON.parse(line); } catch { return; }
       timing?.mark('cli_first_event');
       const inner = event.type === 'stream_event' ? event.event : undefined;
+      if (['message_start', 'content_block_start', 'content_block_delta', 'content_block_stop', 'message_delta', 'message_stop'].includes(inner?.type)
+        || ['assistant', 'result'].includes(event.type)) refreshProgress();
       if (inner?.type === 'message_start') timing?.mark('upstream_message_start');
       if (inner?.type === 'content_block_delta' && inner.delta?.type === 'thinking_delta') timing?.mark('first_thinking');
       if (inner?.type === 'content_block_start' && inner.content_block?.type === 'tool_use') timing?.mark('first_tool');
@@ -120,7 +129,8 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     const code = await exited;
     timing?.mark('cli_exit');
     if (aborted) throw new Error('请求已取消');
-    if (timedOut) throw Object.assign(new Error('推理超时'), { code: 'INFERENCE_TIMEOUT' });
+    if (timedOut) throw Object.assign(new Error(`推理达到总时限（${timeoutMs / 1000} 秒）`), { code: 'INFERENCE_TIMEOUT' });
+    if (idleTimedOut) throw Object.assign(new Error(`上游连续 ${idleTimeoutMs / 1000} 秒没有推理进展`), { code: 'INFERENCE_IDLE_TIMEOUT' });
     if (protocolError) throw protocolError;
     if (events.outputLimitReached) return { role: 'assistant', content: events.text, finish_reason: 'length', ...events.usage() };
     if (events.toolEnd && events.calls.size) return { role: 'assistant', content: events.text || null, tool_calls: [...events.calls.values()], ...events.usage() };
@@ -131,7 +141,7 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     }
     return { role: 'assistant', content: events.result.result || events.text || '', ...events.usage() };
   } finally {
-    clearTimeout(timer); clearTimeout(killTimer); signal?.removeEventListener('abort', stop); lines?.close();
+    clearTimeout(timer); clearTimeout(idleTimer); clearTimeout(killTimer); signal?.removeEventListener('abort', stop); lines?.close();
     kill('SIGKILL'); server.closeAllConnections();
     if (server.listening) await new Promise(resolve => server.close(resolve));
     await fs.rm(mcp, { force: true }); await fs.rm(promptFile, { force: true });

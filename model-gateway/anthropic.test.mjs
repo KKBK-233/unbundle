@@ -49,7 +49,7 @@ test('原生接口流式文本、并行工具和缓存三桶保持一致，阶�
     execute: async (request, _signal, onText, timing) => { assert.equal(request.reasoning_effort, 'high'); timing.mark('cli_spawned'); onText('VIS'); onText('IBLE'); return execution; } });
   try {
     for (const stream of [false, true]) {
-      const response = await fetch(`http://127.0.0.1:${app.port}/v1/messages`, { method: 'POST', headers, body: JSON.stringify({ ...body, stream }) });
+      const response = await fetch(`http://127.0.0.1:${app.port}/v1/messages?beta=true`, { method: 'POST', headers, body: JSON.stringify({ ...body, stream }) });
       assert.equal(response.status, 200);
       if (!stream) {
         const result = await response.json();
