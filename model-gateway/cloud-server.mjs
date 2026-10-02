@@ -15,12 +15,17 @@ const port = Number(process.env.GATEWAY_PORT || 18796);
 const maxOutputTokens = Number(process.env.GATEWAY_MAX_OUTPUT_TOKENS || 128000);
 const timeoutMs = Number(process.env.GATEWAY_TIMEOUT_MS || 600000);
 const idleTimeoutMs = Number(process.env.GATEWAY_IDLE_TIMEOUT_MS || 180000);
+const maxConcurrent = Number(process.env.GATEWAY_MAX_CONCURRENT || 3);
+const maxQueued = Number(process.env.GATEWAY_MAX_QUEUED || 64);
+const queueTimeoutMs = Number(process.env.GATEWAY_QUEUE_TIMEOUT_MS || 600000);
+const contextWindow = Number(process.env.GATEWAY_CONTEXT_WINDOW || 400000);
+if (!Number.isSafeInteger(contextWindow) || contextWindow < 100000 || contextWindow > 1000000) throw new Error('上下文窗口声明无效');
 for (const value of [timeoutMs, idleTimeoutMs]) if (!Number.isSafeInteger(value) || value < 1 || value > 1800000) throw new Error('推理超时配置必须为 1..1800000 毫秒');
 if (!Number.isInteger(maxOutputTokens) || maxOutputTokens < 256 || maxOutputTokens > 128000) throw new Error('输出 token 上限无效');
 await checkCliVersion(cli);
 await fs.mkdir(home, { recursive: true, mode: 0o700 });
 const token = (await fs.readFile(path.join(base, 'token'), 'utf8')).trim();
-const models = ['sonnet', 'opus', 'haiku'].map(name => ({ id: `claude-code-${name}`, object: 'model', owned_by: 'velella-cloud' }));
+const models = ['sonnet', 'opus', 'haiku'].map(name => ({ id: `claude-code-${name}`, object: 'model', owned_by: 'velella-cloud', context_window: name === 'haiku' ? Math.min(200000, contextWindow) : contextWindow }));
 function authStatus() {
   return new Promise(resolve => {
     execFile(cli, ['auth', 'status', '--json'], {
@@ -32,7 +37,8 @@ function authStatus() {
     });
   });
 }
-const server = await gateway({ token, port, models, status: async () => ({ ...await authStatus(), busy: server.busy }), maxOutputTokens,
+const server = await gateway({ token, port, models, status: async () => ({ ...await authStatus(), busy: server.busy,
+  activeRequests: server.activeRequests, queuedRequests: server.queuedRequests, maxConcurrent, maxQueued, contextWindow }), maxOutputTokens, maxConcurrent, maxQueued, queueTimeoutMs,
   onTiming: process.env.GATEWAY_TIMING_DIAGNOSTICS === '0' ? undefined : record => console.error(JSON.stringify(record)),
   async beforeExecute(request) {
     const auth = await authStatus();

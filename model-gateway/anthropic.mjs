@@ -3,7 +3,7 @@ const fail = message => { throw Object.assign(new Error(message), { status: 400,
 // Anthropic 文本与工具协议转换，指令角色保持原位，工具执行仍归调用方。
 export function fromAnthropic(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) fail('请求必须是 JSON 对象');
-  const allowed = new Set(['model', 'system', 'messages', 'tools', 'tool_choice', 'max_tokens', 'stream', 'thinking', 'output_config', 'metadata']);
+  const allowed = new Set(['model', 'system', 'messages', 'tools', 'tool_choice', 'max_tokens', 'stream', 'thinking', 'output_config', 'metadata', 'stop_sequences']);
   for (const key of Object.keys(body)) if (body[key] != null && !allowed.has(key)) fail(`暂不支持 Anthropic 参数 ${key}`);
   if (!Array.isArray(body.messages)) fail('messages 必须是数组');
   if (!Number.isInteger(body.max_tokens)) fail('max_tokens 必须是整数');
@@ -40,6 +40,7 @@ export function fromAnthropic(body) {
     flush();
   }
   const request = { model: body.model, messages, max_tokens: body.max_tokens, stream: body.stream };
+  if (body.stop_sequences != null) request.stop = body.stop_sequences;
   if (body.tools != null) {
     if (!Array.isArray(body.tools)) fail('tools 必须是数组');
     request.tools = body.tools.map(tool => {
@@ -112,7 +113,7 @@ export function anthropicWriter(res, id, model) {
         send('content_block_delta', { index, delta: { type: 'input_json_delta', partial_json: JSON.stringify(block.input) } });
         send('content_block_stop', { index }); index++;
       }
-      send('message_delta', { delta: { stop_reason: reason, stop_sequence: null }, usage: anthropicUsage(execution) });
+      send('message_delta', { delta: { stop_reason: reason, stop_sequence: execution.stop_sequence ?? null }, usage: anthropicUsage(execution) });
       send('message_stop', {}); res.end();
     },
     error(error) { send('error', { error: { type: 'api_error', message: error.message } }); res.end(); },

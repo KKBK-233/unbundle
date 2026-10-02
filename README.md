@@ -17,14 +17,14 @@
 
 ## 当前范围
 
-- 单用户、单请求串行执行。
+- 单用户并发执行，默认三个推理进程与 64 个排队请求。
 - `/v1/models`、`/v1/chat/completions`、`/v1/messages` 和 `/status`。
 - 流式文本与 function tool calls。
 - OMP 配置增量导入，修改前自动备份。
 - frp STCP、载荷加密、双向 TLS 和独立 Bearer Token。
 - Claude Code CLI 自己保存 OAuth；网关不读取或转发 OAuth Token。
 
-当前只处理文本消息。图片、音频、多用户、并行会话和公共服务不在首版范围内。
+当前只处理文本消息。图片、音频、多用户和公共服务尚未实现。
 
 0.5.0 支持一轮多个工具调用、逐消息输入块、可配置缓存断点与实际用量回传。每次请求仍启动独立 CLI；缓存是否命中由上游决定。方案来源、边界和验证方式见 [社区方案取舍](docs/community-design.md)。
 
@@ -54,6 +54,8 @@
 
 0.7.2 修复 `/v1/messages?beta=true` 被误判为不存在的路径。推理改为双重时限：默认总时限 600 秒、连续无上游进展 180 秒；思考与工具参数片段算作进展，CLI 自身心跳不算。分别通过 `GATEWAY_TIMEOUT_MS`、`GATEWAY_IDLE_TIMEOUT_MS` 配置（毫秒，上限 1800000）。阶段日志区分 `total_timeout` 和 `idle_timeout`，避免有进展的长思考在固定三分钟时被中断。
 
+0.9.0 允许主会话、分类器和子智能体并发；超过进程数的请求排队，不再因正在推理直接返回 429。新增文本停止串处理，支持 `stop_sequences`/`stop` 并立即结束本次进程。Sonnet/Opus 的模型列表声明 400k，上下文节省还需要客户端设置 400k 自动压缩阈值。配置与边界见[并发与上下文预算](docs/concurrency-context.md)。
+
 耗时日志的阶段时间均相对请求接收时间：`auth_ready` 为认证完成，`cli_spawned` 为进程启动，`upstream_message_start` 为观察到上游消息开始，`first_thinking`/`first_text`/`first_tool` 为对应内容首次到达，`cli_exit`/`cleanup_complete`/`response_complete` 为收尾。`finished` 汇总成功、取消、超时或失败。未出现的阶段表示未观察到，首个 SSE 外壳不计作首段模型文本。
 
 ### 兼容边界
@@ -61,7 +63,7 @@
 - 开头和中途的 `system/developer` 指令均支持。中途指令以原始消息位置标记生效范围，系统优先于开发者，同级冲突按后续指令更新；用户、助手和工具内容内的伪角色保留为数据。该语义由系统提示表达，不能保证与原生多角色协议完全等价。新增真正指令会改变系统缓存前缀；追加普通历史或纯运行余量提示时既有前缀保持稳定。实际命中率还取决于上游缓存和客户端是否改写历史。
 - 支持 `tool_choice: auto/none`、`n: 1`、`parallel_tool_calls: true`、`store: false` 和 `stream_options.include_usage`。
 - `max_tokens` 或 `max_completion_tokens` 二选一，云端默认接受 1..128000，未指定时仍使用 8192；`GATEWAY_MAX_OUTPUT_TOKENS` 可降低接受上限。实际模型的输出上限由官方 CLI 校验。允许客户端用极小输出上限进行连通性检查。`store: false` 表示网关不提供响应存储功能，不代表上游的留存政策。
-- `temperature`、`top_p`、`stop`、`response_format` 等未实现参数返回 `400 UNSUPPORTED_PARAMETER`，不再静默忽略。值为 `null` 视为未设置。
+- 支持 `stop` 与原生 `stop_sequences`，命中后不返回停止串及后续文本。`temperature`、`top_p`、`response_format` 等未实现参数返回 `400 UNSUPPORTED_PARAMETER`，不再静默忽略。值为 `null` 视为未设置。
 - OMP 的 `contextWindow: 64000` 是暂定压缩阈值，不代表 Claude 模型的真实上下文上限。提高前需要长对话验收。
 
 ## 目录

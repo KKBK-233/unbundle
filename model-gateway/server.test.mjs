@@ -19,9 +19,9 @@ test('小输出上限原样传递，非法额度仍返回 400', async () => {
   assert.deepEqual(limits, [1, 16, 255, 8192, 1, 16, 255, 8192]);
  } finally { await server.close(); }
 });
-test('模型入口认证、单请求限制与断线取消',async()=>{
+test('模型入口认证、显式关闭队列与断线取消',async()=>{
  let started,aborted;const began=new Promise(r=>started=r),stopped=new Promise(r=>aborted=r);
- const server=await gateway({token:'test-secret',port:0,execute:async(_body,signal)=>{started();await new Promise(resolve=>signal.addEventListener('abort',()=>{aborted();resolve();},{once:true}));return {role:'assistant',content:'stopped'};}});
+ const server=await gateway({token:'test-secret',port:0,maxConcurrent:1,maxQueued:0,execute:async(_body,signal)=>{started();await new Promise(resolve=>signal.addEventListener('abort',()=>{aborted();resolve();},{once:true}));return {role:'assistant',content:'stopped'};}});
  const base=`http://127.0.0.1:${server.port}`;const headers={Authorization:'Bearer test-secret','content-type':'application/json'};
  try{
   assert.equal((await fetch(base+'/v1/models')).status,401);

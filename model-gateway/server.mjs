@@ -3,17 +3,18 @@ import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { validateRequest } from './request.mjs';
 import { fromAnthropic, anthropicContent, anthropicUsage, anthropicWriter } from './anthropic.mjs';
 import { createTiming } from './timing.mjs';
+import { scheduler } from './scheduler.mjs';
 
 const DEFAULT_MODELS = [
   { id: 'claude-code-sonnet', object: 'model', owned_by: 'velella-cloud' },
 ];
 
-// 提供最小 OpenAI Chat Completions 兼容层，并串行化单个 Claude Code 会话。
-export async function gateway({ token, port = 18796, execute, models = DEFAULT_MODELS, beforeExecute, status, maxOutputTokens = 8192, onTiming } = {}) {
+// 模型请求独立执行；支持子智能体并发，超过进程容量时排队。
+export async function gateway({ token, port = 18796, execute, models = DEFAULT_MODELS, beforeExecute, status, maxOutputTokens = 8192, onTiming, maxConcurrent = 3, maxQueued = 64, queueTimeoutMs = 600000 } = {}) {
   if (!token) throw new Error('Missing gateway token');
   if (typeof execute !== 'function') throw new Error('Missing gateway executor');
 
-  let busy = false;
+  const pool = scheduler({ maxConcurrent, maxQueued, queueTimeoutMs });
   const active = new Set();
   const server = http.createServer(async (req, res) => {
     // 原生客户端会附加 beta 查询参数；路由只匹配路径，不能将查询串当作模型错误。
@@ -52,19 +53,19 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
       json(404, { error: { message: 'Not found' } });
       return;
     }
-    if (busy) {
-      json(429, { error: { message: '模型入口当前只允许一个请求，请等待上一轮结束。' } });
+    if (active.size >= maxConcurrent + maxQueued) {
+      res.setHeader('retry-after', '2');
+      json(429, { error: { message: '请求队列已满，请稍后重试', code: 'QUEUE_FULL' } });
       return;
     }
 
-    busy = true;
     const timing = createTiming(onTiming);
     res.setHeader('x-relay-request-id', timing.requestId);
     timing.mark('request_received');
     let outcome = 'rejected', nativeWriter;
     const controller = new AbortController();
     active.add(controller);
-    let heartbeat;
+    let heartbeat, release;
     res.on('close', () => { if (!res.writableEnded) controller.abort(); });
     try {
       const parts = []; let bytes = 0;
@@ -95,6 +96,9 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
       const created = Math.floor(Date.now() / 1000);
       const chunk = (delta, finish = null) => res.write(`data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created, model: body.model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`);
       timing.mark('request_validated');
+      timing.mark('queue_started');
+      release = await pool.acquire(controller.signal);
+      timing.mark('queue_ready');
       timing.mark('auth_started');
       await beforeExecute?.(body, controller.signal, timing);
       timing.mark('auth_ready');
@@ -122,14 +126,14 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
       if (execution.tool_calls?.length) timing.mark('first_tool');
       if (controller.signal.aborted) return;
       // 用量放在响应顶层，避免 Harness 把统计字段写进 assistant 历史。
-      const { usage, upstream_usage, usage_complete, finish_reason, ...message } = execution;
+      const { usage, upstream_usage, usage_complete, finish_reason, stop_sequence, ...message } = execution;
       const statistics = { ...(usage ? { usage } : {}), ...(upstream_usage ? { upstream_usage, usage_complete } : {}) };
 
       const finish = finish_reason === 'length' ? 'length' : message.tool_calls?.length ? 'tool_calls' : 'stop';
       if (anthropic) {
-        const reason = finish === 'length' ? 'max_tokens' : finish === 'tool_calls' ? 'tool_use' : 'end_turn';
+        const reason = stop_sequence !== undefined ? 'stop_sequence' : finish === 'length' ? 'max_tokens' : finish === 'tool_calls' ? 'tool_use' : 'end_turn';
         if (body.stream) nativeWriter.finish(execution, reason);
-        else json(200, { id: nativeId, type: 'message', role: 'assistant', model: body.model, content: anthropicContent(execution), stop_reason: reason, stop_sequence: null, usage: anthropicUsage(execution) });
+        else json(200, { id: nativeId, type: 'message', role: 'assistant', model: body.model, content: anthropicContent(execution), stop_reason: reason, stop_sequence: stop_sequence ?? null, usage: anthropicUsage(execution) });
       } else if (body.stream) {
         if (message.content && !streamed) chunk({ content: message.content });
         if (message.tool_calls) chunk({ tool_calls: message.tool_calls.map((call, index) => ({ index, ...call })) });
@@ -153,7 +157,7 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
     } finally {
       clearInterval(heartbeat);
       active.delete(controller);
-      busy = false;
+      release?.();
       timing.finish(controller.signal.aborted ? 'cancelled' : outcome);
     }
   });
@@ -164,8 +168,12 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
   });
   return {
     port: server.address().port,
-    get busy() { return busy; },
+    get busy() { return active.size > 0; },
+    get activeRequests() { return pool.running; },
+    get queuedRequests() { return pool.queued; },
+    maxConcurrent, maxQueued,
     async close() {
+      pool.close();
       for (const controller of active) controller.abort();
       server.closeAllConnections();
       await new Promise(resolve => server.close(resolve));

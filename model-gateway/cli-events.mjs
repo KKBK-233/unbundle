@@ -2,7 +2,7 @@ import { stableJson } from './context.mjs';
 
 // 汇总官方 CLI 的事件：工具等待整条消息结束，用量按 message.id 去重。
 export class CliEvents {
-  constructor(available, onText) {
+  constructor(available, onText, stops = []) {
     this.tools = new Map(available.map(tool => [`mcp__omp__${tool.name}`, tool.original]));
     this.onText = onText;
     this.calls = new Map();
@@ -12,6 +12,10 @@ export class CliEvents {
     this.toolEnd = false;
     this.outputLimitReached = false;
     this.blocks = new Map();
+    this.stops = stops;
+    this.pendingText = '';
+    this.receivedText = false;
+    this.stopSequence = undefined;
   }
 
   count(id, usage) {
@@ -25,9 +29,40 @@ export class CliEvents {
   }
 
   emit(text) {
-    if (typeof text !== 'string' || !text) return;
+    if (typeof text !== 'string' || !text || this.stopSequence !== undefined) return;
+    this.receivedText = true;
+    this.pendingText += text;
+    // 跨片段匹配停止串，保留可能的前缀，避免停止串先泄露到 SSE。
+    let first = -1, matched;
+    for (const stop of this.stops) {
+      const index = this.pendingText.indexOf(stop);
+      if (index >= 0 && (first < 0 || index < first)) { first = index; matched = stop; }
+    }
+    if (first >= 0) {
+      this.publishText(this.pendingText.slice(0, first));
+      this.pendingText = '';
+      this.stopSequence = matched;
+      this.calls.clear();
+      this.blocks.clear();
+      return;
+    }
+    let keep = 0;
+    for (const stop of this.stops) for (let n = 1; n < stop.length && n <= this.pendingText.length; n++) {
+      if (this.pendingText.endsWith(stop.slice(0, n))) keep = Math.max(keep, n);
+    }
+    this.publishText(this.pendingText.slice(0, this.pendingText.length - keep));
+    this.pendingText = this.pendingText.slice(this.pendingText.length - keep);
+  }
+
+  publishText(text) {
+    if (!text) return;
     this.text += text;
     this.onText?.(text);
+  }
+
+  flushText() {
+    if (this.stopSequence === undefined) this.publishText(this.pendingText);
+    this.pendingText = '';
   }
 
   // 流式块与聚合事件共用校验，避免重复调用或同 ID 覆盖。
@@ -41,7 +76,7 @@ export class CliEvents {
 
   accept(event) {
     // 首次截断即封存本轮输出；进程停止前排队的续写事件不能再追加文本或用量。
-    if (this.outputLimitReached) return;
+    if (this.outputLimitReached || this.stopSequence !== undefined) return;
     if (event.type === 'result') this.result = event;
     if (event.type === 'assistant') {
       // CLI 自己生成的 API 错误消息不属于模型回复，不能混入文本或历史。
@@ -50,6 +85,7 @@ export class CliEvents {
       this.count(message.id, message.usage);
       for (const block of message.content || []) {
         if (block.type === 'text' && !this.sawDelta) this.emit(block.text);
+        if (this.stopSequence !== undefined) return;
         if (block.type !== 'tool_use') continue;
         this.addCall(block);
       }
@@ -80,6 +116,7 @@ export class CliEvents {
       this.emit(inner.delta.text);
     }
     if (inner.type === 'message_delta') {
+      this.flushText();
       this.count(this.currentId, inner.usage);
       if (inner.delta?.stop_reason === 'max_tokens') {
         if (this.blocks.size || this.calls.size) throw new Error('输出截断时工具消息不完整');

@@ -5,9 +5,11 @@ import { resolveEffort } from './effort.mjs';
 export function validateRequest(body, { maxOutputTokens = 8192 } = {}) {
   const fail = (message, code = 'UNSUPPORTED_PARAMETER') => { throw Object.assign(new Error(message), { status: 400, code }); };
   if (!body || typeof body !== 'object' || Array.isArray(body)) fail('请求必须是 JSON 对象', 'INVALID_REQUEST');
-  const supported = new Set(['model', 'messages', 'tools', 'tool_choice', 'stream', 'stream_options', 'max_tokens', 'max_completion_tokens', 'n', 'parallel_tool_calls', 'store', 'reasoning_effort']);
+  const supported = new Set(['model', 'messages', 'tools', 'tool_choice', 'stream', 'stream_options', 'max_tokens', 'max_completion_tokens', 'n', 'parallel_tool_calls', 'store', 'reasoning_effort', 'stop']);
   for (const key of Object.keys(body)) if (body[key] != null && !supported.has(key)) fail(`暂不支持参数 ${key}`);
   resolveEffort(body);
+  const stops = typeof body.stop === 'string' ? [body.stop] : body.stop;
+  if (stops != null && (!Array.isArray(stops) || stops.length > 4 || stops.some(value => typeof value !== 'string' || !value || value.length > 4096))) fail('stop 必须为非空字符串或最多四个非空字符串，单项最多 4096 字符');
   if (body.n != null && body.n !== 1) fail('仅支持 n=1');
   if (body.store != null && body.store !== false) fail('仅支持 store=false；网关不提供响应存储接口');
   if (body.parallel_tool_calls != null && body.parallel_tool_calls !== true) fail('暂不支持禁止并行工具调用');

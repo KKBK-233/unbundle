@@ -23,7 +23,8 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
   await fs.mkdir(cwd, { recursive: true, mode: 0o700 });
   const work = await fs.mkdtemp(path.join(home, 'request-'));
   const bearer = randomBytes(32).toString('hex');
-  const events = new CliEvents(available, onText);
+  const stops = request.stop == null ? [] : typeof request.stop === 'string' ? [request.stop] : request.stop;
+  const events = new CliEvents(available, onText, stops);
   let child, timer, idleTimer, killTimer, lines, errors = '', aborted = false, timedOut = false, idleTimedOut = false, protocolError;
   const group = process.platform !== 'win32';
   // 先温和退出，超时后终止同一进程组，避免残留进程持有输出管道。
@@ -120,7 +121,7 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
       try {
         events.accept(event);
         // 输出达到调用方上限即结束，防止 CLI 自行续写超过这一轮的额度。
-        if (events.outputLimitReached) kill('SIGKILL');
+        if (events.outputLimitReached || events.stopSequence !== undefined) kill('SIGKILL');
         else if (events.toolEnd) terminate();
       } catch (error) { protocolError = error; terminate(); }
     });
@@ -132,6 +133,8 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     if (timedOut) throw Object.assign(new Error(`推理达到总时限（${timeoutMs / 1000} 秒）`), { code: 'INFERENCE_TIMEOUT' });
     if (idleTimedOut) throw Object.assign(new Error(`上游连续 ${idleTimeoutMs / 1000} 秒没有推理进展`), { code: 'INFERENCE_IDLE_TIMEOUT' });
     if (protocolError) throw protocolError;
+    if (events.stopSequence !== undefined) return { role: 'assistant', content: events.text, stop_sequence: events.stopSequence, ...events.usage() };
+    events.flushText();
     if (events.outputLimitReached) return { role: 'assistant', content: events.text, finish_reason: 'length', ...events.usage() };
     if (events.toolEnd && events.calls.size) return { role: 'assistant', content: events.text || null, tool_calls: [...events.calls.values()], ...events.usage() };
     if (events.calls.size || events.toolEnd) throw new Error('CLI 工具消息不完整，未返回部分调用');
@@ -139,7 +142,8 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
       const detail = events.result?.result || errors;
       throw new Error((testUpstream ? String(detail || '').replaceAll(testUpstream.token, '[REDACTED]') : detail) || 'Claude 推理未完成');
     }
-    return { role: 'assistant', content: events.result.result || events.text || '', ...events.usage() };
+    if (!events.receivedText) { events.emit(events.result.result || ''); events.flushText(); }
+    return { role: 'assistant', content: events.text || '', ...(events.stopSequence !== undefined ? { stop_sequence: events.stopSequence } : {}), ...events.usage() };
   } finally {
     clearTimeout(timer); clearTimeout(idleTimer); clearTimeout(killTimer); signal?.removeEventListener('abort', stop); lines?.close();
     kill('SIGKILL'); server.closeAllConnections();

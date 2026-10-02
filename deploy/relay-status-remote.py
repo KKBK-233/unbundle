@@ -12,6 +12,7 @@ import struct
 import subprocess
 import termios
 import time
+import urllib.request
 
 
 def run(args, timeout=5):
@@ -44,6 +45,17 @@ def resources():
     if used.isdigit():
         lines.append(f"网关进程组内存：{int(used)/2**20:.0f} MiB；自动重启次数：{props.get('NRestarts', '?')}")
     lines.append('Claude 进程数（本次额度查询启动前）：' + str(len(run(['pgrep', '-u', 'harness', '-x', 'velella-claude']).splitlines())))
+    # 网关密钥仅在本机回环请求中使用，不进入输出，也不读取 Claude OAuth 凭据。
+    try:
+        token = pathlib.Path('/home/harness/model-gateway/token').read_text().strip()
+        request = urllib.request.Request('http://127.0.0.1:18796/status', headers={'Authorization': 'Bearer ' + token})
+        with urllib.request.urlopen(request, timeout=5) as response:
+            status = json.load(response)
+        if 'activeRequests' in status:
+            lines.append(f"推理队列：运行 {status['activeRequests']} / {status['maxConcurrent']}，等待 {status['queuedRequests']} / {status['maxQueued']}")
+            lines.append(f"上下文预算声明：{status.get('contextWindow', '?')} tokens（客户端须配置对应压缩阈值）")
+    except (OSError, ValueError):
+        lines.append('推理队列：暂时无法读取网关状态。')
     return lines
 
 

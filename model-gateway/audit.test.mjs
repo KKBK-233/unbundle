@@ -75,7 +75,7 @@ test('无效生成参数在 SSE 或 CLI 启动前返回 400', async () => {
   let executions = 0;
   const app = await gateway({ token: 'test', port: 0, execute: async () => { executions++; return { role: 'assistant', content: 'ok' }; } });
   try {
-    for (const body of [null, [], { ...request, temperature: 0 }, { ...request, stop: ['stop'] }, { ...request, response_format: { type: 'json_object' } }, { ...request, max_tokens: 99999 }, { ...request, parallel_tool_calls: false }]) {
+    for (const body of [null, [], { ...request, temperature: 0 }, { ...request, stop: [''] }, { ...request, response_format: { type: 'json_object' } }, { ...request, max_tokens: 99999 }, { ...request, parallel_tool_calls: false }]) {
       const response = await fetch(`http://127.0.0.1:${app.port}/v1/chat/completions`, { method: 'POST', headers: { Authorization: 'Bearer test', 'content-type': 'application/json' }, body: JSON.stringify(body && { ...body, stream: true }) });
       assert.equal(response.status, 400);
       assert.match(response.headers.get('content-type'), /application\/json/);

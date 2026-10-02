@@ -10,6 +10,13 @@ WorkingDirectory=/home/harness/app
 ExecStart=/usr/local/bin/velella-node /home/harness/app/model-gateway/cloud-server.mjs
 Environment=PATH=/home/harness/app/node/bin:/usr/local/bin:/usr/bin:/bin
 Environment=GATEWAY_CONTEXT_DIAGNOSTICS=1
+Environment=GATEWAY_MAX_CONCURRENT=3
+Environment=GATEWAY_MAX_QUEUED=64
+Environment=GATEWAY_CONTEXT_WINDOW=400000
+# 为三路推理保留工作集，同时限制进程组内存并允许有限 Swap。
+MemoryHigh=700M
+MemoryMax=768M
+MemorySwapMax=768M
 Restart=on-failure
 RestartSec=3
 KillMode=control-group
