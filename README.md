@@ -58,6 +58,8 @@
 
 0.9.3 接通图片输入与本地工具截图：接受 Anthropic `image`（`source.type: base64`）和 OpenAI `image_url` 的 `data:<media-type>;base64` 写法。图片作为原生块传给官方 CLI，历史文本仅保留原位引用；工具图片保留调用 ID、错误状态和顺序。官方 CLI 会丢弃图片上的缓存标记，因此每组图片后附固定文本结束块，用它承载断点，覆盖完整图片前缀；跨轮旧块不变。通过真实 CLI 连接回环模拟上游验收。严格校验 base64 补位，最多 100 张图片；远程地址、非 base64 来源、未支持的媒体类型和 assistant 图片返回 400。入站体上限 32MiB、单图原始数据上限 5MiB、在场请求体总量上限 64MiB，分别通过 `GATEWAY_MAX_REQUEST_BYTES`、`GATEWAY_MAX_IMAGE_BYTES`、`GATEWAY_MAX_INFLIGHT_BYTES` 配置；超额返回 413 或带 `retry-after` 的 429。默认排队上限为 8，避免大图长队列占满内存。字节准入控制不等于实际 RSS 上限，仍保留 systemd 内存限制。网关不剥离 EXIF，也不解码、缩放或保证图片文件有效性；实际图像解码交给官方 CLI/上游。`cloud-probe.mjs --self-test --images --anthropic` 覆盖两轮附件与工具截图传递，不调用真实模型。
 
+0.9.4 修复桌面状态脚本的额度解析：官方终端增量刷新省略标题时，保留首个完整面板，防止 5 小时与每周额度的百分比、重置时间被混写。新增跨平台解析回归测试。
+
 耗时日志的阶段时间均相对请求接收时间：`auth_ready` 为认证完成，`cli_spawned` 为进程启动，`upstream_message_start` 为观察到上游消息开始，`first_thinking`/`first_text`/`first_tool` 为对应内容首次到达，`cli_exit`/`cleanup_complete`/`response_complete` 为收尾。`finished` 汇总成功、取消、超时或失败。未出现的阶段表示未观察到，首个 SSE 外壳不计作首段模型文本。
 
 ### 兼容边界

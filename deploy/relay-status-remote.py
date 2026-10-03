@@ -181,9 +181,14 @@ def quota_lines(text):
             elif current:
                 match = re.search(r'(\d+(?:\.\d+)?)%\s*used', line)
                 if match:
-                    windows[current]['used'] = float(match.group(1))
+                    # 终端增量刷新可能省略标题；保留首个完整面板，防止读数串到另一额度项。
+                    windows[current].setdefault('used', float(match.group(1)))
                 if line.startswith('Resets '):
-                    windows[current]['reset'] = line[7:]
+                    windows[current].setdefault('reset', line[7:])
+                # 两项均完整后结束解析，后续刷新片段不再参与这次快照。
+                labels = ['Current session', 'Current week (all models)']
+                if all('used' in windows.get(label, {}) and 'reset' in windows[label] for label in labels):
+                    break
         lines = []
         for label, values in windows.items():
             if 'used' not in values:
