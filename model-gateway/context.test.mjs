@@ -65,7 +65,7 @@ test('user 图片转原生块，base64 不进文本，断点覆盖图片且跨�
   const blocks = JSON.parse(compiled.input).message.content;
 
   // 文本块只保留原位引用；base64 仅出现在并列的原生 image 块中。
-  assert.deepEqual(blocks.map(block => block.type), ['text', 'image']);
+  assert.deepEqual(blocks.map(block => block.type), ['text', 'image', 'text']);
   assert(!blocks[0].text.includes(png));
   assert.equal(JSON.parse(blocks[0].text).content[1].type, 'image_ref');
   assert.equal(blocks[1].source.data, png);
@@ -75,7 +75,9 @@ test('user 图片转原生块，base64 不进文本，断点覆盖图片且跨�
 
   // 断点覆盖最后一张图片，下一轮移动断点时不改变旧图片内容。
   assert.equal(blocks[0].cache_control, undefined);
-  assert.equal(blocks[1].cache_control.ttl, '5m');
+  assert.equal(blocks[1].cache_control, undefined);
+  assert.equal(blocks[2].cache_control.ttl, '5m');
+  assert.deepEqual(JSON.parse(blocks[2].text), { image_end: 'message_1' });
 
   // OpenAI data: 写法归一化为同一个原生块；远程地址和超限显式拒绝。
   const viaUrl = compileContext({ messages: [messages[0],
@@ -90,7 +92,7 @@ test('user 图片转原生块，base64 不进文本，断点覆盖图片且跨�
   // 追加历史不改写既有块，图片轮次的前缀同样稳定。
   const next = compileContext({ messages: [...messages, { role: 'assistant', content: '看到了' }], tools });
   const after = JSON.parse(next.input).message.content;
-  assert.deepEqual(after.slice(0, 2).map(({ cache_control, ...block }) => block), blocks.map(({ cache_control, ...block }) => block));
+  assert.deepEqual(after.slice(0, 3).map(({ cache_control, ...block }) => block), blocks.map(({ cache_control, ...block }) => block));
   assert.equal(next.metrics.systemHash, compiled.metrics.systemHash);
   assert.equal(after.at(-1).cache_control.ttl, '5m');
   assert.equal(after[0].cache_control, undefined);

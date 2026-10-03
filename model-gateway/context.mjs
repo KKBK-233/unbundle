@@ -116,10 +116,13 @@ export function compileContext(request, { cacheBreakpoint = '5m', maxImageBytes 
     });
     blocks.push({ type: 'text', text: stableJson({ ...message, content: referenced }) });
     blocks.push(...pending);
+    // 官方 CLI 会移除 image 上的缓存标记；固定结束块将整组图片纳入文本断点。
+    // 每个含图消息都加结束块，追加后续消息时旧前缀保持不变。
+    blocks.push({ type: 'text', text: stableJson({ image_end: `message_${start + offset}` }) });
     imageBlocks.push(...pending);
   });
   if (!blocks.length) throw new Error('至少需要一条非开头指令消息');
-  // 图片同样支持缓存断点，覆盖整个调用方前缀，避免末尾附件落在断点之外。
+  // 末尾图片已附固定文本结束块，覆盖完整图片前缀并兼容 CLI 的断点处理。
   if (cacheBreakpoint !== 'off') blocks.at(-1).cache_control = { type: 'ephemeral', ttl: cacheBreakpoint };
   const input = JSON.stringify({ type: 'user', message: { role: 'user', content: blocks } }) + '\n';
   const tools = request.tools || [];
