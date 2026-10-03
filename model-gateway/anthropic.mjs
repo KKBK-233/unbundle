@@ -20,21 +20,30 @@ export function fromAnthropic(body) {
     if (typeof message.content === 'string') { messages.push({ role: message.role, content: message.content }); continue; }
     if (!Array.isArray(message.content)) fail('Anthropic 消息内容无效');
     if (['system', 'developer'].includes(message.role)) { messages.push({ role: message.role, content: text(message.content) }); continue; }
-    let pendingText = [], calls = [];
+    // 无图片时仍输出合并后的纯文本，保持既有缓存前缀；含图片才改用块数组。
+    let pendingText = [], pendingBlocks = [], calls = [], hasImage = false;
     const flush = () => {
-      if (pendingText.length || calls.length) messages.push({ role: message.role, content: pendingText.join('\n') || null, ...(calls.length ? { tool_calls: calls } : {}) });
-      pendingText = []; calls = [];
+      if (pendingBlocks.length || calls.length) messages.push({ role: message.role,
+        content: hasImage ? pendingBlocks : (pendingText.join('\n') || null),
+        ...(calls.length ? { tool_calls: calls } : {}) });
+      pendingText = []; pendingBlocks = []; calls = []; hasImage = false;
     };
     for (const block of message.content) {
-      if (block?.type === 'text' && typeof block.text === 'string') pendingText.push(block.text);
+      if (block?.type === 'text' && typeof block.text === 'string') { pendingText.push(block.text); pendingBlocks.push({ type: 'text', text: block.text }); }
+      // 图片原样透传，由 compileContext 统一校验来源、类型、体积与角色。
+      else if (block?.type === 'image') { hasImage = true; pendingBlocks.push(block); }
       else if (block?.type === 'tool_use' && message.role === 'assistant') {
         if (typeof block.id !== 'string' || typeof block.name !== 'string' || !block.input || typeof block.input !== 'object' || Array.isArray(block.input)) fail('tool_use 无效');
         calls.push({ id: block.id, type: 'function', function: { name: block.name, arguments: JSON.stringify(block.input) } });
       } else if (block?.type === 'tool_result' && message.role === 'user') {
         if (typeof block.tool_use_id !== 'string') fail('tool_result 缺少 tool_use_id');
         flush();
-        const content = text(block.content ?? '');
-        messages.push({ role: 'tool', tool_call_id: block.tool_use_id, content: block.is_error ? JSON.stringify({ is_error: true, content }) : content });
+        // 工具截图与读图结果保留图片块及调用 ID，图片不能被序列化进普通文本。
+        const hasImages = Array.isArray(block.content) && block.content.some(item => item?.type === 'image');
+        const content = hasImages ? block.content : text(block.content ?? '');
+        messages.push({ role: 'tool', tool_call_id: block.tool_use_id,
+          content: block.is_error && !hasImages ? JSON.stringify({ is_error: true, content }) : content,
+          ...(hasImages && block.is_error ? { is_error: true } : {}) });
       } else fail(`暂不支持 Anthropic 内容块 ${block?.type || 'unknown'}`);
     }
     flush();

@@ -35,6 +35,52 @@ test('模型入口认证、显式关闭队列与断线取消',async()=>{
  }finally{await server.close();}
 });
 
+// 入站体在排队前已完整驻留，因此按字节准入；记账泄漏会让网关永久拒绝后续请求。
+test('超限请求体返回 413，在场字节总量超额返回 429，且额度无条件归还', async () => {
+  let release; const gate = new Promise(resolve => release = resolve);
+  let started = 0;
+  const server = await gateway({ token: 'bytes', port: 0, maxConcurrent: 2, maxQueued: 2,
+    maxRequestBytes: 64 * 1024, maxImageBytes: 32 * 1024, maxInflightBytes: 96 * 1024,
+    execute: async () => { started++; await gate; return { role: 'assistant', content: 'OK' }; } });
+  const call = size => fetch(`http://127.0.0.1:${server.port}/v1/chat/completions`, {
+    method: 'POST', headers: { authorization: 'Bearer bytes', 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'claude-code-sonnet', messages: [{ role: 'user', content: 'x'.repeat(size) }] }),
+  });
+  const until = async fn => { for (let n = 0; n < 200 && !fn(); n++) await new Promise(r => setTimeout(r, 5)); assert(fn()); };
+  try {
+    // 单请求超过 maxRequestBytes：413，且不进入执行。
+    const tooBig = await call(80 * 1024);
+    assert.equal(tooBig.status, 413);
+    assert.equal((await tooBig.json()).error.code, 'REQUEST_TOO_LARGE');
+    assert.equal(started, 0);
+    await until(() => server.inflightBytes === 0);
+
+    // 两个 40KB 请求在场后，第三个把总量推过 96KB：429 而不是 OOM。
+    const first = call(40 * 1024), second = call(40 * 1024);
+    await until(() => started === 2);
+    const rejected = await call(40 * 1024);
+    assert.equal(rejected.status, 429);
+    assert.equal((await rejected.json()).error.code, 'INFLIGHT_BYTES_EXCEEDED');
+    assert.equal(rejected.headers.get('retry-after'), '2');
+    release();
+    for (const response of await Promise.all([first, second])) assert.equal(response.status, 200);
+
+    // 全部结束后额度必须归零，否则后续请求会被永久拒绝。
+    await until(() => server.inflightBytes === 0);
+    assert.equal((await call(1024)).status, 200);
+    assert.equal(server.inflightBytes, 0);
+  } finally { release(); await server.close(); }
+});
+
+test('体积上限配置互相约束，非法取值在监听前拒绝', async () => {
+  const base = { token: 't', port: 0, execute: async () => ({ role: 'assistant', content: 'OK' }) };
+  for (const extra of [{ maxImageBytes: 8 * 1024 * 1024, maxRequestBytes: 1024 * 1024 },
+    { maxRequestBytes: 2 * 1024 * 1024, maxInflightBytes: 1024 * 1024 },
+    { maxRequestBytes: 0 }, { maxImageBytes: 1.5 }, { maxInflightBytes: 1024 * 1024 * 1024 }]) {
+    await assert.rejects(gateway({ ...base, ...extra }), /上限/);
+  }
+});
+
 test('登录错误先返回状态码，流式片段在执行完成前到达且不重复',async()=>{
  let release;const gate=new Promise(r=>release=r);let ready;const began=new Promise(r=>ready=r);
  const server=await gateway({token:'stream-test',port:0,beforeExecute:body=>{if(body.messages[0].content==='auth')throw Object.assign(new Error('AUTH_REQUIRED'),{status:503,code:'AUTH_REQUIRED'});},execute:async(_body,_signal,onText)=>{onText('FIRST');ready();await gate;return {role:'assistant',content:'FIRST'};}});

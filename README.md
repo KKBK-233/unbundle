@@ -17,14 +17,14 @@
 
 ## 当前范围
 
-- 单用户并发执行，默认三个推理进程与 64 个排队请求。
+- 单用户并发执行，默认三个推理进程与 8 个排队请求。
 - `/v1/models`、`/v1/chat/completions`、`/v1/messages` 和 `/status`。
 - 流式文本与 function tool calls。
 - OMP 配置增量导入，修改前自动备份。
 - frp STCP、载荷加密、双向 TLS 和独立 Bearer Token。
 - Claude Code CLI 自己保存 OAuth；网关不读取或转发 OAuth Token。
 
-当前只处理文本消息。图片、音频、多用户和公共服务尚未实现。
+当前处理文本、用户附件和工具返回的内联图片。助手图片、音频、多用户和公共服务尚未实现。
 
 0.5.0 支持一轮多个工具调用、逐消息输入块、可配置缓存断点与实际用量回传。每次请求仍启动独立 CLI；缓存是否命中由上游决定。方案来源、边界和验证方式见 [社区方案取舍](docs/community-design.md)。
 
@@ -48,13 +48,15 @@
 
 网关更新到 0.7.0 后，将现有供应商的上游格式改成 **Anthropic Messages**，地址使用 `http://127.0.0.1:18796`，保留已有密钥、代理模式和模型映射。这样 `output_config.effort` 不会被 CC Switch 的 OpenAI 模型白名单过滤。OMP 的原有 OpenAI 入口继续可用。
 
-原生入口支持文本、工具调用/结果、流式输出、`thinking: {type: "adaptive"}` 和明确的 `output_config.effort`。不支持精确 `budget_tokens`、强制关闭思考、图片或内置服务器工具；无法兑现的参数返回 400。`metadata` 作为调用方元数据接受，不冒充云端 CLI 的认证或会话身份。
+原生入口支持文本、user 消息和工具结果的内联图片、工具调用/结果、流式输出、`thinking: {type: "adaptive"}` 和明确的 `output_config.effort`。不支持精确 `budget_tokens`、强制关闭思考或内置服务器工具；无法兑现的参数返回 400。`metadata` 作为调用方元数据接受，不冒充云端 CLI 的认证或会话身份。
 
 0.7.1 对齐此前 CC Switch 转换路径：移除顶层系统文本块开头由前端生成的 `x-anthropic-billing-header` 元数据行，防止旋转标记破坏前缀缓存。正文内的引用不删改，网关不生成或伪造上游 billing header。
 
 0.7.2 修复 `/v1/messages?beta=true` 被误判为不存在的路径。推理改为双重时限：默认总时限 600 秒、连续无上游进展 180 秒；思考与工具参数片段算作进展，CLI 自身心跳不算。分别通过 `GATEWAY_TIMEOUT_MS`、`GATEWAY_IDLE_TIMEOUT_MS` 配置（毫秒，上限 1800000）。阶段日志区分 `total_timeout` 和 `idle_timeout`，避免有进展的长思考在固定三分钟时被中断。
 
 0.9.0 允许主会话、分类器和子智能体并发；超过进程数的请求排队，不再因正在推理直接返回 429。新增文本停止串处理，支持 `stop_sequences`/`stop` 并立即结束本次进程。Sonnet/Opus 的模型列表声明 400k，上下文节省还需要客户端设置 400k 自动压缩阈值。配置与边界见[并发与上下文预算](docs/concurrency-context.md)。
+
+0.9.2 接通图片输入与本地工具截图：接受 Anthropic `image`（`source.type: base64`）和 OpenAI `image_url` 的 `data:<media-type>;base64` 写法。图片作为原生块传给官方 CLI，历史文本仅保留原位引用；工具图片保留调用 ID、错误状态和顺序。缓存断点覆盖最后一个块（含图片），通过真实 CLI 连接回环模拟上游验收。严格校验 base64 补位，最多 100 张图片；远程地址、非 base64 来源、未支持的媒体类型和 assistant 图片返回 400。入站体上限 32MiB、单图原始数据上限 5MiB、在场请求体总量上限 64MiB，分别通过 `GATEWAY_MAX_REQUEST_BYTES`、`GATEWAY_MAX_IMAGE_BYTES`、`GATEWAY_MAX_INFLIGHT_BYTES` 配置；超额返回 413 或带 `retry-after` 的 429。默认排队上限为 8，避免大图长队列占满内存。字节准入控制不等于实际 RSS 上限，仍保留 systemd 内存限制。网关不剥离 EXIF，也不解码、缩放或保证图片文件有效性；实际图像解码交给官方 CLI/上游。`cloud-probe.mjs --self-test --images --anthropic` 覆盖两轮附件与工具截图传递，不调用真实模型。
 
 耗时日志的阶段时间均相对请求接收时间：`auth_ready` 为认证完成，`cli_spawned` 为进程启动，`upstream_message_start` 为观察到上游消息开始，`first_thinking`/`first_text`/`first_tool` 为对应内容首次到达，`cli_exit`/`cleanup_complete`/`response_complete` 为收尾。`finished` 汇总成功、取消、超时或失败。未出现的阶段表示未观察到，首个 SSE 外壳不计作首段模型文本。
 
@@ -64,7 +66,8 @@
 - 支持 `tool_choice: auto/none`、`n: 1`、`parallel_tool_calls: true`、`store: false` 和 `stream_options.include_usage`。
 - `max_tokens` 或 `max_completion_tokens` 二选一，云端默认接受 1..128000，未指定时仍使用 8192；`GATEWAY_MAX_OUTPUT_TOKENS` 可降低接受上限。实际模型的输出上限由官方 CLI 校验。允许客户端用极小输出上限进行连通性检查。`store: false` 表示网关不提供响应存储功能，不代表上游的留存政策。
 - 支持 `stop` 与原生 `stop_sequences`，命中后不返回停止串及后续文本。`temperature`、`top_p`、`response_format` 等未实现参数返回 `400 UNSUPPORTED_PARAMETER`，不再静默忽略。值为 `null` 视为未设置。
-- OMP 的 `contextWindow: 64000` 是暂定压缩阈值，不代表 Claude 模型的真实上下文上限。提高前需要长对话验收。
+- 图片在 user 和 tool 消息中接受，且必须是 base64 内联；`image/png`、`image/jpeg`、`image/gif`、`image/webp` 之外的类型返回 400。图片的 EXIF、GPS 坐标和设备信息由调用方决定是否包含，网关不读取也不剥离。截图与手机照片可能携带本地用户名或拍摄位置，这部分暴露面在客户端侧控制。
+- OMP 的 `contextWindow: 64000` 是暂定压缩阈值，不代表 Claude 模型的真实上下文上限。提高前需要长对话验收。新建 provider 声明 `input: ['text', 'image']`；已存在的 provider 需要 `npm run import:omp -- --update-input` 才会补齐模态，升级只追加不移除用户自定义条目。
 
 ## 目录
 

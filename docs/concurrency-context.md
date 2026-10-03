@@ -9,7 +9,7 @@
 | 环境变量 | 默认值 | 用途 |
 | --- | --- | --- |
 | `GATEWAY_MAX_CONCURRENT` | 3 | 实际推理进程数，支持 1..32 |
-| `GATEWAY_MAX_QUEUED` | 64 | 等待请求数，支持 0..256 |
+| `GATEWAY_MAX_QUEUED` | 8 | 等待请求数，支持 0..256；图片请求另受在场字节总量约束 |
 | `GATEWAY_QUEUE_TIMEOUT_MS` | 600000 | 最长排队时间，超时返回 503 |
 | `GATEWAY_CONTEXT_WINDOW` | 400000 | Sonnet/Opus 模型列表中的上下文声明 |
 

@@ -10,12 +10,21 @@ const DEFAULT_MODELS = [
 ];
 
 // 模型请求独立执行；支持子智能体并发，超过进程容量时排队。
-export async function gateway({ token, port = 18796, execute, models = DEFAULT_MODELS, beforeExecute, status, maxOutputTokens = 8192, onTiming, maxConcurrent = 3, maxQueued = 64, queueTimeoutMs = 600000 } = {}) {
+// 入站体在排队之前就已完整解析驻留，因此队列容量必须与请求体上限一起评估：
+// 单个 32MB 请求的峰值驻留约 124MB（分片、拼接缓冲、UTF-8 字符串与解析结果同时在场）。
+export async function gateway({ token, port = 18796, execute, models = DEFAULT_MODELS, beforeExecute, status, maxOutputTokens = 8192, onTiming, maxConcurrent = 3, maxQueued = 8, queueTimeoutMs = 600000, maxRequestBytes = 32 * 1024 * 1024, maxImageBytes = 5 * 1024 * 1024, maxInflightBytes = 64 * 1024 * 1024 } = {}) {
   if (!token) throw new Error('Missing gateway token');
   if (typeof execute !== 'function') throw new Error('Missing gateway executor');
+  for (const [value, min, max] of [[maxRequestBytes, 1024, 64 * 1024 * 1024], [maxImageBytes, 1024, 32 * 1024 * 1024], [maxInflightBytes, 1024, 512 * 1024 * 1024]]) {
+    if (!Number.isSafeInteger(value) || value < min || value > max) throw new Error('请求体或单图字节上限无效');
+  }
+  if (maxImageBytes > maxRequestBytes) throw new Error('单图上限不能超过请求体上限');
+  if (maxRequestBytes > maxInflightBytes) throw new Error('单请求上限不能超过在场字节总量上限');
 
   const pool = scheduler({ maxConcurrent, maxQueued, queueTimeoutMs });
   const active = new Set();
+  // 入站体在排队前已完整驻留，因此按字节记账而不只按请求数准入，避免大图把进程推过 cgroup 上限。
+  let inflightBytes = 0;
   const server = http.createServer(async (req, res) => {
     // 原生客户端会附加 beta 查询参数；路由只匹配路径，不能将查询串当作模型错误。
     const pathname = req.url.split('?', 1)[0];
@@ -65,23 +74,35 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
     let outcome = 'rejected', nativeWriter;
     const controller = new AbortController();
     active.add(controller);
-    let heartbeat, release;
+    let heartbeat, release, reserved = 0;
     res.on('close', () => { if (!res.writableEnded) controller.abort(); });
     try {
       const parts = []; let bytes = 0;
       for await (const chunk of req) {
         bytes += chunk.length;
-        if (bytes > 4 * 1024 * 1024) {
-          json(413, { error: { message: 'Request too large' } });
+        if (bytes > maxRequestBytes) {
+          json(413, { error: { message: `请求体超过上限 ${Math.round(maxRequestBytes / 1024 / 1024)}MB`, code: 'REQUEST_TOO_LARGE' } });
+          return;
+        }
+        // 边读边记账：大图并发时按总字节而不是请求数拒绝，避免进程被 cgroup 终止。
+        inflightBytes += chunk.length; reserved += chunk.length;
+        if (inflightBytes > maxInflightBytes) {
+          res.setHeader('retry-after', '2');
+          json(429, { error: { message: `同时处理的请求体总量超过 ${Math.round(maxInflightBytes / 1024 / 1024)}MB，请稍后重试`, code: 'INFLIGHT_BYTES_EXCEEDED' } });
           return;
         }
         parts.push(chunk);
       }
       let body;
-      try { body = JSON.parse(Buffer.concat(parts).toString('utf8')); }
-      catch { json(400, { error: { message: 'Invalid JSON' } }); return; }
+      // 大图请求的峰值驻留由同时在场的副本数决定；拼接后立即释放分片与中间串。
+      try {
+        let raw = Buffer.concat(parts).toString('utf8');
+        parts.length = 0;
+        body = JSON.parse(raw);
+        raw = '';
+      } catch { parts.length = 0; json(400, { error: { message: 'Invalid JSON' } }); return; }
       if (anthropic) body = fromAnthropic(body);
-      validateRequest(body, { maxOutputTokens });
+      validateRequest(body, { maxOutputTokens, maxImageBytes });
       if (!models.some(model => model.id === body.model)) {
         json(400, { error: { message: 'Unknown model' } });
         return;
@@ -157,6 +178,8 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
     } finally {
       clearInterval(heartbeat);
       active.delete(controller);
+      // 字节记账必须无条件归还，否则 413/429/断线会让在场额度永久泄漏。
+      inflightBytes -= reserved; reserved = 0;
       release?.();
       timing.finish(controller.signal.aborted ? 'cancelled' : outcome);
     }
@@ -171,7 +194,8 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
     get busy() { return active.size > 0; },
     get activeRequests() { return pool.running; },
     get queuedRequests() { return pool.queued; },
-    maxConcurrent, maxQueued,
+    maxConcurrent, maxQueued, maxRequestBytes, maxImageBytes, maxInflightBytes,
+    get inflightBytes() { return inflightBytes; },
     async close() {
       pool.close();
       for (const controller of active) controller.abort();

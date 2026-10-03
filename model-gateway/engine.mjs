@@ -10,12 +10,12 @@ import { validateRequest } from './request.mjs';
 import { resolveEffort } from './effort.mjs';
 
 // 每轮独立进程、逐消息输入；工作目录固定，凭据继续由官方 CLI 管理。
-export async function infer(request, { cli, home, configDir = path.join(home, '.claude'), model, signal, onText, timing, timeoutMs = 600000, idleTimeoutMs = 180000, spawnProcess = spawn, testUpstream, cacheBreakpoint = '5m', maxOutputTokens = 8192, killGraceMs = 2000, maxCliOutputBytes = 16 * 1024 * 1024 }) {
+export async function infer(request, { cli, home, configDir = path.join(home, '.claude'), model, signal, onText, timing, timeoutMs = 600000, idleTimeoutMs = 180000, spawnProcess = spawn, testUpstream, cacheBreakpoint = '5m', maxImageBytes = 5 * 1024 * 1024, maxOutputTokens = 8192, killGraceMs = 2000, maxCliOutputBytes = 16 * 1024 * 1024 }) {
   for (const value of [timeoutMs, idleTimeoutMs]) if (!Number.isSafeInteger(value) || value < 1 || value > 1800000) throw new Error('推理超时配置必须为 1..1800000 毫秒');
   if (!Number.isInteger(maxOutputTokens) || maxOutputTokens < 256 || maxOutputTokens > 128000) throw new Error('输出 token 上限无效');
-  maxOutputTokens = validateRequest(request, { maxOutputTokens });
+  maxOutputTokens = validateRequest(request, { maxOutputTokens, maxImageBytes });
   if (!Number.isSafeInteger(maxCliOutputBytes) || maxCliOutputBytes < 1) throw new Error('CLI 输出字节上限无效');
-  const { systemPrompt, input, available, exposedTools, metrics } = compileContext(request, { cacheBreakpoint });
+  const { systemPrompt, input, available, exposedTools, metrics } = compileContext(request, { cacheBreakpoint, maxImageBytes });
   timing?.mark('context_ready');
   if (process.env.GATEWAY_CONTEXT_DIAGNOSTICS === '1') console.error(JSON.stringify({ type: 'gateway_context_bytes', requestId: timing?.requestId, ...metrics, requestedOutputTokens: maxOutputTokens, effort: resolveEffort(request) || 'auto' }));
   await fs.mkdir(home, { recursive: true, mode: 0o700 });

@@ -52,7 +52,83 @@ test('指令只传一次，工具定义不嵌入历史，调用方原始内容�
   assert.equal(compiled.metrics.historyBytes, Buffer.byteLength(compiled.input));
   assert(!JSON.stringify(compiled.metrics).includes('SENTINEL'));
   assert.deepEqual(compileContext({ messages, tools, tool_choice: 'none' }).exposedTools, []);
-  assert.throws(() => compileContext({ messages: [{ role: 'user', content: [{ type: 'image_url' }] }] }), /只支持文本/);
+  assert.throws(() => compileContext({ messages: [{ role: 'user', content: [{ type: 'image_url' }] }] }), /image_url 无效/);
+  assert.throws(() => compileContext({ messages: [{ role: 'user', content: [{ type: 'audio', data: 'x' }] }] }), /暂不支持内容块 audio/);
+});
+
+test('user 图片转原生块，base64 不进文本，断点覆盖图片且跨轮前缀稳定', () => {
+  const png = 'iVBORw0KGgoAAAANSUhEUg==';
+  const image = { type: 'image', source: { type: 'base64', media_type: 'image/png', data: png } };
+  const messages = [{ role: 'system', content: '规则' },
+    { role: 'user', content: [{ type: 'text', text: '看这张图' }, image] }];
+  const compiled = compileContext({ messages, tools });
+  const blocks = JSON.parse(compiled.input).message.content;
+
+  // 文本块只保留原位引用；base64 仅出现在并列的原生 image 块中。
+  assert.deepEqual(blocks.map(block => block.type), ['text', 'image']);
+  assert(!blocks[0].text.includes(png));
+  assert.equal(JSON.parse(blocks[0].text).content[1].type, 'image_ref');
+  assert.equal(blocks[1].source.data, png);
+  assert.equal(compiled.input.split(png).length - 1, 1);
+  assert.equal(compiled.metrics.imageCount, 1);
+  assert.equal(compiled.metrics.imageBytes, 16);
+
+  // 断点覆盖最后一张图片，下一轮移动断点时不改变旧图片内容。
+  assert.equal(blocks[0].cache_control, undefined);
+  assert.equal(blocks[1].cache_control.ttl, '5m');
+
+  // OpenAI data: 写法归一化为同一个原生块；远程地址和超限显式拒绝。
+  const viaUrl = compileContext({ messages: [messages[0],
+    { role: 'user', content: [{ type: 'text', text: '看这张图' }, { type: 'image_url', image_url: { url: `data:image/png;base64,${png}` } }] }], tools });
+  assert.deepEqual(JSON.parse(viaUrl.input).message.content[1], blocks[1]);
+  assert.throws(() => compileContext({ messages: [{ role: 'user', content: [{ type: 'image_url', image_url: { url: 'https://example.invalid/a.png' } }] }] }), /不抓取远程地址/);
+  assert.throws(() => compileContext({ messages, tools }, { maxImageBytes: 8 }), /超过上限/);
+  assert.throws(() => compileContext({ messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'url', url: 'https://example.invalid/a.png' } }] }] }), /暂不支持 url 图片来源/);
+  assert.throws(() => compileContext({ messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/bmp', data: png } }] }] }), /暂不支持图片类型 image\/bmp/);
+  assert.throws(() => compileContext({ messages: [{ role: 'assistant', content: [image] }] }), /暂不支持 assistant 消息中的图片/);
+
+  // 追加历史不改写既有块，图片轮次的前缀同样稳定。
+  const next = compileContext({ messages: [...messages, { role: 'assistant', content: '看到了' }], tools });
+  const after = JSON.parse(next.input).message.content;
+  assert.deepEqual(after.slice(0, 2).map(({ cache_control, ...block }) => block), blocks.map(({ cache_control, ...block }) => block));
+  assert.equal(next.metrics.systemHash, compiled.metrics.systemHash);
+  assert.equal(after.at(-1).cache_control.ttl, '5m');
+  assert.equal(after[0].cache_control, undefined);
+});
+
+test('工具图片保留归属与顺序，损坏 base64 和超量图片在启动 CLI 前拒绝', () => {
+  const image = { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' } };
+  const content = [{ type: 'text', text: '前' }, image, { type: 'text', text: '后' }, image];
+  const compiled = compileContext({ messages: [{ role: 'tool', tool_call_id: 'screenshot-1', is_error: true, content }] });
+  const blocks = JSON.parse(compiled.input).message.content;
+  const owner = JSON.parse(blocks[0].text);
+  assert.equal(owner.role, 'tool');
+  assert.equal(owner.tool_call_id, 'screenshot-1');
+  assert.equal(owner.is_error, true);
+  assert.deepEqual(owner.content.map(block => block.type), ['text', 'image_ref', 'text', 'image_ref']);
+  assert.equal(compiled.metrics.imageCount, 2);
+  assert(!blocks[0].text.includes(image.source.data));
+  for (const data of ['A', 'A=', 'A==', 'AAAA=', 'AA=A', 'AB==', 'AAB=', 'AA-_', 'AA\n==']) {
+    assert.throws(() => compileContext({ messages: [{ role: 'user', content: [{ ...image, source: { ...image.source, data } }] }] }), /base64/);
+  }
+  assert.equal(compileContext({ messages: [{ role: 'user', content: Array(100).fill(image) }] }).metrics.imageCount, 100);
+  assert.throws(() => compileContext({ messages: [{ role: 'user', content: Array(101).fill(image) }] }), /100 张/);
+});
+
+test('执行阶段沿用自定义单图上限，不退回默认 5MB', async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'gateway-image-limit-'));
+  const data = Buffer.alloc(5 * 1024 * 1024 + 1).toString('base64');
+  const request = { messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data } }] }] };
+  let spawned = 0;
+  const options = { cli: 'mock-only', home, model: 'mock', timeoutMs: 10000, spawnProcess: (_cli, _args, options) => {
+    spawned++;
+    return spawn(process.execPath, ['--input-type=module', '-e', `let raw='';for await(const chunk of process.stdin)raw+=chunk;const blocks=JSON.parse(raw).message.content;console.log(JSON.stringify({type:'result',result:String(blocks.filter(b=>b.type==='image').length)}));`], options);
+  } };
+  try {
+    await assert.rejects(infer(request, options), /超过上限/);
+    assert.equal(spawned, 0);
+    assert.equal((await infer(request, { ...options, maxImageBytes: 6 * 1024 * 1024 })).content, '1');
+  } finally { await fs.rm(home, { recursive: true, force: true }); }
 });
 
 test('动态指令保留优先级、原位引用和单份正文，嵌入角色保持为数据', () => {

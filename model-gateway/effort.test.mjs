@@ -74,6 +74,30 @@ test('升级 OMP 只改变云端模型能力，保留凭据、默认模型和其
   } finally { await fs.rm(dir, { recursive: true, force: true }); }
 });
 
+test('新建 provider 声明图片输入，升级只补齐模态且保留用户追加项', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'relay-input-import-'));
+  const file = path.join(dir, 'models.yml'), tokenFile = path.join(dir, 'token');
+  try {
+    assert.equal((await importOmp({ file, tokenFile })).created, true);
+    const created = yaml.load(await fs.readFile(file, 'utf8'));
+    for (const model of created.providers['velella-cloud'].models) assert.deepEqual(model.input, ['text', 'image']);
+
+    // 退回旧的纯文本声明并追加一个用户自定义模态，验证升级不是整体覆盖。
+    const stale = structuredClone(created);
+    stale.providers['velella-cloud'].models[0].input = ['text', 'synthetic-extra'];
+    stale.providers['velella-cloud'].models[1].input = ['text'];
+    await fs.writeFile(file, yaml.dump(stale, { lineWidth: -1 }));
+    assert.equal((await importOmp({ file, tokenFile, updateInput: true })).updated, true);
+    const current = yaml.load(await fs.readFile(file, 'utf8'));
+    assert.deepEqual(current.providers['velella-cloud'].models[0].input, ['text', 'synthetic-extra', 'image']);
+    assert.deepEqual(current.providers['velella-cloud'].models[1].input, ['text', 'image']);
+    assert.equal(current.providers['velella-cloud'].apiKey, created.providers['velella-cloud'].apiKey);
+    assert.equal((await importOmp({ file, tokenFile, updateInput: true })).updated, false);
+    // 不带任何升级标记时不触碰既有配置。
+    assert.equal((await importOmp({ file, tokenFile })).created, false);
+  } finally { await fs.rm(dir, { recursive: true, force: true }); }
+});
+
 test('思考内容不进入返回文本或工具消息', () => {
   const output = [];
   const events = new CliEvents([], text => output.push(text));

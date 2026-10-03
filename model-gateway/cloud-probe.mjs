@@ -22,6 +22,10 @@ if (nativeProtocol && !selfTest) throw new Error('原生协议验收仅允许配
 if (instructionUpdates && !selfTest) throw new Error('动态指令验收仅允许配合 --self-test 使用');
 const smallOutput = process.argv.includes('--small-output');
 if (smallOutput && !selfTest) throw new Error('小输出上限验收仅允许配合 --self-test 使用');
+const images = process.argv.includes('--images');
+if (images && !selfTest) throw new Error('图片验收仅允许配合 --self-test 使用');
+// 1x1 PNG：只用于确认图片块是否原样到达最终上游，不含任何真实画面或元数据。
+const PROBE_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==';
 const outputArgument = process.argv.find(arg => arg.startsWith('--output-tokens='));
 const probeOutputTokens = outputArgument ? Number(outputArgument.split('=')[1]) : smallOutput ? 1 : 1024;
 if (outputArgument && (!selfTest || smallOutput || !Number.isInteger(probeOutputTokens) || probeOutputTokens < 1 || probeOutputTokens > 128000)) throw new Error('输出预算验收必须配合 --self-test，取值为 1..128000，且不能与 --small-output 混用');
@@ -46,6 +50,21 @@ const mock = http.createServer(async (req, res) => {
       assert(!textBlocks.some(block => /SYNTHETIC_MID_(SYSTEM|DEVELOPER)/.test(block.text)), '历史不能重复指令正文');
     }
     assert.equal(body.max_tokens, activeRequest.max_completion_tokens ?? activeRequest.max_tokens ?? 8192, '调用方输出上限必须传递到上游');
+    if (images) {
+      // 本节回答唯一无法在本地验证的问题：官方 CLI 是否把图片块原样转发给上游。
+      const blocks = body.messages.flatMap(message => Array.isArray(message.content) ? message.content : []);
+      const imageBlocks = blocks.filter(block => block.type === 'image');
+      assert.equal(imageBlocks.length, calls === 1 ? 1 : 2, '用户附件与第二轮工具截图必须完整到达上游');
+      assert.equal(imageBlocks[0].source?.type, 'base64', '图片必须以 base64 内联到达上游');
+      assert.equal(imageBlocks[0].source?.media_type, 'image/png', '图片类型必须原样到达上游');
+      assert.equal(imageBlocks[0].source?.data, PROBE_PNG, '图片数据必须原样到达上游');
+      // base64 只能出现在图片块里：出现在文本中说明被序列化进了历史正文。
+      assert.equal(raw.split(PROBE_PNG).length - 1, imageBlocks.length, '每张图片的数据仅出现一次');
+      for (const image of imageBlocks) assert.equal(image.source.data, PROBE_PNG);
+      if (calls === 2) assert(blocks.some(block => block.type === 'text' && block.text.includes('"role":"tool"') && block.text.includes('image_ref')), '工具截图必须保留工具归属');
+      assert(!blocks.some(block => block.type === 'text' && block.text.includes(PROBE_PNG)), '图片数据不能进入文本块');
+      assert(blocks.some(block => block.type === 'text' && block.text.includes('image_ref')), '文本块必须保留图片原位引用');
+    }
     const inspection = inspectUpstream(body, activeRequest, selfTest ? previous : undefined);
     assert.deepEqual(inspection.report.cacheBreakpoint, { type: 'ephemeral', ttl: '5m' }, '缓存断点必须到达上游');
     const prompt = JSON.stringify({ system: body.system, messages: body.messages });
@@ -104,12 +123,16 @@ try {
     // 受控两轮复用调用方指令，通过临时 HTTP 端口验收，不占用正式服务。
     const request = { model: 'claude-code-sonnet', messages: [{ role: 'system', content: '合成验收固定指令' }, { role: 'user', content: '读取 proof.txt' }], tools: [{ type: 'function', function: { name: 'read', description: '读取本地文件', parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } } }], max_tokens: probeOutputTokens };
     if (instructionUpdates) request.messages.push({ role: 'system', content: 'SYNTHETIC_MID_SYSTEM' }, { role: 'developer', content: 'SYNTHETIC_MID_DEVELOPER' });
+    // 图片只放在 user 消息，与运行时支持的范围一致；两轮都携带以验证跨轮前缀稳定。
+    if (images) request.messages[1] = { role: 'user', content: [{ type: 'text', text: '读取 proof.txt' },
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: PROBE_PNG } }] };
     const invoke = async () => {
       const wire = nativeProtocol ? {
         model: request.model, max_tokens: request.max_tokens, thinking: { type: 'adaptive' }, output_config: { effort: calls ? 'low' : 'high' },
         messages: request.messages.map(message => message.role === 'tool'
           ? { role: 'user', content: [{ type: 'tool_result', tool_use_id: message.tool_call_id, content: message.content }] }
           : message.tool_calls ? { role: 'assistant', content: message.tool_calls.map(call => ({ type: 'tool_use', id: call.id, name: call.function.name, input: JSON.parse(call.function.arguments) })) } : message),
+
         tools: request.tools.map(tool => ({ name: tool.function.name, description: tool.function.description, input_schema: tool.function.parameters })),
       } : request;
       const response = await fetch(`http://127.0.0.1:${service.port}${nativeProtocol ? '/v1/messages' : '/v1/chat/completions'}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(wire), signal: AbortSignal.timeout(40000) });
@@ -122,6 +145,8 @@ try {
     const first = await invoke();
     assert.equal(first.tool_calls?.length, 1);
     request.messages.push(first, { role: 'tool', tool_call_id: first.tool_calls[0].id, content: 'OMP_CLOUD_FRP_PROOF' });
+    if (images) request.messages.at(-1).content = [{ type: 'text', text: 'OMP_CLOUD_FRP_PROOF' },
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: PROBE_PNG } }];
     if (instructionUpdates) request.messages.push({ role: 'system', content: '<total_tokens>800 tokens left</total_tokens>' });
     assert.equal((await invoke()).content, 'CLOUD_OMP_FRP_OK');
   } else await finished;

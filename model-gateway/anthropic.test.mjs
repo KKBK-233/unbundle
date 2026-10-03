@@ -9,6 +9,7 @@ import { gateway } from './server.mjs';
 import { infer } from './engine.mjs';
 import { EFFORTS } from './effort.mjs';
 import { compileContext } from './context.mjs';
+import { validateRequest } from './request.mjs';
 
 const body = { model: 'claude-code-opus', system: [{ type: 'text', text: 'CALLER_RULE' }], max_tokens: 1024,
   messages: [{ role: 'user', content: '合成请求' }], thinking: { type: 'adaptive' }, output_config: { effort: 'high' } };
@@ -38,7 +39,46 @@ test('Anthropic 保留指令和并行工具结果，拒绝无法兑现的参数'
   assert.deepEqual(JSON.parse(request.messages[4].content), { is_error: true, content: 'B' });
   for (const extra of [{ thinking: { type: 'disabled' } }, { thinking: { type: 'enabled', budget_tokens: 1000 } },
     { output_config: { format: {} } }, { temperature: 0.3 }, { tools: [null] }, { tool_choice: { type: 'any' } },
-    { messages: [{ role: 'user', content: [{ type: 'image' }] }] }]) assert.throws(() => fromAnthropic({ ...body, ...extra }), error => error.status === 400);
+    { messages: [{ role: 'user', content: [{ type: 'video' }] }] }]) assert.throws(() => fromAnthropic({ ...body, ...extra }), error => error.status === 400);
+});
+
+test('原生入口透传 user 图片，形状校验仍由上下文编译单点收口', () => {
+  const png = 'iVBORw0KGgoAAAANSUhEUg==';
+  const image = { type: 'image', source: { type: 'base64', media_type: 'image/png', data: png } };
+  const request = fromAnthropic({ ...body, messages: [{ role: 'user', content: [{ type: 'text', text: '看这张图' }, image] }] });
+  assert.deepEqual(request.messages.at(-1).content, [{ type: 'text', text: '看这张图' }, image]);
+  // 无图片的消息仍输出合并文本，既有缓存前缀不因本次改动变形。
+  assert.equal(fromAnthropic(body).messages.at(-1).content, '合成请求');
+  // 坏图片在原生入口透传，但 validateRequest 经 compileContext 仍返回 400。
+  const bad = fromAnthropic({ ...body, messages: [{ role: 'user', content: [{ type: 'image' }] }] });
+  assert.throws(() => validateRequest(bad, { maxOutputTokens: 8192 }), error => error.status === 400);
+  assert.throws(() => validateRequest(fromAnthropic({ ...body,
+    messages: [{ role: 'assistant', content: [image] }, { role: 'user', content: 'hi' }] }), { maxOutputTokens: 8192 }), /assistant 消息中的图片/);
+});
+
+test('原生工具结果支持图片，保留调用 ID、错误状态与并行结果次序', async () => {
+  const image = { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' } };
+  const wire = { ...body, messages: [{ role: 'assistant', content: ['a', 'b'].map(id => ({ type: 'tool_use', id, name: 'read', input: {} })) },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'a', is_error: true, content: [{ type: 'text', text: '截图' }, image] },
+      { type: 'tool_result', tool_use_id: 'b', content: [image] }, { type: 'text', text: '分析两张图' }] }] };
+  const request = fromAnthropic(wire);
+  assert.deepEqual(request.messages.map(message => message.role), ['system', 'assistant', 'tool', 'tool', 'user']);
+  assert.equal(request.messages[2].tool_call_id, 'a');
+  assert.equal(request.messages[2].is_error, true);
+  assert.equal(compileContext(request).metrics.imageCount, 2);
+  let executions = 0;
+  const server = await gateway({ token: 'test', port: 0, models: [{ id: body.model }], execute: async request => {
+    executions++; assert.equal(compileContext(request).metrics.imageCount, 2);
+    return { role: 'assistant', content: 'OK' };
+  } });
+  const invoke = value => fetch(`http://127.0.0.1:${server.port}/v1/messages`, { method: 'POST', headers, body: JSON.stringify(value) });
+  try {
+    assert.equal((await invoke(wire)).status, 200);
+    const bad = structuredClone(wire); bad.messages[1].content[0].content[1].source.data = 'A';
+    assert.equal((await invoke(bad)).status, 400);
+    assert.equal(executions, 1);
+    assert.equal(server.inflightBytes, 0);
+  } finally { await server.close(); }
 });
 
 test('原生接口流式文本、并行工具和缓存三桶保持一致，阶段日志不泄露内容', async () => {
