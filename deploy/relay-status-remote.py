@@ -79,6 +79,9 @@ def timings():
             lines.append(f"{rid[:8]}  {item.get('outcome')}  总耗时 {item['elapsedMs']/1000:.1f}s  上游响应 {seconds('upstream_message_start')}  首字 {seconds('first_text')}")
         else:
             lines.append(f"{rid[:8]}  最后记录 {item.get('stage')}（请求开始后 {item.get('elapsedMs',0)/1000:.1f}s；未见结束记录）")
+        progress = item.get('progress')
+        if progress:
+            lines.append(f"  事件 {progress.get('event', '?')}，发生于 {progress.get('lastEventMs',0)/1000:.1f}s；工具参数 {progress.get('toolArgumentBytes',0):,} 字节；待完成块 {progress.get('pendingTools',0)}；已观察重试 {progress.get('retryEvents',0)}")
     return lines or ['最近 24 小时没有阶段记录。']
 
 

@@ -26,6 +26,10 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
   const stops = request.stop == null ? [] : typeof request.stop === 'string' ? [request.stop] : request.stop;
   const events = new CliEvents(available, onText, stops);
   let child, timer, idleTimer, killTimer, lines, errors = '', aborted = false, timedOut = false, idleTimedOut = false, protocolError;
+  let outputBytes = 0, toolArgumentBytes = 0, upstreamMessages = 0, retryEvents = 0, mcpCalls = 0;
+  // 仅向阶段日志提供大小和计数，不记录工具名、参数、回复或凭据。
+  const observe = event => timing?.observe?.(event, { stdoutBytes: outputBytes, toolArgumentBytes, upstreamMessages, retryEvents, mcpCalls,
+    pendingTools: events.blocks.size, completedTools: events.calls.size });
   const group = process.platform !== 'win32';
   // 先温和退出，超时后终止同一进程组，避免残留进程持有输出管道。
   const kill = signalName => {
@@ -60,6 +64,7 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
       else if (body.method === 'tools/list') reply({ tools: exposedTools });
       else if (body.method === 'tools/call') {
         if (!available.some(item => item.name === body.params?.name)) { res.writeHead(400).end(); return; }
+        mcpCalls++; observe('mcp_call');
         res.on('error', () => {});
       } else if (body.id === undefined) res.writeHead(202).end();
       else reply({});
@@ -100,7 +105,6 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     if (signal?.aborted) stop();
     child.stderr.on('data', chunk => { errors = (errors + chunk).slice(-2000); });
     // 在 readline 累积超长行前限制总字节数，保护小内存服务器。
-    let outputBytes = 0;
     child.stdout.on('data', chunk => {
       outputBytes += chunk.length;
       if (outputBytes > maxCliOutputBytes && !protocolError) {
@@ -112,6 +116,11 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
       let event; try { event = JSON.parse(line); } catch { return; }
       timing?.mark('cli_first_event');
       const inner = event.type === 'stream_event' ? event.event : undefined;
+      if (inner?.type === 'message_start') upstreamMessages++;
+      if (inner?.type === 'content_block_delta' && inner.delta?.type === 'input_json_delta' && typeof inner.delta.partial_json === 'string') {
+        toolArgumentBytes += Buffer.byteLength(inner.delta.partial_json);
+      }
+      if (event.type === 'system' && event.subtype === 'api_retry') { retryEvents++; observe('api_retry'); }
       if (['message_start', 'content_block_start', 'content_block_delta', 'content_block_stop', 'message_delta', 'message_stop'].includes(inner?.type)
         || ['assistant', 'result'].includes(event.type)) refreshProgress();
       if (inner?.type === 'message_start') timing?.mark('upstream_message_start');
@@ -119,7 +128,16 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
       if (inner?.type === 'content_block_start' && inner.content_block?.type === 'tool_use') timing?.mark('first_tool');
       if (inner?.type === 'message_delta' && inner.delta?.stop_reason) timing?.mark('upstream_message_end');
       try {
+        const closesTool = inner?.type === 'content_block_stop' && events.blocks.has(inner.index);
         events.accept(event);
+        if (inner?.type === 'message_start') observe('message_start');
+        else if (inner?.type === 'content_block_start' && inner.content_block?.type === 'tool_use') observe('tool_start');
+        else if (inner?.type === 'content_block_delta') {
+          const phase = { input_json_delta: 'tool_delta', thinking_delta: 'thinking', text_delta: 'text' }[inner.delta?.type];
+          if (phase) observe(phase);
+        } else if (closesTool) observe('tool_stop');
+        else if (inner?.type === 'message_delta' && inner.delta?.stop_reason) observe('message_end');
+        else if (['assistant', 'result'].includes(event.type)) observe(event.type);
         // 输出达到调用方上限即结束，防止 CLI 自行续写超过这一轮的额度。
         if (events.outputLimitReached || events.stopSequence !== undefined) kill('SIGKILL');
         else if (events.toolEnd) terminate();
