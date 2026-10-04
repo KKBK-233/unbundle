@@ -12,6 +12,12 @@ spec.loader.exec_module(update_cli)
 
 
 class UpdateTests(unittest.TestCase):
+    def test_authentication_regression_fails_health_check(self):
+        before = {'checked': True, 'loggedIn': True}
+        self.assertTrue(update_cli.health_matches(before, before, '2.1.289'))
+        for change in [{'checked': False}, {'loggedIn': False}, {'cliVersion': '2.1.280'}]:
+            self.assertFalse(update_cli.health_matches(before, {**before, **change}, '2.1.289'))
+
     def test_busy_gateway_defers(self):
         self.assertTrue(update_cli.idle({}))
         for field in ['activeRequests', 'queuedRequests']:

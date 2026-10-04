@@ -91,6 +91,13 @@ def idle(status):
     return all(status.get(key, 0) == 0 for key in ['activeRequests', 'queuedRequests'])
 
 
+def health_matches(before, after, version):
+    # 保留登录检查状态，兼容首次加载前尚无 CLI 版本字段的网关。
+    return (after.get('checked') == before.get('checked')
+            and after.get('loggedIn') == before.get('loggedIn')
+            and after.get('cliVersion', version) == version)
+
+
 def probe(candidate, version, models):
     # 独立源码副本和临时 HOME：官方 CLI 只连回环模拟上游，不携带正式账号登录。
     with tempfile.TemporaryDirectory(prefix='cli-update-probe-', dir=STATE) as temporary:
@@ -256,8 +263,13 @@ def main():
                 os.replace(candidate, installed)
             record = {'version': latest, 'sha256': expected, 'protocol': 1, 'verifiedAt': int(time.time())}
             PHASE = 'switch'
-            switch(installed, LIVE, RECEIPT, record,
-                   lambda: run([LIVE, '--version']).split()[0] == latest and isinstance(gateway_status(), dict))
+            def healthy():
+                if run([LIVE, '--version']).split()[0] != latest:
+                    return False
+                observed = gateway_status()
+                # 健康检查还需保持认证检查结果，不能把返回 JSON 当作登录正常。
+                return health_matches(status, observed, latest)
+            switch(installed, LIVE, RECEIPT, record, healthy)
             prune(installed, previous)
             print(json.dumps({'update': 'installed', 'previous': current, 'version': latest}), flush=True)
 
