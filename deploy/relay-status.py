@@ -1,5 +1,6 @@
 """桌面只读状态报告：通过 SSH 查资源，读取本机 CC Switch 用量记录。"""
 import argparse
+from contextlib import closing
 import datetime as dt
 import json
 import pathlib
@@ -12,13 +13,22 @@ import webbrowser
 
 def cache_rows(database, hours, limit):
     # 只读连接仍能看到 WAL 中的数据；只取统计字段，不读取请求正文和密钥。
-    with sqlite3.connect(database.resolve().as_uri() + '?mode=ro', uri=True, timeout=3) as db:
+    cutoff = int(time.time() - hours * 3600)
+    with closing(sqlite3.connect(database.resolve().as_uri() + '?mode=ro', uri=True, timeout=3)) as db:
         db.row_factory = sqlite3.Row
-        rows = db.execute('''SELECT created_at, model, status_code, latency_ms,
-            input_tokens, cache_read_tokens, cache_creation_tokens, input_token_semantics
-            FROM proxy_request_logs WHERE model LIKE 'claude-code-%'
-            AND created_at >= ? ORDER BY created_at DESC LIMIT ?''',
-            (int(time.time() - hours * 3600), limit)).fetchall()
+        # 失败记录可能保留原始模型名；按同一应用及供应商关联，避免漏报或混入其他供应商。
+        rows = db.execute('''WITH relay_providers AS (
+            SELECT DISTINCT app_type, provider_id FROM proxy_request_logs
+            WHERE model LIKE 'claude-code-%' AND created_at >= ?
+        ) SELECT logs.created_at, logs.model, logs.status_code, logs.latency_ms,
+            logs.input_tokens, logs.cache_read_tokens, logs.cache_creation_tokens, logs.input_token_semantics
+            FROM proxy_request_logs AS logs WHERE logs.created_at >= ? AND (
+                logs.model LIKE 'claude-code-%' OR EXISTS (
+                    SELECT 1 FROM relay_providers AS relay
+                    WHERE relay.app_type = logs.app_type AND relay.provider_id = logs.provider_id
+                )
+            ) ORDER BY logs.created_at DESC LIMIT ?''',
+            (cutoff, cutoff, limit)).fetchall()
     return [dict(row) for row in rows]
 
 
@@ -55,9 +65,10 @@ def show_cache(args):
         stamp = dt.datetime.fromtimestamp(row['created_at']).strftime('%m-%d %H:%M:%S')
         print(f"{stamp}  {row['model']:<22} {row['status_code']:>3}  {n if n is not None else '?':>10}  {ratio:>7}  {row['latency_ms']/1000:>6.1f}s")
     if total:
-        print(f'加权命中率：{read / total:.1%}（{read:,} / {total:,} 输入 tokens，{eligible} 个成功请求）')
+        print(f'加权命中率：{read / total:.1%}（{read:,} / {total:,} 输入 tokens，{eligible} 条有用量的 2xx 记录）')
     print(f'范围：最近 {args.hours:g} 小时，最多 {args.limit} 条；进行中的请求完成后才计入。')
     print('每行是一轮模型请求，并非独立聊天；比例按 tokens 加权，不是各行百分比平均。')
+    print('流式 HTTP 200 不保证推理完成；零用量记录不能判断是否消耗了订阅额度。')
 
 
 def show_remote(args):
