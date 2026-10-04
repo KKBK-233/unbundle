@@ -19,6 +19,8 @@
 
 0.9.7 固定 `claude-code-opus` 的云端上游为 `claude-opus-5-5[1m]`，避免旧 CLI 的 `opus` 别名仍指向 Opus 5；客户端上下文预算仍为 400k。`/status` 返回实际映射供只读核对。
 
+0.9.8 固定 Sonnet 为 `claude-sonnet-5-5[1m]`，Haiku 为当前官方型号 `claude-haiku-4-5`；现有客户端模型 ID 保持可用。
+
 ## 当前范围
 
 - 单用户并发执行，默认三个推理进程与 8 个排队请求。
