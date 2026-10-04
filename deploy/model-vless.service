@@ -1,0 +1,23 @@
+[Unit]
+Description=Claude relay VLESS transport
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=harness
+Group=harness
+WorkingDirectory=/home/harness/model-gateway
+# 复用服务器已有 sing-box，只使用本服务独立配置。
+ExecStart=/opt/sb/sing-box run -c /home/harness/model-gateway/vless.json
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+MemoryMax=128M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target

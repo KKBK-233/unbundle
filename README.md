@@ -21,6 +21,8 @@
 
 0.9.8 固定 Sonnet 为 `claude-sonnet-5-5[1m]`，Haiku 为当前官方型号 `claude-haiku-4-5`；现有客户端模型 ID 保持可用。
 
+0.10.0 支持推理机与 frps 分离，并可通过本地 SOCKS 为 frp 包一层 VLESS；沿用双向 TLS、STCP 加密和本地工具执行边界。
+
 ## 当前范围
 
 - 单用户并发执行，默认三个推理进程与 8 个排队请求。

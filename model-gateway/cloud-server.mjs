@@ -49,6 +49,7 @@ function authStatus() {
 }
 const server = await gateway({ token, port, models, status: async () => ({ ...await authStatus(), busy: server.busy,
   activeRequests: server.activeRequests, queuedRequests: server.queuedRequests, maxConcurrent, maxQueued, contextWindow, upstreamModels,
+  relayHost: process.env.GATEWAY_FRP_RELAY_HOST || null,
   inputModalities: ['text', 'image'], maxRequestBytes, maxImageBytes, maxInflightBytes, inflightBytes: server.inflightBytes }), maxOutputTokens, maxConcurrent, maxQueued, queueTimeoutMs, maxRequestBytes, maxImageBytes, maxInflightBytes,
   onTiming: process.env.GATEWAY_TIMING_DIAGNOSTICS === '0' ? undefined : record => console.error(JSON.stringify(record)),
   async beforeExecute(request) {

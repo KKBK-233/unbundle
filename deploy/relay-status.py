@@ -77,7 +77,13 @@ def show_remote(args):
     ssh = ['ssh', '-F', 'NUL', '-i', str(args.identity), '-p', str(args.port),
            '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes',
            '-o', 'ConnectTimeout=10', '-o', 'ServerAliveInterval=5',
-           '-o', 'ServerAliveCountMax=2', args.target, 'python3 -']
+           '-o', 'ServerAliveCountMax=2']
+    if args.relay:
+        helper = pathlib.Path(__file__).with_name('ssh-relay-proxy.py')
+        proxy = subprocess.list2cmdline([sys.executable, str(helper), '--relay', args.relay,
+                                       '--identity', str(args.identity), '--host', '%h', '--port', '%p'])
+        ssh += ['-o', 'ProxyCommand=' + proxy]
+    ssh += [args.target, 'python3 -']
     try:
         result = subprocess.run(ssh, input=script, capture_output=True, encoding='utf-8', timeout=50)
         if result.returncode:
@@ -102,6 +108,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--target', required=True, help='SSH 用户@服务器')
     parser.add_argument('--port', type=int, default=22)
+    parser.add_argument('--relay', help='可选 SSH 中继用户@地址，私钥继续保留在本机')
     parser.add_argument('--identity', type=pathlib.Path, default=pathlib.Path.home() / '.ssh/id_rsa')
     parser.add_argument('--database', type=pathlib.Path, default=pathlib.Path.home() / '.cc-switch/cc-switch.db')
     parser.add_argument('--hours', type=float, default=24)

@@ -37,7 +37,7 @@ def resources():
              f"内存：已用 {mem['MemTotal']-mem['MemAvailable']:.0f} / {mem['MemTotal']:.0f} MiB，可用 {mem['MemAvailable']:.0f} MiB",
              f"Swap：{mem['SwapTotal']-mem['SwapFree']:.0f} / {mem['SwapTotal']:.0f} MiB",
              f'根分区：已用 {disk.used/2**30:.1f} / {disk.total/2**30:.1f} GiB，剩余 {disk.free/2**30:.1f} GiB']
-    for unit in ['velella-model-gateway', 'velella-model-frpc', 'harness-frps']:
+    for unit in ['velella-model-gateway', 'velella-model-frpc']:
         lines.append(f'{unit}：' + run(['systemctl', 'is-active', unit]))
     properties = run(['systemctl', 'show', 'velella-model-gateway', '-p', 'MemoryCurrent', '-p', 'MemoryPeak', '-p', 'NRestarts'])
     props = dict(line.split('=', 1) for line in properties.splitlines() if '=' in line)
@@ -51,6 +51,11 @@ def resources():
         request = urllib.request.Request('http://127.0.0.1:18796/status', headers={'Authorization': 'Bearer ' + token})
         with urllib.request.urlopen(request, timeout=5) as response:
             status = json.load(response)
+        if status.get('relayHost'):
+            lines.append('frps 中继：' + status['relayHost'] + '（此处未查询中继状态）')
+            lines.append('velella-model-vless：' + run(['systemctl', 'is-active', 'velella-model-vless']))
+        else:
+            lines.append('harness-frps：' + run(['systemctl', 'is-active', 'harness-frps']))
         if 'activeRequests' in status:
             lines.append(f"推理队列：运行 {status['activeRequests']} / {status['maxConcurrent']}，等待 {status['queuedRequests']} / {status['maxQueued']}")
             lines.append(f"上下文预算声明：{status.get('contextWindow', '?')} tokens（客户端须配置对应压缩阈值）")
@@ -61,7 +66,11 @@ def resources():
 
 def timings():
     # 只读取固定阶段元数据，不输出日志中的正文、身份或凭据。
-    raw = run(['journalctl', '-u', 'velella-model-gateway', '--since', '24 hours ago', '-n', '5000', '-o', 'cat', '--no-pager'])
+    journal = ['journalctl']
+    namespace = run(['systemctl', 'show', 'velella-model-gateway', '-p', 'LogNamespace', '--value'])
+    if namespace and re.fullmatch(r'[A-Za-z0-9_-]+', namespace):
+        journal.append('--namespace=' + namespace)
+    raw = run(journal + ['-u', 'velella-model-gateway', '--since', '24 hours ago', '-n', '5000', '-o', 'cat', '--no-pager'])
     requests = {}
     for line in raw.splitlines():
         try:

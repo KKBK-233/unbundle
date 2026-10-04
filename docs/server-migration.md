@@ -12,6 +12,20 @@
 6. 备份本地配置，修改 `.local/cloud.json` 的 SSH 信息和 `visitor.toml` 的 `serverAddr`。重启本次模型隧道，确认请求到达新机，再停用旧网关与发布端。
 7. 在新机执行 `bash /home/harness/app/deploy/model-login.sh`，由用户在浏览器完成官方登录。登录成功与账号通过身份验证是两个状态；收到验证要求后由账号持有人继续官方流程。
 
+## 独立中继与 VLESS 外层
+
+`cloud.json` 的 `host` 是推理机，`frpHost` 可指定另一台 frps 中继。两端 frpc 通过 VLESS 接入时，设置 `frpProxyURL` 为本机 SOCKS 地址，例如 `socks5://127.0.0.1:18470`；frpc 请求中继回环的 `127.0.0.1:18469`，frps 同样只监听回环。两端的 SOCKS 出站必须明确路由到该 frps 所在机器，不能让私有地址绕过 VLESS 直连。
+
+复用已有 VLESS 服务端、frp 证书/令牌/STCP 密钥，以及云端已有 sing-box 二进制。客户端配置只需 UUID、服务端公钥和连接参数，服务端私钥留在中继机；Claude OAuth 仍通过新机官方登录生成。双向 TLS、STCP 载荷加密和网关独立鉴权保持开启。
+
+新机安装 `model-vless.service` 时核对 `ExecStart` 的现有二进制路径，并为 frpc 增加该服务的启动依赖。代理路径下客户端与服务端均关闭 `transport.tcpMux`，两端必须一致；控制与工作连接分开建立。Windows `cloud.json` 可设置 `vlessBin`、`vlessConfig`，由原有 `start-local-frp.ps1` 同时维护两进程；不会修改用户其他 VPN 的配置。桌面状态查询增加 `--relay USER@RELAY` 即可通过中继 SSH 查询推理机，不复制 SSH 私钥。
+
+`cloud.json` 设置 `sshRelay`、`user`、`identity` 和 `sshPort` 后，可从 Windows 运行 `deploy/model-login.ps1`，通过中继打开推理机上的官方登录。用户在自己的浏览器授权；网关从认证状态布尔值检查完成情况。
+
+磁盘较小时删除本次已校验的安装包，固定 CLI 版本并关闭自动更新；使用独立服务日志空间限制，防止阶段日志长期占满磁盘。服务器只保存会话所需配置和元数据，模型请求临时文件仍在正常结束时清理。提示和工具保持稳定顺序，传输配置变化不参与提示词。
+
+本次部署为三个新服务设置 `LogNamespace=claude-relay`，独立 journald 上限 128 MiB、最长保存 7 天；用 `journalctl --namespace=claude-relay -u velella-model-gateway` 查看。桌面脚本自动读取服务的日志命名空间，原有默认空间部署仍可查询。
+
 ## 小内存机器
 
 1 核、1 GiB 可先做单会话验证，但必须实测 Claude 子进程峰值。交换空间只能缓冲内存压力，不能代替物理内存；服务空闲内存不代表长上下文推理期间的峰值。不要在这类机器上增加并发。
