@@ -19,6 +19,76 @@ def run(args, timeout=5):
     return subprocess.run(args, capture_output=True, text=True, timeout=timeout).stdout.strip()
 
 
+def read_status():
+    # 密钥仅用于本机回环查询，返回运行计数，不读取 Claude 凭据。
+    token = pathlib.Path('/home/harness/model-gateway/token').read_text().strip()
+    request = urllib.request.Request('http://127.0.0.1:18796/status', headers={'Authorization': 'Bearer ' + token})
+    with urllib.request.urlopen(request, timeout=5) as response:
+        return json.load(response)
+
+
+def activity_lines(status, records, now):
+    # 用实时队列计数交叉检查日志；历史未结束记录和存活进程不能单独证明任务仍在推进。
+    running, queued = status.get('activeRequests'), status.get('queuedRequests')
+    if not isinstance(running, int) or not isinstance(queued, int):
+        return ['任务状态：未知（网关未提供实时请求计数）。']
+    if running == 0:
+        if queued:
+            return [f'任务状态：等待调度，排队 {queued} 个请求。']
+        return ['任务状态：云端当前空闲；本地工具可能仍在执行，此处不能判断整个桌面任务已结束。']
+    lines = [f'任务状态：云端运行中 {running} 个请求，排队 {queued} 个。']
+    unfinished = [item for item in records if item.get('stage') != 'finished']
+    unfinished.sort(key=lambda item: item.get('loggedAt', 0), reverse=True)
+    for item in unfinished[:running]:
+        logged = item.get('loggedAt')
+        if not isinstance(logged, (int, float)):
+            continue
+        age = max(0, now - logged)
+        elapsed = item.get('elapsedMs', 0) / 1000 + age
+        progress = item.get('progress') or {}
+        event = progress.get('event') or item.get('stage')
+        phases = {'thinking': '思考', 'first_thinking': '思考', 'text': '输出正文', 'tool_delta': '生成工具参数',
+                  'tool_start': '开始工具调用', 'first_tool': '开始工具调用', 'tool_stop': '工具调用生成完毕',
+                  'mcp_call': '工具交接', 'api_retry': '上游重试', 'request_received': '接收请求体',
+                  'queue_started': '等待调度', 'auth_started': '检查登录', 'cli_spawned': '等待上游',
+                  'upstream_message_start': '上游已响应'}
+        phase = phases.get(event, '等待后续事件')
+        # 实际进展可能早于本条日志写入时间，按事件时间补足间隔，不把统计采集视为模型进展。
+        last_ms = progress.get('lastEventMs', item.get('elapsedMs', 0))
+        age += max(0, (item.get('elapsedMs', 0) - last_ms) / 1000)
+        recent_progress = event in ['thinking', 'first_thinking', 'text', 'tool_delta', 'tool_start', 'first_tool', 'tool_stop', 'mcp_call']
+        state = '仍在继续' if recent_progress and age <= 60 else '运行中，尚不能确认有新进展'
+        lines.append(f"  {str(item.get('requestId', '?'))[:8]}：{state}；阶段：{phase}；已运行 {elapsed:.0f} 秒；最近事件距今 {age:.0f} 秒。")
+    if not unfinished:
+        lines.append('  尚未读到对应阶段日志；稍后刷新确认。')
+    lines.append('这是云端请求快照；不代表本地隧道或整个桌面任务一定正常。')
+    return lines
+
+
+def activity():
+    journal = ['journalctl']
+    namespace = run(['systemctl', 'show', 'velella-model-gateway', '-p', 'LogNamespace', '--value'])
+    if namespace and re.fullmatch(r'[A-Za-z0-9_-]+', namespace):
+        journal.append('--namespace=' + namespace)
+    # 只看本次服务实例，避免重启前遗留的未结束日志被认作当前任务。
+    invocation = run(['systemctl', 'show', 'velella-model-gateway', '-p', 'InvocationID', '--value'])
+    if not re.fullmatch(r'[0-9a-fA-F]{32}', invocation):
+        return ['任务状态：未知（无法确认当前服务实例）。']
+    raw = run(journal + ['_SYSTEMD_INVOCATION_ID=' + invocation, '-u', 'velella-model-gateway', '--since', '24 hours ago', '-n', '5000', '-o', 'json', '--no-pager'])
+    records = {}
+    for line in raw.splitlines():
+        try:
+            envelope = json.loads(line)
+            item = json.loads(envelope['MESSAGE'])
+            if item.get('type') != 'gateway_timing':
+                continue
+            item['loggedAt'] = int(envelope['__REALTIME_TIMESTAMP']) / 1000000
+            records[item['requestId']] = item
+        except (ValueError, KeyError, TypeError):
+            continue
+    return activity_lines(read_status(), list(records.values()), time.time())
+
+
 def resources():
     # 一秒 CPU 差分；MemAvailable 包含可回收缓存，不能仅看 MemFree。
     def cpu():
@@ -49,10 +119,7 @@ def resources():
     lines.append('Claude 进程数（本次额度查询启动前）：' + str(len(run(['pgrep', '-u', 'harness', '-x', 'velella-claude']).splitlines())))
     # 网关密钥仅在本机回环请求中使用，不进入输出，也不读取 Claude OAuth 凭据。
     try:
-        token = pathlib.Path('/home/harness/model-gateway/token').read_text().strip()
-        request = urllib.request.Request('http://127.0.0.1:18796/status', headers={'Authorization': 'Bearer ' + token})
-        with urllib.request.urlopen(request, timeout=5) as response:
-            status = json.load(response)
+        status = read_status()
         cli_version = status.get('cliVersion') or run(['/usr/local/bin/velella-claude', '--version'])
         if cli_version:
             lines.append('Claude CLI：' + cli_version)
@@ -237,7 +304,7 @@ def quota_lines(text):
 
 def main():
     result = {}
-    for key, fn in [('resources', resources), ('timings', timings), ('quota', quota)]:
+    for key, fn in [('activity', activity), ('resources', resources), ('timings', timings), ('quota', quota)]:
         try:
             result[key] = fn()
         except Exception as exc:

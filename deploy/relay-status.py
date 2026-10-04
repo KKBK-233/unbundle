@@ -93,6 +93,9 @@ def show_remote(args):
     except (OSError, subprocess.TimeoutExpired, ValueError) as exc:
         print('服务器查询未完成：' + str(exc))
         return
+    print('\n【任务是否仍在继续：云端快照】')
+    for line in data.get('activity', ['任务状态：当前查询脚本未提供运行判断。']):
+        print(line)
     print('\n【服务器资源】')
     for line in data['resources']:
         print(line)

@@ -13,10 +13,12 @@ import unittest
 source = pathlib.Path(__file__).with_name('relay-status-remote.py').read_text(encoding='utf-8')
 node = next(item for item in ast.parse(source).body if isinstance(item, ast.FunctionDef) and item.name == 'quota_lines')
 ready_node = next(item for item in ast.parse(source).body if isinstance(item, ast.FunctionDef) and item.name == 'terminal_ready')
+activity_node = next(item for item in ast.parse(source).body if isinstance(item, ast.FunctionDef) and item.name == 'activity_lines')
 namespace = {'re': re}
-exec(compile(ast.Module(body=[node, ready_node], type_ignores=[]), '<quota-parser>', 'exec'), namespace)
+exec(compile(ast.Module(body=[node, ready_node, activity_node], type_ignores=[]), '<quota-parser>', 'exec'), namespace)
 quota_lines = namespace['quota_lines']
 terminal_ready = namespace['terminal_ready']
+activity_lines = namespace['activity_lines']
 
 spec = importlib.util.spec_from_file_location('relay_status', pathlib.Path(__file__).with_name('relay-status.py'))
 relay_status = importlib.util.module_from_spec(spec)
@@ -50,6 +52,42 @@ class CacheReportTests(unittest.TestCase):
                              [('claude-opus-5', 502), ('claude-code-opus', 200)])
             self.assertEqual(relay_status.input_total(found[1]), 116128)
             self.assertEqual(len(relay_status.cache_rows(database, 24, 1)), 1)
+
+
+class ActivityTests(unittest.TestCase):
+    def test_idle_does_not_promote_old_unfinished_log(self):
+        lines = activity_lines({'activeRequests': 0, 'queuedRequests': 0}, [{'stage': 'progress', 'loggedAt': 999}], 1000)
+        self.assertIn('云端当前空闲', lines[0])
+        self.assertIn('本地工具可能仍在执行', lines[0])
+
+    def test_thinking_progress_confirms_continuation(self):
+        record = {'requestId': 'abcdef1234', 'stage': 'progress', 'loggedAt': 980, 'elapsedMs': 200000,
+                  'progress': {'event': 'thinking', 'lastEventMs': 200000}}
+        lines = activity_lines({'activeRequests': 1, 'queuedRequests': 0}, [record], 1000)
+        self.assertIn('仍在继续', lines[1])
+        self.assertIn('阶段：思考', lines[1])
+        self.assertIn('已运行 220 秒', lines[1])
+        self.assertIn('距今 20 秒', lines[1])
+
+    def test_stale_progress_is_not_healthy(self):
+        record = {'stage': 'progress', 'loggedAt': 800, 'elapsedMs': 200000, 'progress': {'event': 'thinking', 'lastEventMs': 180000}}
+        lines = activity_lines({'activeRequests': 1, 'queuedRequests': 0}, [record], 1000)
+        self.assertIn('尚不能确认有新进展', lines[1])
+        self.assertIn('距今 220 秒', lines[1])
+        self.assertNotIn('仍在继续', lines[1])
+
+    def test_retry_or_process_start_does_not_prove_model_progress(self):
+        for event in ['api_retry', 'cli_spawned']:
+            lines = activity_lines({'activeRequests': 1, 'queuedRequests': 0}, [{'stage': event, 'loggedAt': 999, 'elapsedMs': 1000}], 1000)
+            self.assertNotIn('仍在继续', lines[1])
+
+    def test_multiple_requests_exclude_finished_and_support_queued(self):
+        records = [{'stage': 'finished', 'loggedAt': 999}, {'stage': 'first_tool', 'loggedAt': 998, 'elapsedMs': 2000}]
+        lines = activity_lines({'activeRequests': 1, 'queuedRequests': 2}, records, 1000)
+        self.assertIn('排队 2 个', lines[0])
+        self.assertIn('仍在继续', lines[1])
+        self.assertIn('等待调度', activity_lines({'activeRequests': 0, 'queuedRequests': 1}, [], 1000)[0])
+        self.assertIn('未知', activity_lines({}, [], 1000)[0])
 
 
 class QuotaParserTests(unittest.TestCase):
