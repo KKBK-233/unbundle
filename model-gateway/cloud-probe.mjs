@@ -24,6 +24,10 @@ const smallOutput = process.argv.includes('--small-output');
 if (smallOutput && !selfTest) throw new Error('小输出上限验收仅允许配合 --self-test 使用');
 const images = process.argv.includes('--images');
 if (images && !selfTest) throw new Error('图片验收仅允许配合 --self-test 使用');
+// 自动更新验收可以使用实际模型 ID 和缓存 TTL，仍只连接回环模拟上游。
+const cacheBreakpoint = process.argv.find(arg => arg.startsWith('--cache-ttl='))?.split('=')[1] || '5m';
+const upstreamModel = process.argv.find(arg => arg.startsWith('--upstream-model='))?.split('=')[1];
+if (!['5m', '1h'].includes(cacheBreakpoint) || ((upstreamModel || cacheBreakpoint !== '5m') && !selfTest)) throw new Error('自定义模型和缓存验收仅允许配合 --self-test 使用');
 // 1x1 PNG：只用于确认图片块是否原样到达最终上游，不含任何真实画面或元数据。
 const PROBE_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==';
 const outputArgument = process.argv.find(arg => arg.startsWith('--output-tokens='));
@@ -41,6 +45,7 @@ const mock = http.createServer(async (req, res) => {
     if (endpoint === '/v1/messages/count_tokens') { res.writeHead(200, { 'content-type': 'application/json' }).end('{"input_tokens":10}'); return; }
     if (endpoint !== '/v1/messages') { res.writeHead(200, { 'content-type': 'application/json' }).end('{}'); return; }
     const body = JSON.parse(raw); calls++;
+    if (upstreamModel) assert.equal(body.model, upstreamModel.replace(/\[1m\]$/, ''), '实际模型 ID 必须到达模拟上游');
     if (nativeProtocol) assert.equal(body.output_config?.effort, activeRequest.reasoning_effort, '桌面思考档位必须原样到达最终上游');
     if (instructionUpdates) {
       const systemText = typeof body.system === 'string' ? body.system : body.system.filter(block => block.type === 'text').map(block => block.text).join('\n');
@@ -66,7 +71,7 @@ const mock = http.createServer(async (req, res) => {
       assert(blocks.some(block => block.type === 'text' && block.text.includes('image_ref')), '文本块必须保留图片原位引用');
     }
     const inspection = inspectUpstream(body, activeRequest, selfTest ? previous : undefined);
-    assert.deepEqual(inspection.report.cacheBreakpoint, { type: 'ephemeral', ttl: '5m' }, '缓存断点必须到达上游');
+    assert.deepEqual(inspection.report.cacheBreakpoint, { type: 'ephemeral', ttl: cacheBreakpoint }, '缓存断点必须到达上游');
     const prompt = JSON.stringify({ system: body.system, messages: body.messages });
     inspection.report.environment = { homeInPrompt: prompt.includes(home), cwdInPrompt: prompt.includes(path.join(home, 'workspace')), requestDirectoryInPrompt: /request-[A-Za-z0-9]{6}/.test(prompt), promptBytes: Buffer.byteLength(prompt) };
     if (selfTest) assert(!inspection.report.environment.requestDirectoryInPrompt, '受控提示词不能夹带每轮随机请求目录');
@@ -106,12 +111,13 @@ try {
       const result = await infer(request, {
         cli,
         home,
-        model: 'synthetic-model',
+        model: upstreamModel || 'synthetic-model',
+        cacheBreakpoint,
         signal,
         onText,
         timeoutMs: 30000,
         maxOutputTokens: Math.max(8192, probeOutputTokens),
-        testUpstream: { baseUrl: `http://127.0.0.1:${mock.address().port}`, token: 'synthetic-only' },
+        testUpstream: { baseUrl: `http://127.0.0.1:${mock.address().port}`, token: 'synthetic-only', preserveModelAliases: !!upstreamModel },
       });
       if (result.content === 'CLOUD_OMP_FRP_OK' && !selfTest) setTimeout(finish, 5000);
       return result;

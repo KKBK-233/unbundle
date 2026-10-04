@@ -3,7 +3,7 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { gateway } from './server.mjs';
 import { infer } from './engine.mjs';
-import { checkCliVersion } from './cli-compat.mjs';
+import { checkCliVersion, readCliRelease } from './cli-compat.mjs';
 
 // 云端专用入口：官方 CLI 持有认证；网关仅检查登录布尔状态。
 if (process.platform !== 'linux') throw new Error('此入口只在 Linux 云服务器运行');
@@ -30,7 +30,7 @@ if (!Number.isInteger(maxOutputTokens) || maxOutputTokens < 256 || maxOutputToke
 for (const [value, min, max] of [[maxRequestBytes, 1024, 64 * 1024 * 1024], [maxImageBytes, 1024, 32 * 1024 * 1024], [maxInflightBytes, 1024, 512 * 1024 * 1024]]) {
   if (!Number.isSafeInteger(value) || value < min || value > max) throw new Error('请求体或单图字节上限无效');
 }
-await checkCliVersion(cli);
+const startupCliVersion = await checkCliVersion(cli);
 await fs.mkdir(home, { recursive: true, mode: 0o700 });
 const token = (await fs.readFile(path.join(base, 'token'), 'utf8')).trim();
 const models = ['sonnet', 'opus', 'haiku'].map(name => ({ id: `claude-code-${name}`, object: 'model', owned_by: 'velella-cloud', context_window: name === 'haiku' ? Math.min(200000, contextWindow) : contextWindow }));
@@ -47,7 +47,7 @@ function authStatus() {
     });
   });
 }
-const server = await gateway({ token, port, models, status: async () => ({ ...await authStatus(), busy: server.busy,
+const server = await gateway({ token, port, models, status: async () => ({ ...await authStatus(), cliVersion: (await readCliRelease())?.version || startupCliVersion, busy: server.busy,
   activeRequests: server.activeRequests, queuedRequests: server.queuedRequests, maxConcurrent, maxQueued, contextWindow, upstreamModels,
   relayHost: process.env.GATEWAY_FRP_RELAY_HOST || null,
   inputModalities: ['text', 'image'], maxRequestBytes, maxImageBytes, maxInflightBytes, inflightBytes: server.inflightBytes }), maxOutputTokens, maxConcurrent, maxQueued, queueTimeoutMs, maxRequestBytes, maxImageBytes, maxInflightBytes,

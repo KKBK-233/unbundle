@@ -51,6 +51,10 @@ def resources():
         request = urllib.request.Request('http://127.0.0.1:18796/status', headers={'Authorization': 'Bearer ' + token})
         with urllib.request.urlopen(request, timeout=5) as response:
             status = json.load(response)
+        cli_version = status.get('cliVersion') or run(['/usr/local/bin/velella-claude', '--version'])
+        if cli_version:
+            lines.append('Claude CLI：' + cli_version)
+            lines.append('CLI 自动更新定时器：' + run(['systemctl', 'is-active', 'velella-cli-update.timer']))
         if status.get('relayHost'):
             lines.append('frps 中继：' + status['relayHost'] + '（此处未查询中继状态）')
             lines.append('velella-model-vless：' + run(['systemctl', 'is-active', 'velella-model-vless']))
