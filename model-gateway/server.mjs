@@ -132,7 +132,11 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
           res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
           chunk({ role: 'assistant' });
         }
-        heartbeat = setInterval(() => res.write(': heartbeat\n\n'), 10000);
+        // Anthropic 入口发送原生 ping，长思考期间也能被客户端空闲检测识别。
+        heartbeat = setInterval(() => {
+          if (nativeWriter) nativeWriter.ping();
+          else res.write(': heartbeat\n\n');
+        }, 10000);
       }
       const execution = await execute(body, controller.signal, text => {
         if (text) timing.mark('first_text');

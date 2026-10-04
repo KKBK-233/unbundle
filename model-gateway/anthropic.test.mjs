@@ -116,6 +116,53 @@ test('原生接口流式文本、并行工具和缓存三桶保持一致，阶�
   } finally { await app.close(); }
 });
 
+test('原生流在无正文阶段发送可解析心跳，随后工具和用量正常结束', { timeout: 18000 }, async () => {
+  let complete;
+  const pending = new Promise(resolve => { complete = resolve; });
+  const app = await gateway({ token: 'test', port: 0, models: [{ id: body.model }], execute: () => pending });
+  const controller = new AbortController();
+  let reader;
+  try {
+    const response = await fetch(`http://127.0.0.1:${app.port}/v1/messages`, {
+      method: 'POST', headers, body: JSON.stringify({ ...body, stream: true }), signal: controller.signal,
+    });
+    reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let wire = '';
+    // 模拟模型一直思考且无正文；只认 SSE 数据事件，不把注释算作心跳。
+    while (!wire.includes('event: ping\ndata: {"type":"ping"}\n\n')) {
+      const chunk = await reader.read();
+      assert.equal(chunk.done, false);
+      wire += decoder.decode(chunk.value, { stream: true });
+    }
+    assert(!wire.includes('content_block_start'));
+    complete({ role: 'assistant', content: null,
+      tool_calls: [{ id: 'read_1', type: 'function', function: { name: 'read', arguments: '{"path":"synthetic"}' } }],
+      upstream_usage: { input_tokens: 7, output_tokens: 11, cache_read_input_tokens: 13, cache_creation_input_tokens: 17 } });
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      wire += decoder.decode(chunk.value, { stream: true });
+    }
+    const events = wire.split('\n').filter(line => line.startsWith('data: ')).map(line => JSON.parse(line.slice(6)));
+    assert.equal(events[0].type, 'message_start');
+    assert.deepEqual(events.find(event => event.type === 'ping'), { type: 'ping' });
+    const tool = events.find(event => event.type === 'content_block_start');
+    assert.equal(tool.index, 0);
+    assert.equal(tool.content_block.id, 'read_1');
+    const end = events.find(event => event.type === 'message_delta');
+    assert.equal(end.delta.stop_reason, 'tool_use');
+    assert.equal(end.usage.output_tokens, 11);
+    assert.equal(events.at(-1).type, 'message_stop');
+    assert.equal(app.activeRequests, 0);
+  } finally {
+    complete({ role: 'assistant', content: 'cleanup' });
+    controller.abort();
+    reader?.releaseLock();
+    await app.close();
+  }
+});
+
 test('Anthropic 各思考档位经过 HTTP 到达 CLI，取消和超时仍清理并记录阶段', async () => {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'native-effort-'));
   const logs = [];

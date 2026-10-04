@@ -108,6 +108,8 @@ export function anthropicWriter(res, id, model) {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
       send('message_start', { message: { id, type: 'message', role: 'assistant', model, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 0, output_tokens: 0 } } });
     },
+    // 原生客户端按解析到的事件检测空闲；SSE 注释不会产生可见事件。
+    ping() { send('ping', {}); },
     text(value) {
       if (!value) return;
       if (!openText) { send('content_block_start', { index, content_block: { type: 'text', text: '' } }); openText = true; }
