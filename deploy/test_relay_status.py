@@ -12,9 +12,11 @@ import unittest
 
 source = pathlib.Path(__file__).with_name('relay-status-remote.py').read_text(encoding='utf-8')
 node = next(item for item in ast.parse(source).body if isinstance(item, ast.FunctionDef) and item.name == 'quota_lines')
+ready_node = next(item for item in ast.parse(source).body if isinstance(item, ast.FunctionDef) and item.name == 'terminal_ready')
 namespace = {'re': re}
-exec(compile(ast.Module(body=[node], type_ignores=[]), '<quota-parser>', 'exec'), namespace)
+exec(compile(ast.Module(body=[node, ready_node], type_ignores=[]), '<quota-parser>', 'exec'), namespace)
 quota_lines = namespace['quota_lines']
+terminal_ready = namespace['terminal_ready']
 
 spec = importlib.util.spec_from_file_location('relay_status', pathlib.Path(__file__).with_name('relay-status.py'))
 relay_status = importlib.util.module_from_spec(spec)
@@ -51,6 +53,15 @@ class CacheReportTests(unittest.TestCase):
 
 
 class QuotaParserTests(unittest.TestCase):
+    def test_ready_accepts_manual_and_auto_modes(self):
+        self.assertTrue(terminal_ready('Claude Code v2.1.280\nmanual mode on\n$'))
+        self.assertTrue(terminal_ready('Claude Code v2.1.289\nauto mode on (shift+tab to cycle)\n$'))
+
+    def test_ready_rejects_trust_and_onboarding_screens(self):
+        self.assertFalse(terminal_ready('Permission Required: Accessing workspace:\nEnter y/n:'))
+        self.assertFalse(terminal_ready("Let's get started\nSelect login method"))
+        self.assertFalse(terminal_ready('auto mode on'))
+
     def test_refresh_without_titles_keeps_first_complete_snapshot(self):
         panel = '''Settings  Status
 Current session

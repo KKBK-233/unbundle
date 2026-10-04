@@ -148,7 +148,7 @@ def quota():
                 time.sleep(.3)
                 os.write(master, b'\r')
                 trusted = True
-            if not sent and b'manual mode on' in data:
+            if not sent and terminal_ready(clean_terminal(data)):
                 time.sleep(1)
                 os.write(master, b'/usage')
                 time.sleep(.4)
@@ -178,6 +178,12 @@ def clean_terminal(data):
     text = re.sub(r'\x1b\][^\x07]*(?:\x07|\x1b\\)', '', text)
     text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]|\x1b[78]', '', text)
     return re.sub(r'[\x00-\x08\x0b-\x1f\x7f]', '', text)
+
+
+def terminal_ready(text):
+    # 新版终端可显示 auto 等模式；只在官方主界面就绪后发送内置 /usage。
+    return bool(re.search(r'(?m)^Claude Code v\d+\.\d+\.\d+', text)
+                and re.search(r'(?m)^[A-Za-z][A-Za-z -]* mode on\b', text))
 
 
 def quota_lines(text):

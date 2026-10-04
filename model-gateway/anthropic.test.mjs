@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { fromAnthropic } from './anthropic.mjs';
+import { fromAnthropic, anthropicWriter } from './anthropic.mjs';
 import { gateway } from './server.mjs';
 import { infer } from './engine.mjs';
 import { EFFORTS } from './effort.mjs';
@@ -116,7 +116,7 @@ test('原生接口流式文本、并行工具和缓存三桶保持一致，阶�
   } finally { await app.close(); }
 });
 
-test('原生流在无正文阶段发送可解析心跳，随后工具和用量正常结束', { timeout: 18000 }, async () => {
+test('原生流心跳经过 SDK 的 ping 过滤后仍有事件，空正文不影响后续工具和用量', { timeout: 18000 }, async () => {
   let complete;
   const pending = new Promise(resolve => { complete = resolve; });
   const app = await gateway({ token: 'test', port: 0, models: [{ id: body.model }], execute: () => pending });
@@ -130,12 +130,11 @@ test('原生流在无正文阶段发送可解析心跳，随后工具和用量�
     const decoder = new TextDecoder();
     let wire = '';
     // 模拟模型一直思考且无正文；只认 SSE 数据事件，不把注释算作心跳。
-    while (!wire.includes('event: ping\ndata: {"type":"ping"}\n\n')) {
+    while (!wire.includes('"delta":{"type":"text_delta","text":""}')) {
       const chunk = await reader.read();
       assert.equal(chunk.done, false);
       wire += decoder.decode(chunk.value, { stream: true });
     }
-    assert(!wire.includes('content_block_start'));
     complete({ role: 'assistant', content: null,
       tool_calls: [{ id: 'read_1', type: 'function', function: { name: 'read', arguments: '{"path":"synthetic"}' } }],
       upstream_usage: { input_tokens: 7, output_tokens: 11, cache_read_input_tokens: 13, cache_creation_input_tokens: 17 } });
@@ -147,8 +146,13 @@ test('原生流在无正文阶段发送可解析心跳，随后工具和用量�
     const events = wire.split('\n').filter(line => line.startsWith('data: ')).map(line => JSON.parse(line.slice(6)));
     assert.equal(events[0].type, 'message_start');
     assert.deepEqual(events.find(event => event.type === 'ping'), { type: 'ping' });
-    const tool = events.find(event => event.type === 'content_block_start');
-    assert.equal(tool.index, 0);
+    // 与官方 SDK 一致地忽略 ping；客户端仍能收到零长度内容片段，且不会收到虚构回复。
+    const parsed = events.filter(event => event.type !== 'ping');
+    assert(parsed.some(event => event.type === 'content_block_delta' && event.delta.text === ''));
+    assert.equal(parsed.filter(event => event.type === 'content_block_delta' && event.delta.type === 'text_delta').map(event => event.delta.text).join(''), '');
+    const tool = events.find(event => event.type === 'content_block_start' && event.content_block.type === 'tool_use');
+    assert.equal(tool.index, 1);
+    assert(events.some(event => event.type === 'content_block_stop' && event.index === 0));
     assert.equal(tool.content_block.id, 'read_1');
     const end = events.find(event => event.type === 'message_delta');
     assert.equal(end.delta.stop_reason, 'tool_use');
@@ -161,6 +165,18 @@ test('原生流在无正文阶段发送可解析心跳，随后工具和用量�
     reader?.releaseLock();
     await app.close();
   }
+});
+
+test('保活与真实正文共用文本块，不重复输出或覆盖最终用量', () => {
+  const writes = [];
+  const writer = anthropicWriter({ writeHead() {}, write: value => writes.push(value), end() {} }, 'msg_test', body.model);
+  writer.start(); writer.ping(); writer.ping(); writer.text('真正的正文');
+  writer.finish({ content: '真正的正文', upstream_usage: { input_tokens: 7, output_tokens: 11 } }, 'end_turn');
+  const events = writes.map(wire => JSON.parse(wire.split('\ndata: ')[1]));
+  assert.equal(events.filter(event => event.type === 'content_block_start').length, 1);
+  assert.equal(events.filter(event => event.type === 'content_block_stop').length, 1);
+  assert.equal(events.filter(event => event.type === 'content_block_delta').map(event => event.delta.text).join(''), '真正的正文');
+  assert.equal(events.find(event => event.type === 'message_delta').usage.output_tokens, 11);
 });
 
 test('Anthropic 各思考档位经过 HTTP 到达 CLI，取消和超时仍清理并记录阶段', async () => {
