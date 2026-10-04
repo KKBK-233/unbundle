@@ -34,6 +34,8 @@ await checkCliVersion(cli);
 await fs.mkdir(home, { recursive: true, mode: 0o700 });
 const token = (await fs.readFile(path.join(base, 'token'), 'utf8')).trim();
 const models = ['sonnet', 'opus', 'haiku'].map(name => ({ id: `claude-code-${name}`, object: 'model', owned_by: 'velella-cloud', context_window: name === 'haiku' ? Math.min(200000, contextWindow) : contextWindow }));
+// 固定 Opus 的上游版本；窗口后缀避免旧 CLI 对未知型号默认压缩到 200k。
+const upstreamModels = { 'claude-code-sonnet': 'sonnet', 'claude-code-opus': 'claude-opus-5-5[1m]', 'claude-code-haiku': 'haiku' };
 function authStatus() {
   return new Promise(resolve => {
     execFile(cli, ['auth', 'status', '--json'], {
@@ -46,14 +48,14 @@ function authStatus() {
   });
 }
 const server = await gateway({ token, port, models, status: async () => ({ ...await authStatus(), busy: server.busy,
-  activeRequests: server.activeRequests, queuedRequests: server.queuedRequests, maxConcurrent, maxQueued, contextWindow,
+  activeRequests: server.activeRequests, queuedRequests: server.queuedRequests, maxConcurrent, maxQueued, contextWindow, upstreamModels,
   inputModalities: ['text', 'image'], maxRequestBytes, maxImageBytes, maxInflightBytes, inflightBytes: server.inflightBytes }), maxOutputTokens, maxConcurrent, maxQueued, queueTimeoutMs, maxRequestBytes, maxImageBytes, maxInflightBytes,
   onTiming: process.env.GATEWAY_TIMING_DIAGNOSTICS === '0' ? undefined : record => console.error(JSON.stringify(record)),
   async beforeExecute(request) {
     const auth = await authStatus();
     if (!auth.loggedIn) throw Object.assign(new Error(auth.checked ? 'AUTH_REQUIRED：请在云服务器登录 Claude Code' : 'AUTH_CHECK_FAILED：云端认证状态检查失败'), { status: 503, code: auth.checked ? 'AUTH_REQUIRED' : 'AUTH_CHECK_FAILED' });
   },
-  execute: (request, signal, onText, timing) => infer(request, { cli, home, configDir, model: request.model.slice('claude-code-'.length), signal, onText, timing,
+  execute: (request, signal, onText, timing) => infer(request, { cli, home, configDir, model: upstreamModels[request.model], signal, onText, timing,
     cacheBreakpoint: process.env.GATEWAY_CACHE_BREAKPOINT || '5m', maxImageBytes, maxOutputTokens, timeoutMs, idleTimeoutMs }),
 });
 console.log(`云端模型入口监听 127.0.0.1:${port}；工具由客户端执行`);
