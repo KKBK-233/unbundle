@@ -117,6 +117,7 @@ def quota():
     process = None
     data = b''
     sent = trusted = False
+    pending_keys = []
     try:
         process = subprocess.Popen(args, stdin=slave, stdout=slave, stderr=slave,
                                    cwd=cwd, env=dict(os.environ, TERM='xterm-256color'), start_new_session=True)
@@ -125,6 +126,10 @@ def quota():
         deadline = time.monotonic() + 28
         last_change = time.monotonic()
         while time.monotonic() < deadline and len(data) < 512 * 1024:
+            # 发键间隔继续读取并响应终端光标查询，避免阻塞 sleep 让新版界面丢失确认键。
+            while pending_keys and pending_keys[0][0] <= time.monotonic():
+                _, key = pending_keys.pop(0)
+                os.write(master, key)
             if not select.select([master], [], [], .2)[0]:
                 if b'Settings  Status' in data and time.monotonic() - last_change > 2:
                     cleaned = clean_terminal(data)
@@ -143,16 +148,12 @@ def quota():
                 os.write(master, b'\x1b[1;1R')
             # 仅信任指定的运行目录；禁用了用户设置、MCP 和内置工具。
             if not trusted and b'Enter y/n:' in data and cwd.encode() in data:
-                time.sleep(.8)
-                os.write(master, b'y')
-                time.sleep(.3)
-                os.write(master, b'\r')
+                now = time.monotonic()
+                pending_keys.extend([(now + .8, b'y'), (now + 1.8, b'\r')])
                 trusted = True
             if not sent and terminal_ready(clean_terminal(data)):
-                time.sleep(1)
-                os.write(master, b'/usage')
-                time.sleep(.4)
-                os.write(master, b'\r')
+                now = time.monotonic()
+                pending_keys.extend([(now + .8, b'/usage'), (now + 1.8, b'\r')])
                 sent = True
     finally:
         # 只清理本次查询的独立进程组，不能按进程名杀掉生产 Claude。
