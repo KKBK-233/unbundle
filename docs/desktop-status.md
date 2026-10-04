@@ -16,6 +16,12 @@ python deploy/relay-status.py --target root@YOUR_SERVER --identity "$env:USERPRO
 - **缓存**：本机 `~/.cc-switch/cc-switch.db` 只读查询 `claude-code-*` 模型，以及时间范围内同一应用、同一供应商的请求；这样失败时保留原始模型名的记录也能显示。如果范围内没有映射模型记录，就无法自动识别该供应商。每轮工具调用也会产生请求，不能等同于独立聊天。`input_token_semantics=2` 的分母是未缓存输入 + 缓存读取 + 缓存写入；值为 1 时使用总输入；未知口径、零用量和失败记录不计入加权比例。流式 HTTP 200 不保证推理完成，零用量不能证明没有消耗订阅额度。进行中的请求完成后才进入数据库。
 - **订阅额度**：在云端以 harness 用户打开官方 CLI，执行内置 `/usage`，不调用模型，不读取或转发 OAuth 凭据。官方返回加载失败、登录未初始化或界面变化时明确显示不可用，不估算剩余比例。
 
+## 时间显示
+
+额度查询显式使用服务器的 IANA 时区，由官方 CLI 显示重置时间；资源栏同时显示服务器时间和时区。部署时按服务器所在地设置，例如洛杉矶使用 `sudo timedatectl set-timezone America/Los_Angeles`，系统会自动处理夏令时。IP 定位仅作参考，机房所在地以供应商信息为准。
+
+报告标题及本机请求记录仍使用 Windows 本地时间。调整服务器时区只改变时间的显示方式，不会提前或延后订阅额度重置。
+
 ## 运行边界
 
 沿用部署的 `/home/harness/model-gateway/runtime-home`、`CLAUDE_CONFIG_DIR=/home/harness/state/runtime-home/.claude` 和 `/usr/local/bin/velella-claude`。首次终端使用需完成 CLI 初始化；额度采集目前按 2.1.277 的屏幕阅读器输出匹配。

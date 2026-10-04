@@ -37,6 +37,8 @@ def resources():
              f"内存：已用 {mem['MemTotal']-mem['MemAvailable']:.0f} / {mem['MemTotal']:.0f} MiB，可用 {mem['MemAvailable']:.0f} MiB",
              f"Swap：{mem['SwapTotal']-mem['SwapFree']:.0f} / {mem['SwapTotal']:.0f} MiB",
              f'根分区：已用 {disk.used/2**30:.1f} / {disk.total/2**30:.1f} GiB，剩余 {disk.free/2**30:.1f} GiB']
+    lines.append('服务器时间：' + run(['date', '+%Y-%m-%d %H:%M:%S %Z %z'])
+                 + '（' + run(['timedatectl', 'show', '-p', 'Timezone', '--value']) + '）')
     for unit in ['velella-model-gateway', 'velella-model-frpc']:
         lines.append(f'{unit}：' + run(['systemctl', 'is-active', unit]))
     properties = run(['systemctl', 'show', 'velella-model-gateway', '-p', 'MemoryCurrent', '-p', 'MemoryPeak', '-p', 'NRestarts'])
@@ -109,11 +111,15 @@ def quota():
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 70, 160, 0, 0))
     cwd = '/home/harness/model-gateway/runtime-home'
+    # /usage 由官方 CLI 按时区格式化；显式采用服务器设置，避免继承查询进程的旧 TZ。
+    timezone = run(['timedatectl', 'show', '-p', 'Timezone', '--value'])
     args = ['runuser', '-u', 'harness', '--', 'env', 'HOME=' + cwd,
             'CLAUDE_CONFIG_DIR=/home/harness/state/runtime-home/.claude',
             'DISABLE_AUTOUPDATER=1', 'DISABLE_TELEMETRY=1', 'DISABLE_ERROR_REPORTING=1',
             '/usr/local/bin/velella-claude', '--ax-screen-reader', '--setting-sources', '',
             '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--tools', '']
+    if timezone:
+        args.insert(args.index('env') + 1, 'TZ=' + timezone)
     process = None
     data = b''
     sent = trusted = False
