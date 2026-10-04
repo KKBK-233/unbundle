@@ -126,8 +126,8 @@ test('HTTP 接受桌面动态指令，执行层收到完整角色和原始顺序
 });
 
 test('启动只接受已验收 CLI 版本', () => {
-  assert.equal(validateCliVersion('2.1.277 (Claude Code)\n'), '2.1.277');
-  for (const output of ['2.1.278 (Claude Code)', '', 'failed: 2.1.277']) assert.throws(() => validateCliVersion(output), /未验收/);
+  assert.equal(validateCliVersion('2.1.280 (Claude Code)\n'), '2.1.280');
+  for (const output of ['2.1.277 (Claude Code)', '2.1.281 (Claude Code)', '', 'failed: 2.1.280']) assert.throws(() => validateCliVersion(output), /未验收/);
 });
 
 test('探针精确拒绝额外工具，并将提示词变化与元数据变化分开', () => {

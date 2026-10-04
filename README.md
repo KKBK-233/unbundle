@@ -23,6 +23,8 @@
 
 0.10.0 支持推理机与 frps 分离，并可通过本地 SOCKS 为 frp 包一层 VLESS；沿用双向 TLS、STCP 加密和本地工具执行边界。
 
+0.10.1 升级已验收 CLI 至 `2.1.280`；上游拒绝 `2.1.277` 请求 Opus 5.5，要求最低 `2.1.280`。新版本通过回环模拟上游的工具、图片、动态指令、1h 缓存及思考强度验收；不把模拟验收视为订阅模型权限证明。
+
 ## 当前范围
 
 - 单用户并发执行，默认三个推理进程与 8 个排队请求。
@@ -133,7 +135,7 @@ sudo bash deploy/model-login.sh
 
 只需向公网开放 frps 的 TCP 端口。模型网关只监听 `127.0.0.1:18796`，由 STCP visitor 访问。
 
-安装和服务启动只接受已验收的 Claude CLI `2.1.277`，版本清单在 `model-gateway/cli-compat.mjs`。升级 CLI 先做隔离协议验收，再更新清单。
+安装和服务启动只接受已验收的 Claude CLI `2.1.280`，版本清单在 `model-gateway/cli-compat.mjs`。升级 CLI 先做隔离协议验收，再更新清单。
 
 认证目录继续使用 `/home/harness/state/runtime-home/.claude`，运行 HOME 使用 `/home/harness/model-gateway/runtime-home`。安装脚本会创建两处目录；登录脚本与服务入口采用相同认证路径，无需移动旧 OAuth 文件。自定义 `CLAUDE_CONFIG_DIR` 时还需同步登录命令及 systemd 的可写路径。
 
