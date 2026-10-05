@@ -8,6 +8,7 @@ import { compileContext } from './context.mjs';
 import { CliEvents } from './cli-events.mjs';
 import { validateRequest } from './request.mjs';
 import { resolveEffort } from './effort.mjs';
+import { takeWireProbe } from './wire-probe.mjs';
 
 // 每轮独立进程、逐消息输入；工作目录固定，凭据继续由官方 CLI 管理。
 export async function infer(request, { cli, home, configDir = path.join(home, '.claude'), model, signal, onText, timing, timeoutMs = 600000, idleTimeoutMs = 180000, spawnProcess = spawn, testUpstream, cacheBreakpoint = '5m', maxImageBytes = 5 * 1024 * 1024, maxOutputTokens = 8192, killGraceMs = 2000, maxCliOutputBytes = 16 * 1024 * 1024 }) {
@@ -24,7 +25,11 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
   const work = await fs.mkdtemp(path.join(home, 'request-'));
   const bearer = randomBytes(32).toString('hex');
   const stops = request.stop == null ? [] : typeof request.stop === 'string' ? [request.stop] : request.stop;
-  const events = new CliEvents(available, onText, stops);
+  const probe = takeWireProbe(timing?.requestId);
+  // 取证失败不能影响转发或清理；探针不改变 CLI 参数和发送给模型的内容。
+  const probeCall = (method, ...args) => { try { probe?.[method](...args); } catch {} };
+  const events = new CliEvents(available, text => { probeCall('output', text); onText?.(text); }, stops);
+  let probeOutcome = 'completed';
   let child, timer, idleTimer, killTimer, lines, errors = '', aborted = false, timedOut = false, idleTimedOut = false, protocolError;
   let outputBytes = 0, toolArgumentBytes = 0, upstreamMessages = 0, retryEvents = 0, mcpCalls = 0;
   // 仅向阶段日志提供大小和计数，不记录工具名、参数、回复或凭据。
@@ -114,6 +119,7 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     lines = readline.createInterface({ input: child.stdout });
     lines.on('line', line => {
       let event; try { event = JSON.parse(line); } catch { return; }
+      probeCall('accept', event);
       timing?.mark('cli_first_event');
       const inner = event.type === 'stream_event' ? event.event : undefined;
       if (inner?.type === 'message_start') upstreamMessages++;
@@ -162,7 +168,11 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     }
     if (!events.receivedText) { events.emit(events.result.result || ''); events.flushText(); }
     return { role: 'assistant', content: events.text || '', ...(events.stopSequence !== undefined ? { stop_sequence: events.stopSequence } : {}), ...events.usage() };
+  } catch (error) {
+    probeOutcome = aborted ? 'cancelled' : timedOut || idleTimedOut ? 'timeout' : 'error';
+    throw error;
   } finally {
+    probeCall('finish', probeOutcome);
     clearTimeout(timer); clearTimeout(idleTimer); clearTimeout(killTimer); signal?.removeEventListener('abort', stop); lines?.close();
     kill('SIGKILL'); server.closeAllConnections();
     if (server.listening) await new Promise(resolve => server.close(resolve));
