@@ -7,11 +7,18 @@ export function createTiming(sink) {
   const start = performance.now();
   const stages = {};
   let progress;
+  let upload;
   let lastProgressReport = 0;
   let ended = false;
   const publish = record => { try { sink?.({ type: 'gateway_timing', requestId, ...record }); } catch {} };
   return {
     requestId,
+    // 仅记录上传字节数，不保存或哈希用户正文。
+    upload(receivedBytes, expectedBytes) {
+      if (ended || !Number.isSafeInteger(receivedBytes) || receivedBytes < 0) return;
+      upload = { receivedBytes };
+      if (Number.isSafeInteger(expectedBytes) && expectedBytes >= 0) upload.expectedBytes = expectedBytes;
+    },
     mark(stage) {
       if (ended || stage in stages) return;
       stages[stage] = Math.round(performance.now() - start);
@@ -36,7 +43,7 @@ export function createTiming(sink) {
     finish(outcome) {
       if (ended) return;
       ended = true;
-      publish({ stage: 'finished', outcome, elapsedMs: Math.round(performance.now() - start), stages, ...(progress ? { progress } : {}) });
+      publish({ stage: 'finished', outcome, elapsedMs: Math.round(performance.now() - start), stages, ...(progress ? { progress } : {}), ...(upload ? { upload } : {}) });
     },
   };
 }

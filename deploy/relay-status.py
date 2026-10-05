@@ -5,10 +5,34 @@ import datetime as dt
 import json
 import pathlib
 import sqlite3
+import socket
 import subprocess
 import sys
 import time
 import webbrowser
+import urllib.request
+import urllib.error
+
+
+def show_local_connection():
+    # 只检查现有回环端口和未认证的目录路由；不发送模型请求或读取密钥。
+    print('\n【本地连接】')
+    try:
+        with socket.create_connection(('127.0.0.1', 15721), timeout=2):
+            print('CC Switch：127.0.0.1:15721 正在监听。')
+    except OSError:
+        print('CC Switch：127.0.0.1:15721 无法连接；请检查程序和代理开关。')
+    try:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open('http://127.0.0.1:18796/v1/models', timeout=3) as response:
+            print(f'模型隧道：HTTP {response.status}（仅检查连通性，未调用模型）。')
+    except urllib.error.HTTPError as error:
+        if error.code == 401:
+            print('模型隧道：云端鉴权端点可达（未携带密钥，正常返回 401）。')
+        else:
+            print(f'模型隧道：返回 HTTP {error.code}，请检查连接。')
+    except (OSError, ValueError):
+        print('模型隧道：3 秒内未收到有效 HTTP 响应；端口存在不等于隧道可用。')
 
 
 def cache_rows(database, hours, limit):
@@ -124,6 +148,7 @@ def main():
         print('\n=== Claude Relay 状态 === ' + dt.datetime.now().astimezone().strftime('%Y-%m-%d %H:%M:%S %Z'))
         print('只读查询，不发送模型对话；不会重启或中断正在运行的网关。')
         show_cache(args)
+        show_local_connection()
         show_remote(args)
         if args.once:
             break

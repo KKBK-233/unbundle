@@ -4,6 +4,7 @@ import { validateRequest } from './request.mjs';
 import { fromAnthropic, anthropicContent, anthropicUsage, anthropicWriter } from './anthropic.mjs';
 import { createTiming } from './timing.mjs';
 import { scheduler } from './scheduler.mjs';
+import { readRequestBody } from './request-body.mjs';
 
 const DEFAULT_MODELS = [
   { id: 'claude-code-sonnet', object: 'model', owned_by: 'velella-cloud' },
@@ -12,9 +13,10 @@ const DEFAULT_MODELS = [
 // 模型请求独立执行；支持子智能体并发，超过进程容量时排队。
 // 入站体在排队之前就已完整解析驻留，因此队列容量必须与请求体上限一起评估：
 // 单个 32MB 请求的峰值驻留约 124MB（分片、拼接缓冲、UTF-8 字符串与解析结果同时在场）。
-export async function gateway({ token, port = 18796, execute, models = DEFAULT_MODELS, beforeExecute, status, maxOutputTokens = 8192, onTiming, maxConcurrent = 3, maxQueued = 8, queueTimeoutMs = 600000, maxRequestBytes = 32 * 1024 * 1024, maxImageBytes = 5 * 1024 * 1024, maxInflightBytes = 64 * 1024 * 1024 } = {}) {
+export async function gateway({ token, port = 18796, execute, models = DEFAULT_MODELS, beforeExecute, status, maxOutputTokens = 8192, onTiming, maxConcurrent = 3, maxQueued = 8, queueTimeoutMs = 600000, bodyIdleTimeoutMs = 30000, bodyTimeoutMs = 600000, maxRequestBytes = 32 * 1024 * 1024, maxImageBytes = 5 * 1024 * 1024, maxInflightBytes = 64 * 1024 * 1024 } = {}) {
   if (!token) throw new Error('Missing gateway token');
   if (typeof execute !== 'function') throw new Error('Missing gateway executor');
+  for (const value of [bodyIdleTimeoutMs, bodyTimeoutMs]) if (!Number.isSafeInteger(value) || value < 1 || value > 1800000) throw new Error('上传超时配置必须为 1..1800000 毫秒');
   for (const [value, min, max] of [[maxRequestBytes, 1024, 64 * 1024 * 1024], [maxImageBytes, 1024, 32 * 1024 * 1024], [maxInflightBytes, 1024, 512 * 1024 * 1024]]) {
     if (!Number.isSafeInteger(value) || value < min || value > max) throw new Error('请求体或单图字节上限无效');
   }
@@ -23,6 +25,7 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
 
   const pool = scheduler({ maxConcurrent, maxQueued, queueTimeoutMs });
   const active = new Set();
+  const receiving = new Set();
   // 入站体在排队前已完整驻留，因此按字节记账而不只按请求数准入，避免大图把进程推过 cgroup 上限。
   let inflightBytes = 0;
   const server = http.createServer(async (req, res) => {
@@ -74,33 +77,35 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
     let outcome = 'rejected', nativeWriter;
     const controller = new AbortController();
     active.add(controller);
+    receiving.add(controller);
     let heartbeat, release, reserved = 0;
-    res.on('close', () => { if (!res.writableEnded) controller.abort(); });
+    res.on('error', () => { if (!controller.signal.aborted) { timing.mark('downstream_disconnected'); controller.abort(); } });
+    res.on('close', () => { if (!res.writableEnded && !controller.signal.aborted) { timing.mark('downstream_disconnected'); controller.abort(); } });
     try {
-      const parts = []; let bytes = 0;
-      for await (const chunk of req) {
-        bytes += chunk.length;
-        if (bytes > maxRequestBytes) {
-          json(413, { error: { message: `请求体超过上限 ${Math.round(maxRequestBytes / 1024 / 1024)}MB`, code: 'REQUEST_TOO_LARGE' } });
-          return;
-        }
-        // 边读边记账：大图并发时按总字节而不是请求数拒绝，避免进程被 cgroup 终止。
-        inflightBytes += chunk.length; reserved += chunk.length;
-        if (inflightBytes > maxInflightBytes) {
-          res.setHeader('retry-after', '2');
-          json(429, { error: { message: `同时处理的请求体总量超过 ${Math.round(maxInflightBytes / 1024 / 1024)}MB，请稍后重试`, code: 'INFLIGHT_BYTES_EXCEEDED' } });
-          return;
-        }
-        parts.push(chunk);
-      }
+      const expectedBytes = req.headers['content-length'] == null ? undefined : Number(req.headers['content-length']);
+      timing.upload(0, expectedBytes);
+      let buffer = await readRequestBody(req, { idleMs: bodyIdleTimeoutMs, totalMs: bodyTimeoutMs,
+        maxBytes: maxRequestBytes, signal: controller.signal,
+        onProgress(bytes) { timing.mark('request_body_first_byte'); timing.upload(bytes, expectedBytes); },
+        reserve(bytes) {
+          // 超出总量时不先增加计数，已保留的字节统一由 finally 归还。
+          if (inflightBytes + bytes > maxInflightBytes) {
+            res.setHeader('retry-after', '2');
+            throw Object.assign(new Error('同时处理的请求体总量超过上限，请稍后重试'), { status: 429, code: 'INFLIGHT_BYTES_EXCEEDED' });
+          }
+          inflightBytes += bytes; reserved += bytes;
+        },
+      });
+      receiving.delete(controller);
+      timing.mark('request_body_complete');
       let body;
       // 大图请求的峰值驻留由同时在场的副本数决定；拼接后立即释放分片与中间串。
       try {
-        let raw = Buffer.concat(parts).toString('utf8');
-        parts.length = 0;
+        let raw = buffer.toString('utf8');
+        buffer = undefined;
         body = JSON.parse(raw);
         raw = '';
-      } catch { parts.length = 0; json(400, { error: { message: 'Invalid JSON' } }); return; }
+      } catch { buffer = undefined; json(400, { error: { message: 'Invalid JSON' } }); return; }
       if (anthropic) body = fromAnthropic(body);
       validateRequest(body, { maxOutputTokens, maxImageBytes });
       if (!models.some(model => model.id === body.model)) {
@@ -171,7 +176,15 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
       outcome = 'success';
       timing.mark('response_complete');
     } catch (error) {
-      outcome = ['INFERENCE_TIMEOUT', 'INFERENCE_IDLE_TIMEOUT'].includes(error.code) ? 'timeout' : 'error';
+      const bodyTimeout = ['REQUEST_BODY_IDLE_TIMEOUT', 'REQUEST_BODY_TIMEOUT'].includes(error.code);
+      if (bodyTimeout) timing.mark(error.code === 'REQUEST_BODY_IDLE_TIMEOUT' ? 'request_body_idle_timeout' : 'request_body_timeout');
+      if (error.code === 'REQUEST_BODY_ABORTED') timing.mark('downstream_disconnected');
+      outcome = bodyTimeout || ['INFERENCE_TIMEOUT', 'INFERENCE_IDLE_TIMEOUT'].includes(error.code) ? 'timeout' : 'error';
+      // 未收完的 HTTP 请求不能复用；先送出可读错误，再关连接，不等剩余正文。
+      if (!req.complete && !res.headersSent && !res.destroyed) {
+        res.setHeader('connection', 'close');
+        res.once('finish', () => req.socket.destroy());
+      }
       if (!controller.signal.aborted) {
         const failure = { error: { message: error.message, type: 'gateway_error', code: error.code || 'GATEWAY_ERROR' } };
         if (res.headersSent) {
@@ -182,12 +195,16 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
     } finally {
       clearInterval(heartbeat);
       active.delete(controller);
+      receiving.delete(controller);
       // 字节记账必须无条件归还，否则 413/429/断线会让在场额度永久泄漏。
       inflightBytes -= reserved; reserved = 0;
       release?.();
-      timing.finish(controller.signal.aborted ? 'cancelled' : outcome);
+      timing.finish(controller.signal.aborted || outcome === 'error' && req.aborted ? 'cancelled' : outcome);
     }
   });
+
+  // 请求体由应用按进展限时；保留 Node 的请求头保护，避免默认五分钟先返回无正文 408。
+  server.requestTimeout = 0;
 
   await new Promise((resolve, reject) => {
     server.once('error', reject);
@@ -198,6 +215,7 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
     get busy() { return active.size > 0; },
     get activeRequests() { return pool.running; },
     get queuedRequests() { return pool.queued; },
+    get receivingRequests() { return receiving.size; },
     maxConcurrent, maxQueued, maxRequestBytes, maxImageBytes, maxInflightBytes,
     get inflightBytes() { return inflightBytes; },
     async close() {

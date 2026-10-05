@@ -14,8 +14,9 @@ source = pathlib.Path(__file__).with_name('relay-status-remote.py').read_text(en
 node = next(item for item in ast.parse(source).body if isinstance(item, ast.FunctionDef) and item.name == 'quota_lines')
 ready_node = next(item for item in ast.parse(source).body if isinstance(item, ast.FunctionDef) and item.name == 'terminal_ready')
 activity_node = next(item for item in ast.parse(source).body if isinstance(item, ast.FunctionDef) and item.name == 'activity_lines')
+failure_node = next(item for item in ast.parse(source).body if isinstance(item, ast.FunctionDef) and item.name == 'failure_lines')
 namespace = {'re': re}
-exec(compile(ast.Module(body=[node, ready_node, activity_node], type_ignores=[]), '<quota-parser>', 'exec'), namespace)
+exec(compile(ast.Module(body=[node, ready_node, activity_node, failure_node], type_ignores=[]), '<quota-parser>', 'exec'), namespace)
 quota_lines = namespace['quota_lines']
 terminal_ready = namespace['terminal_ready']
 activity_lines = namespace['activity_lines']
@@ -55,6 +56,20 @@ class CacheReportTests(unittest.TestCase):
 
 
 class ActivityTests(unittest.TestCase):
+    def test_receiving_is_not_idle_or_inference(self):
+        line = activity_lines({'activeRequests': 0, 'queuedRequests': 0, 'receivingRequests': 1}, [], 1000)[0]
+        self.assertIn('正在接收', line)
+        self.assertIn('尚未进入模型推理', line)
+
+    def test_upload_and_inference_failures_are_distinguished(self):
+        fn = namespace['failure_lines']
+        before = fn({'stage': 'finished', 'outcome': 'timeout', 'stages': {'request_body_idle_timeout': 30000}, 'upload': {'receivedBytes': 123, 'expectedBytes': 500}})
+        self.assertIn('未启动模型推理', '\n'.join(before))
+        self.assertIn('123 字节', '\n'.join(before))
+        after = fn({'stage': 'finished', 'outcome': 'cancelled', 'stages': {'cli_spawned': 1000, 'downstream_disconnected': 15000}})
+        self.assertIn('可能已消耗额度', '\n'.join(after))
+        self.assertIn('无法仅凭云端区分来源', '\n'.join(after))
+
     def test_idle_does_not_promote_old_unfinished_log(self):
         lines = activity_lines({'activeRequests': 0, 'queuedRequests': 0}, [{'stage': 'progress', 'loggedAt': 999}], 1000)
         self.assertIn('云端当前空闲', lines[0])

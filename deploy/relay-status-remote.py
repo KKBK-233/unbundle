@@ -30,9 +30,12 @@ def read_status():
 def activity_lines(status, records, now):
     # 用实时队列计数交叉检查日志；历史未结束记录和存活进程不能单独证明任务仍在推进。
     running, queued = status.get('activeRequests'), status.get('queuedRequests')
+    receiving = status.get('receivingRequests', 0)
     if not isinstance(running, int) or not isinstance(queued, int):
         return ['任务状态：未知（网关未提供实时请求计数）。']
     if running == 0:
+        if receiving:
+            return [f'任务状态：正在接收 {receiving} 个请求的正文；尚未进入模型推理，排队 {queued} 个。']
         if queued:
             return [f'任务状态：等待调度，排队 {queued} 个请求。']
         return ['任务状态：云端当前空闲；本地工具可能仍在执行，此处不能判断整个桌面任务已结束。']
@@ -62,6 +65,26 @@ def activity_lines(status, records, now):
     if not unfinished:
         lines.append('  尚未读到对应阶段日志；稍后刷新确认。')
     lines.append('这是云端请求快照；不代表本地隧道或整个桌面任务一定正常。')
+    return lines
+
+
+def failure_lines(item):
+    # 只依据明确阶段区分上传失败与推理中断，不能把断线等同于用户主动取消。
+    stages = item.get('stages', {})
+    lines = []
+    upload = item.get('upload')
+    if upload:
+        lines.append(f"  请求上传：已收 {upload.get('receivedBytes', 0):,} 字节 / 预期 {upload.get('expectedBytes', '未知')} 字节。")
+    if item.get('outcome') == 'success':
+        return []
+    if 'request_body_idle_timeout' in stages or 'request_body_timeout' in stages:
+        lines.append('  原因：请求上传超时；未启动模型推理。请检查本地代理及隧道。')
+    elif 'cli_spawned' not in stages and item.get('stage') == 'finished':
+        lines.append('  本轮未启动模型推理；中断发生在上传、校验或等待阶段。')
+    if 'downstream_disconnected' in stages:
+        lines.append('  检测到下游连接断开（本地代理、隧道或客户端取消）；无法仅凭云端区分来源。')
+    if 'cli_spawned' in stages and item.get('outcome') in ['cancelled', 'timeout', 'error']:
+        lines.append('  本轮已启动 Claude；即使本地显示零用量，也可能已消耗额度。')
     return lines
 
 
@@ -164,6 +187,7 @@ def timings():
         progress = item.get('progress')
         if progress:
             lines.append(f"  事件 {progress.get('event', '?')}，发生于 {progress.get('lastEventMs',0)/1000:.1f}s；工具参数 {progress.get('toolArgumentBytes',0):,} 字节；待完成块 {progress.get('pendingTools',0)}；已观察重试 {progress.get('retryEvents',0)}")
+        lines.extend(failure_lines(item))
     return lines or ['最近 24 小时没有阶段记录。']
 
 

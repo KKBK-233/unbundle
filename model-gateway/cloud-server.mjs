@@ -19,6 +19,8 @@ const maxConcurrent = Number(process.env.GATEWAY_MAX_CONCURRENT || 3);
 // 入站体在排队前已完整驻留内存，队列容量按 32MB 请求的峰值占用收窄。
 const maxQueued = Number(process.env.GATEWAY_MAX_QUEUED || 8);
 const queueTimeoutMs = Number(process.env.GATEWAY_QUEUE_TIMEOUT_MS || 600000);
+const bodyIdleTimeoutMs = Number(process.env.GATEWAY_BODY_IDLE_TIMEOUT_MS || 30000);
+const bodyTimeoutMs = Number(process.env.GATEWAY_BODY_TIMEOUT_MS || 600000);
 const maxRequestBytes = Number(process.env.GATEWAY_MAX_REQUEST_BYTES || 32 * 1024 * 1024);
 const maxImageBytes = Number(process.env.GATEWAY_MAX_IMAGE_BYTES || 5 * 1024 * 1024);
 // 同时在场的入站体总量：按 MemoryMax=768M 反推，单份数据最多约四份副本同时存在。
@@ -48,9 +50,9 @@ function authStatus() {
   });
 }
 const server = await gateway({ token, port, models, status: async () => ({ ...await authStatus(), cliVersion: (await readCliRelease())?.version || startupCliVersion, busy: server.busy,
-  activeRequests: server.activeRequests, queuedRequests: server.queuedRequests, maxConcurrent, maxQueued, contextWindow, upstreamModels,
+  activeRequests: server.activeRequests, queuedRequests: server.queuedRequests, receivingRequests: server.receivingRequests, maxConcurrent, maxQueued, contextWindow, upstreamModels,
   relayHost: process.env.GATEWAY_FRP_RELAY_HOST || null,
-  inputModalities: ['text', 'image'], maxRequestBytes, maxImageBytes, maxInflightBytes, inflightBytes: server.inflightBytes }), maxOutputTokens, maxConcurrent, maxQueued, queueTimeoutMs, maxRequestBytes, maxImageBytes, maxInflightBytes,
+  inputModalities: ['text', 'image'], maxRequestBytes, maxImageBytes, maxInflightBytes, inflightBytes: server.inflightBytes }), maxOutputTokens, maxConcurrent, maxQueued, queueTimeoutMs, bodyIdleTimeoutMs, bodyTimeoutMs, maxRequestBytes, maxImageBytes, maxInflightBytes,
   onTiming: process.env.GATEWAY_TIMING_DIAGNOSTICS === '0' ? undefined : record => console.error(JSON.stringify(record)),
   async beforeExecute(request) {
     const auth = await authStatus();
