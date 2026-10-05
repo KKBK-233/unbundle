@@ -29,6 +29,8 @@
 
 ## 当前范围
 
+0.11.10 增加[空输出预算止损](docs/empty-output-guard.md)：预算耗尽且无正文、无工具时明确结束，拦截相同失败请求重发和已知空回复自动续接，避免再次启动上游。
+
 - 单用户并发执行，默认三个推理进程与 8 个排队请求。
 - `/v1/models`、`/v1/chat/completions`、`/v1/messages` 和 `/status`。
 - 流式文本与 function tool calls。

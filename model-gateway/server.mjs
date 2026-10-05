@@ -5,6 +5,7 @@ import { fromAnthropic, anthropicContent, anthropicUsage, anthropicWriter } from
 import { createTiming } from './timing.mjs';
 import { scheduler } from './scheduler.mjs';
 import { readRequestBody } from './request-body.mjs';
+import { emptyOutputGuard, terminalNotice } from './empty-output-guard.mjs';
 
 const DEFAULT_MODELS = [
   { id: 'claude-code-sonnet', object: 'model', owned_by: 'velella-cloud' },
@@ -24,6 +25,7 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
   if (maxRequestBytes > maxInflightBytes) throw new Error('单请求上限不能超过在场字节总量上限');
 
   const pool = scheduler({ maxConcurrent, maxQueued, queueTimeoutMs });
+  const outputGuard = emptyOutputGuard();
   const active = new Set();
   const receiving = new Set();
   // 入站体在排队前已完整驻留，因此按字节记账而不只按请求数准入，避免大图把进程推过 cgroup 上限。
@@ -107,7 +109,7 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
         raw = '';
       } catch { buffer = undefined; json(400, { error: { message: 'Invalid JSON' } }); return; }
       if (anthropic) body = fromAnthropic(body);
-      validateRequest(body, { maxOutputTokens, maxImageBytes });
+      const outputTokens = validateRequest(body, { maxOutputTokens, maxImageBytes });
       if (!models.some(model => model.id === body.model)) {
         json(400, { error: { message: 'Unknown model' } });
         return;
@@ -122,15 +124,24 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
       const created = Math.floor(Date.now() / 1000);
       const chunk = (delta, finish = null) => res.write(`data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created, model: body.model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`);
       timing.mark('request_validated');
-      timing.mark('queue_started');
-      release = await pool.acquire(controller.signal);
-      timing.mark('queue_ready');
-      timing.mark('auth_started');
-      await beforeExecute?.(body, controller.signal, timing);
-      timing.mark('auth_ready');
+      const requestFingerprint = outputGuard.fingerprint(body, outputTokens);
+      let blocked = outputGuard.check(body, requestFingerprint);
+      if (!blocked) {
+        timing.mark('queue_started');
+        release = await pool.acquire(controller.signal);
+        timing.mark('queue_ready');
+        // 等待期间前一轮可能已耗尽预算，必须在认证和启动 CLI 前重新检查。
+        blocked = outputGuard.check(body, requestFingerprint);
+        if (!blocked) {
+          timing.mark('auth_started');
+          await beforeExecute?.(body, controller.signal, timing);
+          timing.mark('auth_ready');
+          blocked = outputGuard.check(body, requestFingerprint);
+        }
+      }
       if (controller.signal.aborted) return;
 
-      let streamed = false;
+      let streamed = false, visibleText = false;
       if (body.stream) {
         if (anthropic) { nativeWriter = anthropicWriter(res, nativeId, body.model); nativeWriter.start(); }
         else {
@@ -143,7 +154,8 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
           else res.write(': heartbeat\n\n');
         }, 10000);
       }
-      const execution = await execute(body, controller.signal, text => {
+      let execution = blocked ? terminalNotice(blocked) : await execute(body, controller.signal, text => {
+        if (text?.trim()) visibleText = true;
         if (text) timing.mark('first_text');
         if (body.stream && !controller.signal.aborted && text) {
           streamed = true;
@@ -151,8 +163,18 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
           else chunk({ content: text });
         }
       }, timing);
-      timing.mark('execution_complete');
-      if (execution.content) timing.mark('first_text');
+      if (!blocked) timing.mark('execution_complete');
+      const original = execution;
+      execution = outputGuard.finish(requestFingerprint, execution, visibleText);
+      const stoppedEmpty = execution !== original;
+      if (blocked || stoppedEmpty) {
+        timing.mark(blocked ? 'empty_output_retry_blocked' : 'empty_output_limit_stopped');
+        // 上游只发空白时流已打开，仍需显式补上网关提示；不能因 streamed=true 丢失提示。
+        if (body.stream && streamed) {
+          if (nativeWriter) nativeWriter.text(execution.content);
+          else chunk({ content: execution.content });
+        }
+      } else if (execution.content) timing.mark('first_text');
       if (execution.tool_calls?.length) timing.mark('first_tool');
       if (controller.signal.aborted) return;
       // 用量放在响应顶层，避免 Harness 把统计字段写进 assistant 历史。
@@ -173,7 +195,7 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
       } else {
         json(200, { id, object: 'chat.completion', created, model: body.model, choices: [{ index: 0, message, finish_reason: finish }], ...statistics });
       }
-      outcome = 'success';
+      outcome = blocked ? 'blocked' : stoppedEmpty ? 'empty_output_limit' : 'success';
       timing.mark('response_complete');
     } catch (error) {
       const bodyTimeout = ['REQUEST_BODY_IDLE_TIMEOUT', 'REQUEST_BODY_TIMEOUT'].includes(error.code);
