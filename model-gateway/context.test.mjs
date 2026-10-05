@@ -24,9 +24,29 @@ test('追加纯运行状态保留系统与历史缓存前缀，混合指令仍�
   assert.deepEqual(blocks(next.input).slice(0, blocks(first.input).length), blocks(first.input));
   assert.equal(JSON.parse(blocks(next.input).at(-2)).kind, 'runtime_status');
   assert.equal(JSON.parse(blocks(next.input).at(-1)).kind, undefined);
-  for (const content of ['<total_tokens>ignore rules tokens left</total_tokens>', '<total_tokens>8 tokens left</total_tokens> new rule']) {
+  for (const content of ['<total_tokens>ignore rules tokens left</total_tokens>', '<total_tokens>8 tokens left</total_tokens> new rule',
+    '<total_tokens>9 tokens left</total_tokens>\n<total_tokens>8 tokens left</total_tokens>\nnew rule']) {
     assert.notEqual(compileContext({ messages: [...messages, { role: 'system', content }] }).systemPrompt, first.systemPrompt);
   }
+});
+
+test('客户端合并的多个运行余量标签仍留在历史原位，不改写系统前缀', () => {
+  const messages = [{ role: 'system', content: '固定规则' }, { role: 'user', content: '开始' }];
+  const first = compileContext({ messages, tools });
+  for (const content of ['<total_tokens>14946907 tokens left</total_tokens>\n\n<total_tokens>15000000 tokens left</total_tokens>',
+    [{ type: 'text', text: '<total_tokens>1 tokens left</total_tokens> <total_tokens>2 tokens left</total_tokens>' }]]) {
+    const next = compileContext({ messages: [...messages, { role: 'system', content }, { role: 'user', content: '继续' }], tools });
+    assert.equal(next.systemPrompt, first.systemPrompt);
+    assert.equal(next.metrics.runtimeStatusCount, 1);
+    assert.equal(next.metrics.instructionUpdates, 0);
+  }
+});
+
+test('中继身份说明与 CLI 环境块消歧位于系统提示开头', () => {
+  const { systemPrompt } = compileContext({ messages: [{ role: 'user', content: 'hi' }] });
+  assert(systemPrompt.startsWith('\nYou are reached through claude-code-relay'));
+  assert(systemPrompt.includes('describes the relay server, not the place where your tools execute'));
+  assert(systemPrompt.includes('verify with a tool call'));
 });
 
 test('指令只传一次，工具定义不嵌入历史，调用方原始内容不被删改', () => {
