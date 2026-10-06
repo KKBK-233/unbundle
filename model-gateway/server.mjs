@@ -7,6 +7,7 @@ import { scheduler } from './scheduler.mjs';
 import { readRequestBody } from './request-body.mjs';
 import { emptyOutputGuard, terminalNotice } from './empty-output-guard.mjs';
 import { sessionQuotaGuard } from './session-quota-guard.mjs';
+import { gatewayError } from './gateway-error.mjs';
 
 const DEFAULT_MODELS = [
   { id: 'claude-code-sonnet', object: 'model', owned_by: 'velella-cloud' },
@@ -35,26 +36,33 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
   const server = http.createServer(async (req, res) => {
     // 原生客户端会附加 beta 查询参数；路由只匹配路径，不能将查询串当作模型错误。
     const pathname = req.url.split('?', 1)[0];
+    const anthropic = pathname === '/v1/messages';
     if (process.env.GATEWAY_DIAGNOSTICS === '1') {
       console.log(req.method, req.url);
       res.on('finish', () => console.log('HTTP', res.statusCode));
     }
 
-    const supplied = Buffer.from(req.headers.authorization || (req.headers['x-api-key'] ? `Bearer ${req.headers['x-api-key']}` : ''));
-    const expected = Buffer.from(`Bearer ${token}`);
-    if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
-      res.writeHead(401).end();
-      return;
-    }
-    if (req.headers.origin) {
-      res.writeHead(403).end();
-      return;
-    }
-
+    // 所有 JSON 错误都带稳定诊断码；Anthropic 使用原生错误外层，成功响应不经过转换。
     const json = (statusCode, value) => {
+      if (value.error) {
+        const failure = gatewayError({ ...value.error, status: statusCode });
+        statusCode = failure.status;
+        value = { ...(anthropic ? { type: 'error' } : {}), error: failure.error };
+      }
       if (!res.headersSent) res.writeHead(statusCode, { 'content-type': 'application/json' });
       res.end(JSON.stringify(value));
     };
+    const supplied = Buffer.from(req.headers.authorization || (req.headers['x-api-key'] ? `Bearer ${req.headers['x-api-key']}` : ''));
+    const expected = Buffer.from(`Bearer ${token}`);
+    if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
+      json(401, { error: { message: '中继访问令牌无效', code: 'INVALID_GATEWAY_TOKEN' } });
+      return;
+    }
+    if (req.headers.origin) {
+      json(403, { error: { message: '不允许浏览器跨域调用中继', code: 'ORIGIN_REJECTED' } });
+      return;
+    }
+
     if (req.method === 'GET' && pathname === '/v1/models') {
       json(200, { object: 'list', data: models });
       return;
@@ -64,9 +72,8 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
       catch { json(503, { error: { code: 'STATUS_UNAVAILABLE', message: '无法检查云端登录状态' } }); }
       return;
     }
-    const anthropic = pathname === '/v1/messages';
     if (req.method !== 'POST' || (!anthropic && pathname !== '/v1/chat/completions')) {
-      json(404, { error: { message: 'Not found' } });
+      json(404, { error: { message: 'Not found', code: 'ROUTE_NOT_FOUND' } });
       return;
     }
     if (active.size >= maxConcurrent + maxQueued) {
@@ -109,15 +116,15 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
         buffer = undefined;
         body = JSON.parse(raw);
         raw = '';
-      } catch { buffer = undefined; json(400, { error: { message: 'Invalid JSON' } }); return; }
+      } catch { buffer = undefined; json(400, { error: { message: 'Invalid JSON', code: 'INVALID_JSON' } }); return; }
       if (anthropic) body = fromAnthropic(body);
       const outputTokens = validateRequest(body, { maxOutputTokens, maxImageBytes });
       if (!models.some(model => model.id === body.model)) {
-        json(400, { error: { message: 'Unknown model' } });
+        json(400, { error: { message: 'Unknown model', code: 'UNKNOWN_MODEL' } });
         return;
       }
       if (!Array.isArray(body.messages)) {
-        json(400, { error: { message: 'messages must be an array' } });
+        json(400, { error: { message: 'messages must be an array', code: 'INVALID_REQUEST' } });
         return;
       }
 
@@ -223,11 +230,11 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
         res.once('finish', () => req.socket.destroy());
       }
       if (!controller.signal.aborted) {
-        const failure = { error: { message: error.message, type: 'gateway_error', code: error.code || 'GATEWAY_ERROR' } };
+        const failure = gatewayError(error);
         if (res.headersSent) {
           if (nativeWriter) nativeWriter.error(error);
-          else { res.write(`data: ${JSON.stringify(failure)}\n\n`); res.end(); }
-        } else json(error.status || 502, failure);
+          else { res.write(`data: ${JSON.stringify({ error: failure.error })}\n\n`); res.end(); }
+        } else json(failure.status, { error: failure.error });
       }
     } finally {
       clearInterval(heartbeat);

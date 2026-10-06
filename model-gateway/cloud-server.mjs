@@ -56,7 +56,7 @@ const server = await gateway({ token, port, models, status: async () => ({ ...aw
   onTiming: process.env.GATEWAY_TIMING_DIAGNOSTICS === '0' ? undefined : record => console.error(JSON.stringify(record)),
   async beforeExecute(request) {
     const auth = await authStatus();
-    if (!auth.loggedIn) throw Object.assign(new Error(auth.checked ? 'AUTH_REQUIRED：请在云服务器登录 Claude Code' : 'AUTH_CHECK_FAILED：云端认证状态检查失败'), { status: 503, code: auth.checked ? 'AUTH_REQUIRED' : 'AUTH_CHECK_FAILED' });
+    if (!auth.loggedIn) throw Object.assign(new Error(auth.checked ? 'AUTH_REQUIRED：请在云服务器登录 Claude Code' : 'AUTH_CHECK_FAILED：云端认证状态检查失败'), { status: auth.checked ? 401 : 503, code: auth.checked ? 'AUTH_REQUIRED' : 'AUTH_CHECK_FAILED' });
   },
   execute: (request, signal, onText, timing) => infer(request, { cli, home, configDir, model: upstreamModels[request.model], signal, onText, timing,
     cacheBreakpoint: process.env.GATEWAY_CACHE_BREAKPOINT || '5m', maxImageBytes, maxOutputTokens, timeoutMs, idleTimeoutMs }),

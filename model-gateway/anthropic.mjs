@@ -1,3 +1,5 @@
+import { gatewayError } from './gateway-error.mjs';
+
 const fail = message => { throw Object.assign(new Error(message), { status: 400, code: 'UNSUPPORTED_PARAMETER' }); };
 
 // Anthropic 文本与工具协议转换，指令角色保持原位，工具执行仍归调用方。
@@ -132,6 +134,6 @@ export function anthropicWriter(res, id, model) {
       send('message_delta', { delta: { stop_reason: reason, stop_sequence: execution.stop_sequence ?? null }, usage: anthropicUsage(execution) });
       send('message_stop', {}); res.end();
     },
-    error(error) { send('error', { error: { type: 'api_error', message: error.message } }); res.end(); },
+    error(error) { send('error', { error: gatewayError(error).error }); res.end(); },
   };
 }

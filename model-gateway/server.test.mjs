@@ -88,7 +88,7 @@ test('登录错误先返回状态码，流式片段在执行完成前到达且�
  const body=content=>JSON.stringify({model:'claude-code-sonnet',messages:[{role:'user',content}],stream:true});
  try{
   const denied=await fetch(base+'/v1/chat/completions',{method:'POST',headers,body:body('auth')});
-  assert.equal(denied.status,503);assert.equal((await denied.json()).error.code,'AUTH_REQUIRED');
+  assert.equal(denied.status,401);assert.equal((await denied.json()).error.code,'AUTH_REQUIRED');
   const response=await fetch(base+'/v1/chat/completions',{method:'POST',headers,body:body('stream')});await began;
   const reader=response.body.getReader();let output='';
   while(!output.includes('FIRST')){const part=await reader.read();assert(!part.done);output+=new TextDecoder().decode(part.value);}

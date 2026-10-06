@@ -35,6 +35,8 @@
 
 0.11.12 修正账户会话额度耗尽被包装为 502 后反复重试的问题，返回明确终止提示；在上游可确认的重置时间前拦截新会话请求，详见[额度止损](docs/session-quota-guard.md)。
 
+0.11.13 云端明确未登录返回 401，认证检查失败保留 503；JSON 和 SSE 共用错误分类，并保留诊断码。详见[错误处理](docs/gateway-errors.md)。
+
 - 单用户并发执行，默认三个推理进程与 8 个排队请求。
 - `/v1/models`、`/v1/chat/completions`、`/v1/messages` 和 `/status`。
 - 流式文本与 function tool calls。

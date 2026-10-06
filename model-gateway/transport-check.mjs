@@ -18,7 +18,7 @@ const status = await (await fetch(base + '/status', { headers })).json();
 assert.equal(status.checked, true);
 if (!status.loggedIn) {
   const response = await fetch(base + '/v1/chat/completions', { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ model: 'claude-code-sonnet', messages: [{ role: 'user', content: 'auth-check' }], stream: true }) });
-  assert.equal(response.status, 503);
+  assert.equal(response.status, 401);
   assert.equal((await response.json()).error.code, 'AUTH_REQUIRED');
 }
 const ca = await fs.readFile(path.join(root, '.local/frp/pki/ca.crt'));
