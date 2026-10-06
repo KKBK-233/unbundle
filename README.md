@@ -39,6 +39,8 @@
 
 0.11.14 修正拒绝未完成上传时立即销毁连接造成的 Windows `ECONNRESET`，确保客户端先收到完整的超时或超限错误正文。
 
+0.11.15 补齐客户端请求方向断开时的取消监听，避免中途插话后旧推理继续占用执行槽。
+
 - 单用户并发执行，默认三个推理进程与 8 个排队请求。
 - `/v1/models`、`/v1/chat/completions`、`/v1/messages` 和 `/status`。
 - 流式文本与 function tool calls。

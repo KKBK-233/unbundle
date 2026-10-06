@@ -20,8 +20,11 @@ test('小输出上限原样传递，非法额度仍返回 400', async () => {
  } finally { await server.close(); }
 });
 test('模型入口认证、显式关闭队列与断线取消',async()=>{
- let started,aborted;const began=new Promise(r=>started=r),stopped=new Promise(r=>aborted=r);
- const server=await gateway({token:'test-secret',port:0,maxConcurrent:1,maxQueued:0,execute:async(_body,signal)=>{started();await new Promise(resolve=>signal.addEventListener('abort',()=>{aborted();resolve();},{once:true}));return {role:'assistant',content:'stopped'};}});
+ let started,aborted,calls=0;const began=new Promise(r=>started=r),stopped=new Promise(r=>aborted=r);
+ const server=await gateway({token:'test-secret',port:0,maxConcurrent:1,maxQueued:0,execute:async(_body,signal)=>{
+  calls++; if(calls>1)return {role:'assistant',content:'resumed'};
+  started();await new Promise(resolve=>signal.addEventListener('abort',()=>{aborted();resolve();},{once:true}));return {role:'assistant',content:'stopped'};
+ }});
  const base=`http://127.0.0.1:${server.port}`;const headers={Authorization:'Bearer test-secret','content-type':'application/json'};
  try{
   assert.equal((await fetch(base+'/v1/models')).status,401);
@@ -32,6 +35,10 @@ test('模型入口认证、显式关闭队列与断线取消',async()=>{
   const rejection=assert.rejects(pending,/abort/i);await began;
   assert.equal((await fetch(base+'/v1/chat/completions',{method:'POST',headers,body})).status,429);
   controller.abort();await rejection;await stopped;
+  // 打断后必须释放执行槽；下一条插话请求不能被旧请求永久占住。
+  for (let i = 0; i < 100 && server.activeRequests; i++) await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(server.activeRequests, 0);
+  assert.equal((await fetch(base+'/v1/chat/completions',{method:'POST',headers,body})).status, 200);
  }finally{await server.close();}
 });
 

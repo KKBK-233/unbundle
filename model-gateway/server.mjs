@@ -90,8 +90,14 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
     active.add(controller);
     receiving.add(controller);
     let heartbeat, release, reserved = 0;
-    res.on('error', () => { if (!controller.signal.aborted) { timing.mark('downstream_disconnected'); controller.abort(); } });
-    res.on('close', () => { if (!res.writableEnded && !controller.signal.aborted) { timing.mark('downstream_disconnected'); controller.abort(); } });
+    // 客户端可能先关闭请求方向、再关闭响应方向；两条路径都要及时取消上游 CLI，避免插话后旧请求继续占用资源。
+    const abortFromClient = () => {
+      if (!controller.signal.aborted && !res.writableEnded) { timing.mark('downstream_disconnected'); controller.abort(); }
+    };
+    req.on('aborted', abortFromClient);
+    req.on('error', abortFromClient);
+    res.on('error', abortFromClient);
+    res.on('close', abortFromClient);
     try {
       const expectedBytes = req.headers['content-length'] == null ? undefined : Number(req.headers['content-length']);
       timing.upload(0, expectedBytes);
@@ -239,6 +245,10 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
       }
     } finally {
       clearInterval(heartbeat);
+      req.off('aborted', abortFromClient);
+      req.off('error', abortFromClient);
+      res.off('error', abortFromClient);
+      res.off('close', abortFromClient);
       active.delete(controller);
       receiving.delete(controller);
       // 字节记账必须无条件归还，否则 413/429/断线会让在场额度永久泄漏。
