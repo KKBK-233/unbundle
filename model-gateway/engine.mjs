@@ -9,6 +9,7 @@ import { CliEvents } from './cli-events.mjs';
 import { validateRequest } from './request.mjs';
 import { resolveEffort } from './effort.mjs';
 import { takeWireProbe } from './wire-probe.mjs';
+import { sessionQuotaFailure } from './session-quota-guard.mjs';
 
 // 每轮独立进程、逐消息输入；工作目录固定，凭据继续由官方 CLI 管理。
 export async function infer(request, { cli, home, configDir = path.join(home, '.claude'), model, signal, onText, timing, timeoutMs = 600000, idleTimeoutMs = 180000, spawnProcess = spawn, testUpstream, cacheBreakpoint = '5m', maxImageBytes = 5 * 1024 * 1024, maxOutputTokens = 8192, killGraceMs = 2000, maxCliOutputBytes = 16 * 1024 * 1024 }) {
@@ -164,6 +165,9 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     if (events.calls.size || events.toolEnd) throw new Error('CLI 工具消息不完整，未返回部分调用');
     if (code !== 0 || !events.result || events.result.is_error) {
       const detail = events.result?.result || errors;
+      // 明确的账户额度错误交给服务层终止重试；不从模型正文或任意 stderr 猜测额度。
+      const quota = events.result?.is_error && sessionQuotaFailure(events.result.result, events.usage());
+      if (quota) throw quota;
       throw new Error((testUpstream ? String(detail || '').replaceAll(testUpstream.token, '[REDACTED]') : detail) || 'Claude 推理未完成');
     }
     if (!events.receivedText) { events.emit(events.result.result || ''); events.flushText(); }

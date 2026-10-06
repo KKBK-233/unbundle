@@ -6,6 +6,7 @@ import { createTiming } from './timing.mjs';
 import { scheduler } from './scheduler.mjs';
 import { readRequestBody } from './request-body.mjs';
 import { emptyOutputGuard, terminalNotice } from './empty-output-guard.mjs';
+import { sessionQuotaGuard } from './session-quota-guard.mjs';
 
 const DEFAULT_MODELS = [
   { id: 'claude-code-sonnet', object: 'model', owned_by: 'velella-cloud' },
@@ -26,6 +27,7 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
 
   const pool = scheduler({ maxConcurrent, maxQueued, queueTimeoutMs });
   const outputGuard = emptyOutputGuard();
+  const quotaGuard = sessionQuotaGuard();
   const active = new Set();
   const receiving = new Set();
   // 入站体在排队前已完整驻留，因此按字节记账而不只按请求数准入，避免大图把进程推过 cgroup 上限。
@@ -125,18 +127,21 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
       const chunk = (delta, finish = null) => res.write(`data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created, model: body.model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`);
       timing.mark('request_validated');
       const requestFingerprint = outputGuard.fingerprint(body, outputTokens);
-      let blocked = outputGuard.check(body, requestFingerprint);
+      let quotaBlocked = quotaGuard.check();
+      let blocked = quotaBlocked || outputGuard.check(body, requestFingerprint);
       if (!blocked) {
         timing.mark('queue_started');
         release = await pool.acquire(controller.signal);
         timing.mark('queue_ready');
         // 等待期间前一轮可能已耗尽预算，必须在认证和启动 CLI 前重新检查。
-        blocked = outputGuard.check(body, requestFingerprint);
+        quotaBlocked = quotaGuard.check();
+        blocked = quotaBlocked || outputGuard.check(body, requestFingerprint);
         if (!blocked) {
           timing.mark('auth_started');
           await beforeExecute?.(body, controller.signal, timing);
           timing.mark('auth_ready');
-          blocked = outputGuard.check(body, requestFingerprint);
+          quotaBlocked = quotaGuard.check();
+          blocked = quotaBlocked || outputGuard.check(body, requestFingerprint);
         }
       }
       if (controller.signal.aborted) return;
@@ -154,7 +159,8 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
           else res.write(': heartbeat\n\n');
         }, 10000);
       }
-      let execution = blocked ? terminalNotice(blocked) : await execute(body, controller.signal, text => {
+      let quotaStopped = false;
+      const emitText = text => {
         if (text?.trim()) visibleText = true;
         if (text) timing.mark('first_text');
         if (body.stream && !controller.signal.aborted && text) {
@@ -162,13 +168,22 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
           if (nativeWriter) nativeWriter.text(text);
           else chunk({ content: text });
         }
-      }, timing);
+      };
+      let execution;
+      try {
+        execution = blocked ? terminalNotice(blocked) : await execute(body, controller.signal, emitText, timing);
+      } catch (error) {
+        const notice = quotaGuard.record(error);
+        // 已输出正文时保留原错误，不把部分任务伪装成完整的额度提示；后续请求仍受冷却保护。
+        if (!notice || visibleText) throw error;
+        quotaStopped = true; execution = notice;
+      }
       if (!blocked) timing.mark('execution_complete');
       const original = execution;
       execution = outputGuard.finish(requestFingerprint, execution, visibleText);
       const stoppedEmpty = execution !== original;
-      if (blocked || stoppedEmpty) {
-        timing.mark(blocked ? 'empty_output_retry_blocked' : 'empty_output_limit_stopped');
+      if (blocked || stoppedEmpty || quotaStopped) {
+        timing.mark(quotaBlocked ? 'session_quota_retry_blocked' : quotaStopped ? 'session_quota_stopped' : blocked ? 'empty_output_retry_blocked' : 'empty_output_limit_stopped');
         // 上游只发空白时流已打开，仍需显式补上网关提示；不能因 streamed=true 丢失提示。
         if (body.stream && streamed) {
           if (nativeWriter) nativeWriter.text(execution.content);
@@ -195,7 +210,7 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
       } else {
         json(200, { id, object: 'chat.completion', created, model: body.model, choices: [{ index: 0, message, finish_reason: finish }], ...statistics });
       }
-      outcome = blocked ? 'blocked' : stoppedEmpty ? 'empty_output_limit' : 'success';
+      outcome = blocked ? 'blocked' : quotaStopped ? 'session_limit' : stoppedEmpty ? 'empty_output_limit' : 'success';
       timing.mark('response_complete');
     } catch (error) {
       const bodyTimeout = ['REQUEST_BODY_IDLE_TIMEOUT', 'REQUEST_BODY_TIMEOUT'].includes(error.code);
