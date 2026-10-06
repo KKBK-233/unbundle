@@ -37,6 +37,8 @@
 
 0.11.13 云端明确未登录返回 401，认证检查失败保留 503；JSON 和 SSE 共用错误分类，并保留诊断码。详见[错误处理](docs/gateway-errors.md)。
 
+0.11.14 修正拒绝未完成上传时立即销毁连接造成的 Windows `ECONNRESET`，确保客户端先收到完整的超时或超限错误正文。
+
 - 单用户并发执行，默认三个推理进程与 8 个排队请求。
 - `/v1/models`、`/v1/chat/completions`、`/v1/messages` 和 `/status`。
 - 流式文本与 function tool calls。

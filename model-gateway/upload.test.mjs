@@ -69,3 +69,21 @@ test('持续滴流仍受总上传时限约束，空正文和主动断开不会�
     assert(records.some(r => r.stage === 'downstream_disconnected'));
   } finally { clearInterval(timer); await server.close(); }
 });
+
+// 请求尚未上传完时也应收到完整错误正文；关闭连接不能把可读的 413 变成网络故障。
+test('持续超限上传先返回完整 413 正文再关闭连接，不等待上传结束且不启动模型', async () => {
+  let executions = 0;
+  const server = await gateway({ token: 'upload-test', port: 0, maxRequestBytes: 1024, maxImageBytes: 1024,
+    execute: async () => { executions++; return { role: 'assistant', content: 'OK' }; } });
+  const call = open(server, 1000000);
+  let timer;
+  try {
+    call.req.write('x'.repeat(2048));
+    timer = setInterval(() => { if (!call.req.destroyed) call.req.write('x'.repeat(2048)); }, 10);
+    const result = await call.response;
+    assert.equal(result.status, 413); assert.equal(result.headers.connection, 'close');
+    const failure = JSON.parse(result.raw).error;
+    assert.equal(failure.code, 'REQUEST_TOO_LARGE'); assert.equal(failure.type, 'request_too_large');
+    assert.equal(executions, 0); assert.equal(server.inflightBytes, 0); assert.equal(server.receivingRequests, 0);
+  } finally { clearInterval(timer); call.req.destroy(); await server.close(); }
+});

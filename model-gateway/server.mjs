@@ -227,7 +227,8 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
       // 未收完的 HTTP 请求不能复用；先送出可读错误，再关连接，不等剩余正文。
       if (!req.complete && !res.headersSent && !res.destroyed) {
         res.setHeader('connection', 'close');
-        res.once('finish', () => req.socket.destroy());
+        // 丢弃已拒绝的后续上传；交给 Node 在响应写完后关闭，立即 destroy 会让 Windows 丢失错误正文。
+        req.resume();
       }
       if (!controller.signal.aborted) {
         const failure = gatewayError(error);
