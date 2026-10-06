@@ -46,9 +46,9 @@ function channel(key) {
   return {
     update(value) {
       if (typeof value !== 'string') return false;
-      const previous = openTags;
+      const previous = openTags + closeTags;
       fragments++; chars += value.length; hashRaw(value); scan(value);
-      return openTags > previous;
+      return openTags + closeTags > previous;
     },
     finish() {
       hashRaw('', true); scan('', true);
@@ -64,15 +64,28 @@ export function createWireProbe({ requestId, sink = value => console.error(JSON.
   const channels = Object.fromEntries(['streamText', 'streamThinking', 'downstreamText'].map(name => [name, channel(key)]));
   const blocks = [], current = new Map();
   let messageOrdinal = 0, droppedBlocks = 0, signatureDeltas = 0, assistantTextBlocks = 0, assistantThinkingBlocks = 0;
+  let signatureChars = 0, assistantSignatureBlocks = 0, assistantSignatureChars = 0;
   let typeMismatches = 0, orphanDeltas = 0, ended = false, tagReported = false, resultSeen = false;
   const publish = data => { try { sink({ type: 'wire_probe', requestId, ...data }); } catch {} };
+  // 同一请求只报告首次正文标签；聚合事件和 result 兜底输出也覆盖，避免只观察流式片段。
+  const reportTag = data => {
+    if (tagReported) return;
+    tagReported = true;
+    publish({ event: 'thinking_tag_in_text', elapsedMs: Math.round(performance.now() - started), ...data });
+  };
   return {
     accept(event) {
       if (ended) return;
       if (event?.type === 'assistant') {
         for (const block of Array.isArray(event.message?.content) ? event.message.content : []) {
-          if (block?.type === 'text') assistantTextBlocks++;
+          if (block?.type === 'text') {
+            assistantTextBlocks++;
+            if (typeof block.text === 'string' && /<\/?thinking>/i.test(block.text)) reportTag({ channel: 'assistant_text' });
+          }
           if (block?.type === 'thinking') assistantThinkingBlocks++;
+          if (block?.type === 'thinking' && typeof block.signature === 'string' && block.signature) {
+            assistantSignatureBlocks++; assistantSignatureChars += block.signature.length;
+          }
         }
       }
       if (event?.type === 'result') resultSeen = true;
@@ -82,27 +95,34 @@ export function createWireProbe({ requestId, sink = value => console.error(JSON.
       const index = Number.isSafeInteger(inner.index) && inner.index >= 0 && inner.index <= 4096 ? inner.index : null;
       if (inner.type === 'content_block_start' && index !== null) {
         const block = { messageOrdinal, index, blockType: blockTypes.has(inner.content_block?.type) ? inner.content_block.type : 'other',
-          textDeltas: 0, thinkingDeltas: 0, signatureDeltas: 0, stopped: false };
+          textDeltas: 0, thinkingDeltas: 0, signatureDeltas: 0, signatureChars: 0, stopped: false };
         if (blocks.length < 64) { blocks.push(block); current.set(index, block); } else droppedBlocks++;
       }
       if (inner.type === 'content_block_stop') { const block = current.get(index); if (block) block.stopped = true; }
       if (inner.type !== 'content_block_delta') return;
       const delta = inner.delta || {}, block = current.get(index);
-      if (delta.type === 'signature_delta') { signatureDeltas++; if (block) block.signatureDeltas++; return; }
+      const mismatch = expected => {
+        if (!block || block.blockType === expected) return;
+        typeMismatches++;
+        publish({ event: 'block_delta_type_mismatch', elapsedMs: Math.round(performance.now() - started),
+          messageOrdinal, index, blockType: block.blockType, deltaType: delta.type });
+      };
+      if (delta.type === 'signature_delta') {
+        const chars = typeof delta.signature === 'string' ? delta.signature.length : 0;
+        signatureDeltas++; signatureChars += chars;
+        if (block) { block.signatureDeltas++; block.signatureChars += chars; }
+        mismatch('thinking'); return;
+      }
       if (!['text_delta', 'thinking_delta'].includes(delta.type)) return;
       const thinking = delta.type === 'thinking_delta';
       if (block) {
         block[thinking ? 'thinkingDeltas' : 'textDeltas']++;
-        if (block.blockType !== (thinking ? 'thinking' : 'text')) typeMismatches++;
       } else orphanDeltas++;
+      mismatch(thinking ? 'thinking' : 'text');
       const tag = channels[thinking ? 'streamThinking' : 'streamText'].update(thinking ? delta.thinking : delta.text);
-      if (tag && !thinking && !tagReported) {
-        tagReported = true;
-        publish({ event: 'thinking_tag_in_text', elapsedMs: Math.round(performance.now() - started),
-          messageOrdinal, index, blockType: block?.blockType || 'unknown', deltaType: 'text_delta' });
-      }
+      if (tag && !thinking) reportTag({ channel: 'stream_text', messageOrdinal, index, blockType: block?.blockType || 'unknown', deltaType: 'text_delta' });
     },
-    output(text) { if (!ended) channels.downstreamText.update(text); },
+    output(text) { if (!ended && channels.downstreamText.update(text)) reportTag({ channel: 'downstream_text' }); },
     finish(outcome) {
       if (ended) return;
       ended = true;
@@ -112,7 +132,8 @@ export function createWireProbe({ requestId, sink = value => console.error(JSON.
       publish({ event: 'summary', outcome: ['completed', 'cancelled', 'timeout', 'error'].includes(outcome) ? outcome : 'error',
         elapsedMs: Math.round(performance.now() - started), fingerprint: 'per-request-hmac-sha256',
         normalization: 'remove-thinking-tags-and-whitespace', channels: summaries, blocks, droppedBlocks,
-        signatureDeltas, assistantTextBlocks, assistantThinkingBlocks, typeMismatches, orphanDeltas, resultSeen,
+        signatureDeltas, signatureChars, assistantSignatureBlocks, assistantSignatureChars,
+        assistantTextBlocks, assistantThinkingBlocks, typeMismatches, orphanDeltas, resultSeen,
         downstreamMatchesStreamText: equal('downstreamText', 'streamText'),
         downstreamMatchesStreamThinking: equal('downstreamText', 'streamThinking') });
       key.fill(0); current.clear();

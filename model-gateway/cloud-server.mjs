@@ -8,6 +8,8 @@ import { checkCliVersion, readCliRelease } from './cli-compat.mjs';
 // 云端专用入口：官方 CLI 持有认证；网关仅检查登录布尔状态。
 if (process.platform !== 'linux') throw new Error('此入口只在 Linux 云服务器运行');
 const base = process.env.GATEWAY_STATE || '/home/harness/model-gateway';
+// 异常自动取证仅落白名单元数据；设为 off 可关闭，正常请求不写文件。
+const anomalyDir = process.env.GATEWAY_ANOMALY_DIR === 'off' ? undefined : process.env.GATEWAY_ANOMALY_DIR || path.join(base, 'anomalies');
 const home = path.join(base, 'runtime-home');
 const cli = process.env.CLAUDE_BIN || '/usr/local/bin/velella-claude';
 const configDir = process.env.CLAUDE_CONFIG_DIR || '/home/harness/state/runtime-home/.claude';
@@ -58,7 +60,8 @@ const server = await gateway({ token, port, models, status: async () => ({ ...aw
     const auth = await authStatus();
     if (!auth.loggedIn) throw Object.assign(new Error(auth.checked ? 'AUTH_REQUIRED：请在云服务器登录 Claude Code' : 'AUTH_CHECK_FAILED：云端认证状态检查失败'), { status: auth.checked ? 401 : 503, code: auth.checked ? 'AUTH_REQUIRED' : 'AUTH_CHECK_FAILED' });
   },
-  execute: (request, signal, onText, timing) => infer(request, { cli, home, configDir, model: upstreamModels[request.model], signal, onText, timing,
+  execute: async (request, signal, onText, timing) => infer(request, { cli, home, configDir, model: upstreamModels[request.model], signal, onText, timing,
+    anomalyDir, cliVersion: (await readCliRelease())?.version || startupCliVersion,
     cacheBreakpoint: process.env.GATEWAY_CACHE_BREAKPOINT || '5m', maxImageBytes, maxOutputTokens, timeoutMs, idleTimeoutMs }),
 });
 console.log(`云端模型入口监听 127.0.0.1:${port}；工具由客户端执行`);

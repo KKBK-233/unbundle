@@ -9,10 +9,11 @@ import { CliEvents } from './cli-events.mjs';
 import { validateRequest } from './request.mjs';
 import { resolveEffort } from './effort.mjs';
 import { takeWireProbe } from './wire-probe.mjs';
+import { createAnomalyCapture } from './anomaly-capture.mjs';
 import { sessionQuotaFailure } from './session-quota-guard.mjs';
 
 // 每轮独立进程、逐消息输入；工作目录固定，凭据继续由官方 CLI 管理。
-export async function infer(request, { cli, home, configDir = path.join(home, '.claude'), model, signal, onText, timing, timeoutMs = 600000, idleTimeoutMs = 180000, spawnProcess = spawn, testUpstream, cacheBreakpoint = '5m', maxImageBytes = 5 * 1024 * 1024, maxOutputTokens = 8192, killGraceMs = 2000, maxCliOutputBytes = 16 * 1024 * 1024 }) {
+export async function infer(request, { cli, home, configDir = path.join(home, '.claude'), model, signal, onText, timing, anomalyDir, cliVersion, timeoutMs = 600000, idleTimeoutMs = 180000, spawnProcess = spawn, testUpstream, cacheBreakpoint = '5m', maxImageBytes = 5 * 1024 * 1024, maxOutputTokens = 8192, killGraceMs = 2000, maxCliOutputBytes = 16 * 1024 * 1024 }) {
   for (const value of [timeoutMs, idleTimeoutMs]) if (!Number.isSafeInteger(value) || value < 1 || value > 1800000) throw new Error('推理超时配置必须为 1..1800000 毫秒');
   if (!Number.isInteger(maxOutputTokens) || maxOutputTokens < 256 || maxOutputTokens > 128000) throw new Error('输出 token 上限无效');
   maxOutputTokens = validateRequest(request, { maxOutputTokens, maxImageBytes });
@@ -26,9 +27,14 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
   const work = await fs.mkdtemp(path.join(home, 'request-'));
   const bearer = randomBytes(32).toString('hex');
   const stops = request.stop == null ? [] : typeof request.stop === 'string' ? [request.stop] : request.stop;
-  const probe = takeWireProbe(timing?.requestId);
+  const probes = [takeWireProbe(timing?.requestId), createAnomalyCapture({ directory: anomalyDir, requestId: timing?.requestId,
+    context: { ...metrics, model: request.model, effort: resolveEffort(request) || 'auto', requestedOutputTokens: maxOutputTokens, cliVersion } })].filter(Boolean);
   // 取证失败不能影响转发或清理；探针不改变 CLI 参数和发送给模型的内容。
-  const probeCall = (method, ...args) => { try { probe?.[method](...args); } catch {} };
+  const probeCall = (method, ...args) => {
+    const pending = [];
+    for (const probe of probes) try { const value = probe[method](...args); if (value?.then) pending.push(value.catch(() => {})); } catch {}
+    return pending.length ? Promise.all(pending) : undefined;
+  };
   const events = new CliEvents(available, text => { probeCall('output', text); onText?.(text); }, stops);
   let probeOutcome = 'completed';
   let child, timer, idleTimer, killTimer, lines, errors = '', aborted = false, timedOut = false, idleTimedOut = false, protocolError;
@@ -176,7 +182,13 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     probeOutcome = aborted ? 'cancelled' : timedOut || idleTimedOut ? 'timeout' : 'error';
     throw error;
   } finally {
-    probeCall('finish', probeOutcome);
+    // 文件系统异常不能长期占用模型槽；后台写入继续完成，最多等待 250 毫秒。
+    const probeFinished = probeCall('finish', probeOutcome);
+    if (probeFinished) {
+      let flushTimer;
+      await Promise.race([probeFinished, new Promise(resolve => { flushTimer = setTimeout(resolve, 250); })]);
+      clearTimeout(flushTimer);
+    }
     clearTimeout(timer); clearTimeout(idleTimer); clearTimeout(killTimer); signal?.removeEventListener('abort', stop); lines?.close();
     kill('SIGKILL'); server.closeAllConnections();
     if (server.listening) await new Promise(resolve => server.close(resolve));

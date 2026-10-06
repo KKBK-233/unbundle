@@ -204,6 +204,8 @@ Sonnet、Opus 支持 `low`、`medium`、`high`、`xhigh`、`max`，新导入的 
 
 ## 验证
 
+云端默认对自然请求进行[异常通道自动取证](docs/anomaly-capture.md)：疑似 thinking 标签外显或块类型冲突时落盘保存有界元数据，正常请求不写文件，不保存正文或签名值，也不打断输出。
+
 Windows 桌面只读查询服务器资源、最近请求缓存和官方订阅额度，见[桌面状态查询](docs/desktop-status.md)。
 
 云服务器更换与 Ubuntu 安装说明见 [迁移说明](docs/server-migration.md)。
