@@ -13,11 +13,11 @@ import { CliEvents } from './cli-events.mjs';
 
 const base = { model: 'claude-code-sonnet', messages: [{ role: 'user', content: '合成测试' }] };
 test('思考档位按模型校验，auto 使用 CLI 默认，不偷换关闭语义', () => {
-  for (const model of ['claude-code-sonnet', 'claude-code-opus']) for (const reasoning_effort of EFFORTS) assert.equal(resolveEffort({ model, reasoning_effort }), reasoning_effort);
+  for (const model of ['claude-code-sonnet', 'claude-code-opus', 'claude-code-haiku']) for (const reasoning_effort of EFFORTS) assert.equal(resolveEffort({ model, reasoning_effort }), reasoning_effort);
   for (const reasoning_effort of [undefined, null, 'auto']) assert.equal(resolveEffort({ ...base, reasoning_effort }), undefined);
   for (const reasoning_effort of ['off', 'none', 'minimal', 'HIGH', '', {}, 1]) assert.throws(() => resolveEffort({ ...base, reasoning_effort }), { code: 'UNSUPPORTED_REASONING_EFFORT' });
-  assert.throws(() => resolveEffort({ model: 'claude-code-haiku', reasoning_effort: 'low' }));
-  assert.equal(ompThinking('claude-code-haiku').reasoning, false);
+  assert.throws(() => resolveEffort({ model: 'unsupported-model', reasoning_effort: 'low' }));
+  assert.deepEqual(ompThinking('claude-code-haiku').thinking.efforts, EFFORTS);
 });
 
 test('无效强度在发出 SSE 或执行模型前返回 400', async () => {
@@ -69,6 +69,7 @@ test('升级 OMP 只改变云端模型能力，保留凭据、默认模型和其
     assert.equal(current.providers['velella-cloud'].apiKey, old.providers['velella-cloud'].apiKey);
     assert.equal(await fs.readFile(tokenFile, 'utf8'), token);
     assert.equal(current.providers['velella-cloud'].models[0].thinking.defaultLevel, 'medium');
+    assert.deepEqual(current.providers['velella-cloud'].models.find(model => model.id === 'claude-code-haiku').thinking.efforts, EFFORTS);
     assert.equal((await importOmp({ file, tokenFile, updateThinking: true })).updated, false);
     assert((await fs.readdir(dir)).some(name => name.includes('.before-velella-cloud-')));
   } finally { await fs.rm(dir, { recursive: true, force: true }); }

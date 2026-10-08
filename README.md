@@ -19,7 +19,7 @@
 
 0.9.7 固定 `claude-code-opus` 的云端上游为 `claude-opus-5-5[1m]`，避免旧 CLI 的 `opus` 别名仍指向 Opus 5；客户端上下文预算仍为 400k。`/status` 返回实际映射供只读核对。
 
-0.9.8 固定 Sonnet 为 `claude-sonnet-5-5[1m]`，Haiku 为当前官方型号 `claude-haiku-4-5`；现有客户端模型 ID 保持可用。
+0.9.8 固定 Sonnet 为 `claude-sonnet-5-5[1m]`，当时 Haiku 为 `claude-haiku-4-5`；现有客户端模型 ID 保持可用。
 
 0.10.0 支持推理机与 frps 分离，并可通过本地 SOCKS 为 frp 包一层 VLESS；沿用双向 TLS、STCP 加密和本地工具执行边界。
 
@@ -40,6 +40,8 @@
 0.11.14 修正拒绝未完成上传时立即销毁连接造成的 Windows `ECONNRESET`，确保客户端先收到完整的超时或超限错误正文。
 
 0.11.15 补齐客户端请求方向断开时的取消监听，避免中途插话后旧推理继续占用执行槽。
+
+0.11.17 将 `claude-code-haiku` 升级为 `claude-haiku-5-5`，开放五档 effort；模型列表沿用部署的上下文预算声明（默认 400k），移除旧 Haiku 的 200k 限制。CLI 自动更新的模拟验收覆盖三个模型。官方型号及能力见 [Haiku 5.5](https://platform.claude.com/docs/en/models/haiku-5-5/overview)。
 
 - 单用户并发执行，默认三个推理进程与 8 个排队请求。
 - `/v1/models`、`/v1/chat/completions`、`/v1/messages` 和 `/status`。
@@ -181,7 +183,7 @@ OMP 云端供应商 ID 保留 `velella-cloud`，兼容已有配置；模型为 `
 
 ### 选择思考强度
 
-Sonnet、Opus 支持 `low`、`medium`、`high`、`xhigh`、`max`，新导入的 OMP 配置默认 `medium`。Haiku 暂不提供 effort 控制。启动时例如：
+Sonnet、Opus、Haiku 5.5 支持 `low`、`medium`、`high`、`xhigh`、`max`，新导入的 OMP 配置默认 `medium`。启动时例如：
 
 ```powershell
 .\omp-cloud.ps1 --thinking high

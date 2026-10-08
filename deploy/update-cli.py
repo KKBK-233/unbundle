@@ -121,8 +121,8 @@ def probe(candidate, version, models):
                   'GATEWAY_CLI_RELEASE_FILE=' + str(folder / 'unused-release.json'),
                   'PATH=/home/harness/app/node/bin:/usr/local/bin:/usr/bin:/bin',
                   'CLAUDE_BIN=' + str(candidate), '/usr/local/bin/velella-node']
-        # 两个实际模型分别检查缓存、图像、动态指令及工具往返；十档测试补足强度覆盖。
-        for key in ['claude-code-opus', 'claude-code-sonnet']:
+        # 三个实际模型分别检查缓存、图像、动态指令及工具往返；十五档测试补足强度覆盖。
+        for key in ['claude-code-opus', 'claude-code-sonnet', 'claude-code-haiku']:
             model = models[key]
             if not re.fullmatch(r'claude-[a-z0-9-]+(?:\[1m\])?', model):
                 raise ValueError('invalid upstream model')
@@ -131,8 +131,8 @@ def probe(candidate, version, models):
                                   '--cache-ttl=1h', '--upstream-model=' + model], timeout=130)
             if 'PASS: cloud CLI protocol and stable prompt prefix' not in output:
                 raise RuntimeError('model protocol validation failed')
-        output = run(prefix + [folder / 'effort-cloud-probe.mjs'], timeout=250)
-        if 'PASS: ten model/effort combinations' not in output:
+        output = run(prefix + [folder / 'effort-cloud-probe.mjs', '--haiku-model=' + models['claude-code-haiku']], timeout=350)
+        if 'PASS: fifteen model/effort combinations' not in output:
             raise RuntimeError('effort protocol validation failed')
 
 

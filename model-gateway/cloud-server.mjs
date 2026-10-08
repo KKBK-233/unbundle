@@ -37,9 +37,9 @@ for (const [value, min, max] of [[maxRequestBytes, 1024, 64 * 1024 * 1024], [max
 const startupCliVersion = await checkCliVersion(cli);
 await fs.mkdir(home, { recursive: true, mode: 0o700 });
 const token = (await fs.readFile(path.join(base, 'token'), 'utf8')).trim();
-const models = ['sonnet', 'opus', 'haiku'].map(name => ({ id: `claude-code-${name}`, object: 'model', owned_by: 'velella-cloud', context_window: name === 'haiku' ? Math.min(200000, contextWindow) : contextWindow }));
+const models = ['sonnet', 'opus', 'haiku'].map(name => ({ id: `claude-code-${name}`, object: 'model', owned_by: 'velella-cloud', context_window: contextWindow }));
 // 固定各档上游版本；窗口后缀避免旧 CLI 对未知型号默认压缩到 200k。
-const upstreamModels = { 'claude-code-sonnet': 'claude-sonnet-5-5[1m]', 'claude-code-opus': 'claude-opus-5-5[1m]', 'claude-code-haiku': 'claude-haiku-4-5' };
+const upstreamModels = { 'claude-code-sonnet': 'claude-sonnet-5-5[1m]', 'claude-code-opus': 'claude-opus-5-5[1m]', 'claude-code-haiku': 'claude-haiku-5-5' };
 function authStatus() {
   return new Promise(resolve => {
     execFile(cli, ['auth', 'status', '--json'], {
