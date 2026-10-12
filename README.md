@@ -1,6 +1,14 @@
 # Unbundle
 
-化整为零，自由组合。云端推理，本地工具与审批。
+化整为零，自由组合。单用户自部署，云端推理，本地工具与审批。
+
+## 项目定位
+
+Unbundle 面向账号持有人在自己控制的设备和服务器上部署、使用。每套部署仅供同一用户使用自己的账号；单用户的并发任务不代表多用户服务。
+
+项目不提供多租户、账号池、订阅共享、额度转售或公共中转站支持，也不提供代管他人登录凭据的功能。请按上游服务允许的认证方式和使用范围运行；自部署不改变上游的使用规则。
+
+本分支集中维护说明文档。程序、配置模板和部署脚本位于 [`main` 分支](https://github.com/KKBK-233/unbundle/tree/main)。
 
 把云服务器上的官方 Claude Code CLI 包装成 OpenAI Chat Completions 和 Anthropic Messages 兼容入口，让本地 Claude Desktop、OMP 或其他 Harness 使用 Claude Pro/Max 会话。
 
@@ -119,7 +127,7 @@
 要求：本地 Windows、Node.js 22+、Python 3、`cryptography`、frp 0.71 和 OMP；云端 Linux 需单独安装官方 Claude Code。仓库不包含第三方二进制。
 
 ```powershell
-git clone --branch experimental https://github.com/KKBK-233/unbundle.git
+git clone https://github.com/KKBK-233/unbundle.git
 cd unbundle
 npm ci
 New-Item -ItemType Directory -Force .local | Out-Null
@@ -236,4 +244,4 @@ sudo -u harness /usr/local/bin/velella-node model-gateway/effort-cloud-probe.mjs
 
 ## 发布状态
 
-项目名称为 **Unbundle**，仓库名称和包名统一为 `unbundle`。`main` 仅保留项目状态说明，实验实现位于 `experimental` 分支。部署服务名沿用 `velella-*`，供应商 ID 和诊断标记保留原值，以兼容已安装服务和已有配置。仓库当前公开，尚未添加开源许可证；待办见 [OPEN_SOURCE_REVIEW.md](OPEN_SOURCE_REVIEW.md)。
+项目名称为 **Unbundle**，仓库名称和包名统一为 `unbundle`。`main` 保存单用户自部署的实验实现，`docs` 集中维护说明文档。部署服务名沿用 `velella-*`，供应商 ID 和诊断标记保留原值，以兼容已安装服务和已有配置。仓库当前公开，尚未添加开源许可证；待办见 [OPEN_SOURCE_REVIEW.md](OPEN_SOURCE_REVIEW.md)。
