@@ -1,0 +1,21 @@
+[Unit]
+Description=Velella model gateway private STCP publisher
+After=network-online.target harness-frps.service
+
+[Service]
+User=harness
+Group=harness
+WorkingDirectory=/home/harness/model-gateway
+ExecStart=/usr/local/bin/velella-frpc -c /home/harness/model-gateway/frpc.toml
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+MemoryMax=128M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target

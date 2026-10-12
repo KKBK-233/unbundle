@@ -1,0 +1,18 @@
+{
+  "name": "unbundle",
+  "version": "0.11.21",
+  "description": "单用户自部署的实验性 CLI 适配器：云端推理，本地工具与审批",
+  "type": "module",
+  "scripts": {
+    "test": "node --test model-gateway/*.test.mjs",
+    "prepare:cloud": "node model-gateway/prepare-cloud.mjs",
+    "import:omp": "node model-gateway/import-omp.mjs",
+    "check:transport": "node model-gateway/transport-check.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  }
+}

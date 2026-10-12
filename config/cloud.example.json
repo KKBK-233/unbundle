@@ -1,0 +1,8 @@
+{
+  "host": "203.0.113.10",
+  "frpHost": "203.0.113.20",
+  "frpPort": 18469,
+  "frpc": "D:\\tools\\frp\\frpc.exe",
+  "serverStateDir": "/home/harness/model-gateway",
+  "serverFrpDir": "/etc/harness-frp"
+}

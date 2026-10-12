@@ -1,0 +1,14 @@
+node_modules/
+__pycache__/
+*.pyc
+.local/
+*.log
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.before-velella-cloud-*
+.env
+.env.*
+!.env.example
