@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto';
 
+// 桌面内置工具已超过百项，连接器加载后会继续增加；数量和入站字节上限共同约束内存。
+export const MAX_TOOLS = 512;
+
 // 历史按消息分块；固定续接说明放在系统提示中，避免每轮改写历史末尾。
 // 开头换行：CLI 会把自身的一句身份说明直接拼在系统提示文件前，缺换行会与本段粘连。
 // 环境块说明：CLI 在对话末尾追加的环境信息描述的是云端服务器，最显眼却与工具实际所在位置相反，需显式消歧。
@@ -129,7 +132,8 @@ export function compileContext(request, { cacheBreakpoint = '5m', maxImageBytes 
   if (cacheBreakpoint !== 'off') blocks.at(-1).cache_control = { type: 'ephemeral', ttl: cacheBreakpoint };
   const input = JSON.stringify({ type: 'user', message: { role: 'user', content: blocks } }) + '\n';
   const tools = request.tools || [];
-  if (!Array.isArray(tools) || tools.length > 128) throw new Error('工具列表无效');
+  if (!Array.isArray(tools)) throw new Error('工具列表必须是数组');
+  if (tools.length > MAX_TOOLS) throw Object.assign(new Error(`工具数量超过网关上限：收到 ${tools.length} 个，最多允许 ${MAX_TOOLS} 个`), { status: 400, code: 'TOOL_LIMIT_EXCEEDED' });
   if (request.tool_choice && request.tool_choice !== 'auto' && request.tool_choice !== 'none') throw new Error('第一版仅支持 tool_choice auto 或 none');
   const seen = new Set();
   const mapped = tools.map(tool => {

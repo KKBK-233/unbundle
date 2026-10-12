@@ -8,6 +8,7 @@
 | 云端已确认未登录 | 401 | authentication_error | AUTH_REQUIRED |
 | 云端认证检查失败，尚不能确认登录状态 | 503 | api_error | AUTH_CHECK_FAILED |
 | 无效 JSON / 未知模型 / 不支持的参数 | 400 | invalid_request_error | INVALID_JSON / UNKNOWN_MODEL / UNSUPPORTED_PARAMETER |
+| 工具定义超过 512 项 | 400 | invalid_request_error | TOOL_LIMIT_EXCEEDED（显示实际数量与上限） |
 | 浏览器跨域请求 | 403 | permission_error | ORIGIN_REJECTED |
 | 请求体超限 | 413 | request_too_large | REQUEST_TOO_LARGE |
 | 队列或容量超额 | 429 | rate_limit_error | QUEUE_FULL / INFLIGHT_BYTES_EXCEEDED |

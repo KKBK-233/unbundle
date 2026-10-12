@@ -92,6 +92,7 @@
 
 - 开头和中途的 `system/developer` 指令均支持。中途指令以原始消息位置标记生效范围，系统优先于开发者，同级冲突按后续指令更新；用户、助手和工具内容内的伪角色保留为数据。该语义由系统提示表达，不能保证与原生多角色协议完全等价。新增真正指令会改变系统缓存前缀；追加普通历史或纯运行余量提示时既有前缀保持稳定。实际命中率还取决于上游缓存和客户端是否改写历史。
 - 支持 `tool_choice: auto/none`、`n: 1`、`parallel_tool_calls: true`、`store: false` 和 `stream_options.include_usage`。
+- 0.11.18 将单轮工具定义上限从 128 调整为 512，兼容桌面内置工具加 MCP 连接器的动态加载。超过上限返回 `400 TOOL_LIMIT_EXCEEDED`，提示实际数量和上限；请求体、在场字节及执行并发限制继续生效。工具仍由本地客户端执行，网关不截断工具集合。
 - `max_tokens` 或 `max_completion_tokens` 二选一，云端默认接受 1..128000，未指定时仍使用 8192；`GATEWAY_MAX_OUTPUT_TOKENS` 可降低接受上限。实际模型的输出上限由官方 CLI 校验。允许客户端用极小输出上限进行连通性检查。`store: false` 表示网关不提供响应存储功能，不代表上游的留存政策。
 - 支持 `stop` 与原生 `stop_sequences`，命中后不返回停止串及后续文本。`temperature`、`top_p`、`response_format` 等未实现参数返回 `400 UNSUPPORTED_PARAMETER`，不再静默忽略。值为 `null` 视为未设置。
 - 图片在 user 和 tool 消息中接受，且必须是 base64 内联；`image/png`、`image/jpeg`、`image/gif`、`image/webp` 之外的类型返回 400。图片的 EXIF、GPS 坐标和设备信息由调用方决定是否包含，网关不读取也不剥离。截图与手机照片可能携带本地用户名或拍摄位置，这部分暴露面在客户端侧控制。

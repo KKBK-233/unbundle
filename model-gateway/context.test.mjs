@@ -206,10 +206,12 @@ const rpc = async (method, params) => {
   return (await response.json()).result;
 };
 const exposed = mcp ? (await rpc('tools/list')).tools : [];
-if (conversation.messages.at(-1)?.content === 'REQUEST_TOOL') {
-  console.log(JSON.stringify({type:'assistant',message:{id:'msg_tool',content:[{type:'tool_use',id:'call_1',name:'mcp__omp__'+exposed[0].name,input:{path:'proof.txt'}}]}}));
+if (['REQUEST_TOOL', 'REQUEST_MCP'].includes(conversation.messages.at(-1)?.content)) {
+  const selected = conversation.messages.at(-1).content === 'REQUEST_MCP' ? exposed.find(tool => tool.name === 'mcp__linear__get_issue') : exposed[0];
+  if (!selected) throw new Error('Missing synthetic MCP tool');
+  console.log(JSON.stringify({type:'assistant',message:{id:'msg_tool',content:[{type:'tool_use',id:'call_1',name:'mcp__omp__'+selected.name,input:{path:'proof.txt'}}]}}));
   console.log(JSON.stringify({type:'stream_event',event:{type:'message_delta',delta:{stop_reason:'tool_use'}}}));
-  await rpc('tools/call', { name: exposed[0].name, arguments: { path: 'proof.txt' } });
+  await rpc('tools/call', { name: selected.name, arguments: { path: 'proof.txt' } });
 } else {
   console.log(JSON.stringify({ type: 'result', result: JSON.stringify({ system, conversation, exposed, args }) }));
 }
@@ -255,4 +257,26 @@ test('模拟进程验证长指令文件、工具往返和临时文件清理', as
   } finally {
     await fs.rmdir(home);
   }
+});
+
+// 模拟桌面加载连接器后超过旧的 128 项门槛，检查 MCP 映射和工具结果续接，不调用真实模型。
+test('桌面与连接器的大工具集合仍能完成 MCP 调用及续接', async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'gateway-many-tools-'));
+  const many = Array.from({ length: 160 }, (_, n) => ({ type: 'function', function: {
+    name: `desktop_tool_${n}`, description: '合成桌面工具', parameters: { type: 'object', properties: {} },
+  } }));
+  many.push({ type: 'function', function: { name: 'mcp__linear__get_issue', description: '合成连接器工具', parameters: { type: 'object', properties: { path: { type: 'string' } } } } });
+  const options = { cli: 'mock-only', home, model: 'mock-model', timeoutMs: 10000,
+    spawnProcess: (_cli, args, options) => spawn(process.execPath, ['--input-type=module', '-e', fakeCli, '--', ...args], options) };
+  try {
+    const messages = [{ role: 'user', content: 'REQUEST_MCP' }];
+    const first = await infer({ messages, tools: many }, options);
+    assert.equal(first.tool_calls.length, 1);
+    assert.equal(first.tool_calls[0].function.name, 'mcp__linear__get_issue');
+    messages.push(first, { role: 'tool', tool_call_id: first.tool_calls[0].id, content: 'SYNTHETIC_LINEAR_RESULT' });
+    const next = JSON.parse((await infer({ messages, tools: many }, options)).content);
+    assert.equal(next.exposed.length, 161);
+    assert.equal(next.conversation.messages.at(-1).content, 'SYNTHETIC_LINEAR_RESULT');
+    assert.deepEqual(await fs.readdir(home), ['workspace']);
+  } finally { await fs.rm(home, { recursive: true, force: true }); }
 });

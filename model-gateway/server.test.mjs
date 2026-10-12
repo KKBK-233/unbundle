@@ -1,4 +1,23 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {gateway} from './server.mjs';
+import { MAX_TOOLS } from './context.mjs';
+
+// 连接器动态加载后的工具集合通过原生入口；超限、重复和体积限制仍在执行前拒绝。
+test('原生入口接受大 MCP 工具集合，超限错误显示实际数量', async () => {
+ const received = [];
+ const server = await gateway({token:'many-tools',port:0,execute:async body=>{received.push(body.tools.length);return {role:'assistant',content:'SYNTHETIC_OK'};}});
+ const invoke = tools => fetch(`http://127.0.0.1:${server.port}/v1/messages`, {method:'POST',headers:{'x-api-key':'many-tools','content-type':'application/json'},body:JSON.stringify({model:'claude-code-sonnet',max_tokens:128,messages:[{role:'user',content:'合成连接器续接'}],tools})});
+ const make = n => Array.from({length:n},(_,i)=>({name:`mcp__linear__synthetic_${i}`,description:'合成工具',input_schema:{type:'object',properties:{}}}));
+ try {
+  for (const n of [129,161,MAX_TOOLS]) assert.equal((await invoke(make(n))).status,200);
+  const response = await invoke(make(MAX_TOOLS+1));
+  assert.equal(response.status,400);
+  const failure=await response.json();assert.equal(failure.error.code,'TOOL_LIMIT_EXCEEDED');
+  assert(failure.error.message.includes(String(MAX_TOOLS+1)));assert(failure.error.message.includes(String(MAX_TOOLS)));
+  const duplicate=make(2);duplicate[1].name=duplicate[0].name;assert.equal((await invoke(duplicate)).status,400);
+  assert.deepEqual(received,[129,161,MAX_TOOLS]);
+  assert.equal(server.activeRequests,0);assert.equal(server.queuedRequests,0);assert.equal(server.inflightBytes,0);
+ } finally {await server.close();}
+});
 
 // 验证桌面客户端小输出探针可通过 HTTP 入口，同时无效额度不进入推理进程。
 test('小输出上限原样传递，非法额度仍返回 400', async () => {
