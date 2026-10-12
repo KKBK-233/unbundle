@@ -1,4 +1,6 @@
-# Claude Code Relay
+# Unbundle
+
+化整为零，自由组合。云端推理，本地工具与审批。
 
 把云服务器上的官方 Claude Code CLI 包装成 OpenAI Chat Completions 和 Anthropic Messages 兼容入口，让本地 Claude Desktop、OMP 或其他 Harness 使用 Claude Pro/Max 会话。
 
@@ -117,8 +119,8 @@
 要求：本地 Windows、Node.js 22+、Python 3、`cryptography`、frp 0.71 和 OMP；云端 Linux 需单独安装官方 Claude Code。仓库不包含第三方二进制。
 
 ```powershell
-git clone https://github.com/KKBK-233/claude-code-relay.git
-cd claude-code-relay
+git clone --branch experimental https://github.com/KKBK-233/unbundle.git
+cd unbundle
 npm ci
 New-Item -ItemType Directory -Force .local | Out-Null
 Copy-Item config/cloud.example.json .local/cloud.json
@@ -234,4 +236,4 @@ sudo -u harness /usr/local/bin/velella-node model-gateway/effort-cloud-probe.mjs
 
 ## 发布状态
 
-仓库名称和包名统一为 `claude-code-relay`；部署服务名沿用 `velella-*` 以兼容已安装服务。仓库当前公开，尚未添加开源许可证；待办见 [OPEN_SOURCE_REVIEW.md](OPEN_SOURCE_REVIEW.md)。
+项目名称为 **Unbundle**，仓库名称和包名统一为 `unbundle`。`main` 仅保留项目状态说明，实验实现位于 `experimental` 分支。部署服务名沿用 `velella-*`，供应商 ID 和诊断标记保留原值，以兼容已安装服务和已有配置。仓库当前公开，尚未添加开源许可证；待办见 [OPEN_SOURCE_REVIEW.md](OPEN_SOURCE_REVIEW.md)。

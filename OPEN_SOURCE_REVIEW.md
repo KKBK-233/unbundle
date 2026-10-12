@@ -12,7 +12,7 @@
 ## 待决定
 
 - 许可证：建议在 MIT 和 Apache-2.0 中选择后再添加 `LICENSE`。
-- 项目名、包名已统一为 `claude-code-relay`；`velella-cloud` provider 和服务名保留兼容。2026-09-30 核验 GitHub 仓库已公开；代码公开不等于已授予开源许可证。
+- 项目名为 **Unbundle**，仓库名和包名统一为 `unbundle`；`velella-cloud` provider、服务名和诊断标记保留兼容。`main` 仅保留状态说明，实验代码位于 `experimental` 分支；代码公开不等于已授予开源许可证。
 - 是否把部署模板中的 `harness` 用户和 `/home/harness` 路径改成可配置安装前缀。
 - 是否补充 Linux 自动安装 Node.js、frp 和官方 Claude Code CLI 的流程。
 - 是否支持 OMP 之外的 Harness 配置示例。
