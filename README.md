@@ -78,6 +78,8 @@
 
 0.7.1 对齐此前 CC Switch 转换路径：移除顶层系统文本块开头由前端生成的 `x-anthropic-billing-header` 元数据行，防止旋转标记破坏前缀缓存。正文内的引用不删改，网关不生成或伪造上游 billing header。
 
+协议标记处理维持上述边界；Unicode 标记与模型文本水印继续保留。外部逆向报告的版本范围、当前已验证行为和后续审计项见[协议标记与隐写边界](docs/protocol-markers.md)。
+
 0.7.2 修复 `/v1/messages?beta=true` 被误判为不存在的路径。推理改为双重时限：默认总时限 600 秒、连续无上游进展 180 秒；思考与工具参数片段算作进展，CLI 自身心跳不算。分别通过 `GATEWAY_TIMEOUT_MS`、`GATEWAY_IDLE_TIMEOUT_MS` 配置（毫秒，上限 1800000）。阶段日志区分 `total_timeout` 和 `idle_timeout`，避免有进展的长思考在固定三分钟时被中断。
 
 0.9.0 允许主会话、分类器和子智能体并发；超过进程数的请求排队，不再因正在推理直接返回 429。新增文本停止串处理，支持 `stop_sequences`/`stop` 并立即结束本次进程。Sonnet/Opus 的模型列表声明 400k，上下文节省还需要客户端设置 400k 自动压缩阈值。配置与边界见[并发与上下文预算](docs/concurrency-context.md)。
