@@ -1,10 +1,42 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {gateway} from './server.mjs';
-import { MAX_TOOLS } from './context.mjs';
+const MAX_TOOLS = 512; // 仅用于验证显式部署上限，默认不限制工具数量。
+import { validateRequest } from './request.mjs';
+
+// 通过真实 HTTP 入口核对双字段优先级和两种协议的缺省预算，不调用模型。
+test('输出预算对齐 Sub2API 路径默认值，优先新字段且尊重部署上限', async () => {
+ for (const ceiling of [4096, 128000]) {
+  const received = [];
+  const server = await gateway({token:'budget-compat',port:0,maxOutputTokens:ceiling,execute:async body=>{
+   received.push(validateRequest(body,{maxOutputTokens:ceiling}));
+   return {role:'assistant',content:'SYNTHETIC_OK'};
+  }});
+  const invoke = (route, extra={}) => fetch(`http://127.0.0.1:${server.port}${route}`,{
+   method:'POST',headers:{Authorization:'Bearer budget-compat','content-type':'application/json'},
+   body:JSON.stringify({model:'claude-code-sonnet',messages:[{role:'user',content:'合成预算校验'}],...extra}),
+  });
+  const check = async (route, extra, status) => {
+   const response = await invoke(route,extra); assert.equal(response.status,status); await response.json();
+  };
+  try {
+   await check('/v1/chat/completions',{},200);
+   await check('/v1/messages',{},200);
+   await check('/v1/chat/completions',{max_tokens:999999,max_completion_tokens:16},200);
+   await check('/v1/messages',{max_tokens:1},200);
+   await check('/v1/messages',{max_tokens:ceiling+1},400);
+   await check('/v1/messages',{max_tokens:null},400);
+   await check('/v1/messages',{max_tokens:0},400);
+   await check('/v1/chat/completions',{max_tokens:16,max_completion_tokens:ceiling+1},400);
+   await check('/v1/chat/completions',{max_tokens:16,max_completion_tokens:0},400);
+   assert.deepEqual(received,[Math.min(8192,ceiling),ceiling,16,1]);
+   assert.equal(server.activeRequests,0);assert.equal(server.queuedRequests,0);assert.equal(server.inflightBytes,0);
+  } finally {await server.close();}
+ }
+});
 
 // 连接器动态加载后的工具集合通过原生入口；超限、重复和体积限制仍在执行前拒绝。
 test('原生入口接受大 MCP 工具集合，超限错误显示实际数量', async () => {
  const received = [];
- const server = await gateway({token:'many-tools',port:0,execute:async body=>{received.push(body.tools.length);return {role:'assistant',content:'SYNTHETIC_OK'};}});
+ const server = await gateway({token:'many-tools',port:0,maxTools:MAX_TOOLS,execute:async body=>{received.push(body.tools.length);return {role:'assistant',content:'SYNTHETIC_OK'};}});
  const invoke = tools => fetch(`http://127.0.0.1:${server.port}/v1/messages`, {method:'POST',headers:{'x-api-key':'many-tools','content-type':'application/json'},body:JSON.stringify({model:'claude-code-sonnet',max_tokens:128,messages:[{role:'user',content:'合成连接器续接'}],tools})});
  const make = n => Array.from({length:n},(_,i)=>({name:`mcp__linear__synthetic_${i}`,description:'合成工具',input_schema:{type:'object',properties:{}}}));
  try {
@@ -16,6 +48,22 @@ test('原生入口接受大 MCP 工具集合，超限错误显示实际数量', 
   const duplicate=make(2);duplicate[1].name=duplicate[0].name;assert.equal((await invoke(duplicate)).status,400);
   assert.deepEqual(received,[129,161,MAX_TOOLS]);
   assert.equal(server.activeRequests,0);assert.equal(server.queuedRequests,0);assert.equal(server.inflightBytes,0);
+ } finally {await server.close();}
+});
+
+// 默认不再以工具数量拦截连接器；体积限制及名称冲突检查仍生效。
+test('默认接受超过旧工具数量上限，显式限额仍可配置', async () => {
+ const tools=Array.from({length:1025},(_,i)=>({type:'function',function:{name:`synthetic_${i}`,parameters:{type:'object'}}}));
+ const received=[];
+ const server=await gateway({token:'unlimited-tools',port:0,execute:async body=>{
+  received.push(body.tools.length);return {role:'assistant',content:'OK'};
+ }});
+ try {
+  const response=await fetch(`http://127.0.0.1:${server.port}/v1/chat/completions`,{method:'POST',
+   headers:{Authorization:'Bearer unlimited-tools','content-type':'application/json'},
+   body:JSON.stringify({model:'claude-code-sonnet',tools,messages:[{role:'user',content:'合成工具集合'}]})});
+  assert.equal(response.status,200);await response.json();assert.deepEqual(received,[1025]);
+  assert.equal(server.inflightBytes,0);
  } finally {await server.close();}
 });
 
@@ -105,6 +153,8 @@ test('体积上限配置互相约束，非法取值在监听前拒绝', async ()
     { maxRequestBytes: 0 }, { maxImageBytes: 1.5 }, { maxInflightBytes: 1024 * 1024 * 1024 }]) {
     await assert.rejects(gateway({ ...base, ...extra }), /上限/);
   }
+  const large=await gateway({...base,maxRequestBytes:256*1024*1024,maxInflightBytes:256*1024*1024});
+  await large.close();
 });
 
 test('登录错误先返回状态码，流式片段在执行完成前到达且不重复',async()=>{

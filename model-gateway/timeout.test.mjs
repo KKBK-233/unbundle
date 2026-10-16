@@ -65,6 +65,8 @@ test('持续思考延长无进展期限，CLI 心跳不能延长，总时限始�
   const common = { home, cli: 'mock', model: 'mock', timeoutMs: 2500, idleTimeoutMs: 400, killGraceMs: 20 };
   try {
     assert.equal((await infer(request, { ...common, spawnProcess: makeProcess('finish') })).content, 'DONE');
+    // 0 不能变成立即到期的定时器；关闭两种时限后仍能自然完成并清理。
+    assert.equal((await infer(request, { ...common, timeoutMs: 0, idleTimeoutMs: 0, spawnProcess: makeProcess('finish') })).content, 'DONE');
     for (const [mode, extra, expected] of [
       ['noise', {}, 'INFERENCE_IDLE_TIMEOUT'],
       ['progress', { timeoutMs: 300 }, 'INFERENCE_TIMEOUT'],
@@ -76,4 +78,25 @@ test('持续思考延长无进展期限，CLI 心跳不能延长，总时限始�
     }
     assert.deepEqual(await fs.readdir(home), ['workspace']);
   } finally { await fs.rm(home, { recursive: true, force: true }); }
+});
+
+// 无整轮时限时仍受无进展时限与客户端取消约束，不能留下挂起进程。
+test('关闭整轮时限仍检测上游停顿，显式关闭时限后仍响应取消', async () => {
+ const home=await fs.mkdtemp(path.join(os.tmpdir(),'relay-no-total-timeout-'));
+ const request={model:'claude-code-opus',messages:[{role:'user',content:'合成停顿'}]};
+ const spawnProcess=(_cli,_args,options)=>spawn(process.execPath,['--input-type=module','-e',`
+  for await (const chunk of process.stdin) {}
+  setInterval(()=>{},1000);
+ `],options);
+ try {
+  await assert.rejects(infer(request,{home,cli:'mock',model:'mock',spawnProcess,idleTimeoutMs:150,killGraceMs:20}),
+   error=>error.code==='INFERENCE_IDLE_TIMEOUT');
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),150);
+  try {
+   await assert.rejects(infer(request,{home,cli:'mock',model:'mock',spawnProcess,timeoutMs:0,idleTimeoutMs:0,
+    signal:controller.signal,killGraceMs:20}),/取消/);
+  } finally {clearTimeout(timer);}
+  assert.deepEqual(await fs.readdir(home),['workspace']);
+ } finally {await fs.rm(home,{recursive:true,force:true});}
 });

@@ -16,15 +16,17 @@ const DEFAULT_MODELS = [
 // 模型请求独立执行；支持子智能体并发，超过进程容量时排队。
 // 入站体在排队之前就已完整解析驻留，因此队列容量必须与请求体上限一起评估：
 // 单个 32MB 请求的峰值驻留约 124MB（分片、拼接缓冲、UTF-8 字符串与解析结果同时在场）。
-export async function gateway({ token, port = 18796, execute, models = DEFAULT_MODELS, beforeExecute, status, maxOutputTokens = 8192, onTiming, maxConcurrent = 3, maxQueued = 8, queueTimeoutMs = 600000, bodyIdleTimeoutMs = 30000, bodyTimeoutMs = 600000, maxRequestBytes = 32 * 1024 * 1024, maxImageBytes = 5 * 1024 * 1024, maxInflightBytes = 64 * 1024 * 1024 } = {}) {
+export async function gateway({ token, port = 18796, execute, models = DEFAULT_MODELS, beforeExecute, status, maxOutputTokens = 8192, onTiming, maxConcurrent = 3, maxQueued = 8, queueTimeoutMs = 600000, bodyIdleTimeoutMs = 30000, bodyTimeoutMs = 600000, maxRequestBytes = 32 * 1024 * 1024, maxImageBytes = 5 * 1024 * 1024, maxTools = 0, maxInflightBytes = 64 * 1024 * 1024 } = {}) {
   if (!token) throw new Error('Missing gateway token');
   if (typeof execute !== 'function') throw new Error('Missing gateway executor');
   for (const value of [bodyIdleTimeoutMs, bodyTimeoutMs]) if (!Number.isSafeInteger(value) || value < 1 || value > 1800000) throw new Error('上传超时配置必须为 1..1800000 毫秒');
-  for (const [value, min, max] of [[maxRequestBytes, 1024, 64 * 1024 * 1024], [maxImageBytes, 1024, 32 * 1024 * 1024], [maxInflightBytes, 1024, 512 * 1024 * 1024]]) {
+  for (const [value, min, max] of [[maxRequestBytes, 1024, 256 * 1024 * 1024], [maxImageBytes, 1024, 32 * 1024 * 1024], [maxInflightBytes, 1024, 512 * 1024 * 1024]]) {
     if (!Number.isSafeInteger(value) || value < min || value > max) throw new Error('请求体或单图字节上限无效');
   }
   if (maxImageBytes > maxRequestBytes) throw new Error('单图上限不能超过请求体上限');
   if (maxRequestBytes > maxInflightBytes) throw new Error('单请求上限不能超过在场字节总量上限');
+
+  if (!Number.isSafeInteger(maxTools) || maxTools < 0) throw new Error('工具数量上限无效');
 
   const pool = scheduler({ maxConcurrent, maxQueued, queueTimeoutMs });
   const outputGuard = emptyOutputGuard();
@@ -123,8 +125,8 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
         body = JSON.parse(raw);
         raw = '';
       } catch { buffer = undefined; json(400, { error: { message: 'Invalid JSON', code: 'INVALID_JSON' } }); return; }
-      if (anthropic) body = fromAnthropic(body);
-      const outputTokens = validateRequest(body, { maxOutputTokens, maxImageBytes });
+      if (anthropic) body = fromAnthropic(body, { defaultMaxTokens: Math.min(128000, maxOutputTokens) });
+      const outputTokens = validateRequest(body, { maxOutputTokens, maxImageBytes, maxTools });
       if (!models.some(model => model.id === body.model)) {
         json(400, { error: { message: 'Unknown model', code: 'UNKNOWN_MODEL' } });
         return;

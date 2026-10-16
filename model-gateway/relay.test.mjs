@@ -111,6 +111,32 @@ test('进程桥保留延迟到达的第二个工具，拒绝不完整消息并�
   } finally { await fs.rm(home, { recursive: true, force: true }); }
 });
 
+// 大型协议开销不是正文长度；验证旧 16 MiB 累计限制与 4 MiB MCP 限制已解耦。
+test('默认允许超过旧 CLI 输出和 MCP 请求预算，显式 MCP 限额仍有效', async () => {
+ const home=await fs.mkdtemp(path.join(os.tmpdir(),'gateway-wide-protocol-'));
+ const spawnProcess=(_cli,args,options)=>spawn(process.execPath,['--input-type=module','-e',`
+  import fs from 'node:fs/promises';
+  for await (const chunk of process.stdin) {}
+  const config=JSON.parse(await fs.readFile(process.argv[1],'utf8'));
+  const mcp=config.mcpServers.omp;
+  const response=await fetch(mcp.url,{method:'POST',headers:{...mcp.headers,'content-type':'application/json'},
+   body:JSON.stringify({jsonrpc:'2.0',method:'notifications/initialized',padding:'x'.repeat(5*1024*1024)})});
+  if(response.status!==Number(process.argv[2]))throw new Error('合成 MCP 请求状态不符');
+  await response.text();
+  for(let i=0;i<17;i++)console.log(JSON.stringify({type:'system',subtype:'synthetic-padding',padding:'x'.repeat(1024*1024)}));
+  console.log(JSON.stringify({type:'result',is_error:false,result:'SYNTHETIC_DONE'}));
+ `,args[args.indexOf('--mcp-config')+1],options.env.SYNTHETIC_EXPECTED_STATUS||'202'],options);
+ const availableRequest={model:'claude-code-sonnet',messages:[{role:'user',content:'合成大协议开销'}],
+  tools:[{type:'function',function:{name:'synthetic',parameters:{type:'object'}}}]};
+ try {
+  const common={home,cli:'mock',model:'mock',timeoutMs:15000,spawnProcess};
+  assert.equal((await infer(availableRequest,common)).content,'SYNTHETIC_DONE');
+  const limitedSpawn=(cli,args,options)=>spawnProcess(cli,args,{...options,env:{...options.env,SYNTHETIC_EXPECTED_STATUS:'413'}});
+  assert.equal((await infer(availableRequest,{...common,maxMcpRequestBytes:1024,spawnProcess:limitedSpawn})).content,'SYNTHETIC_DONE');
+  assert.deepEqual(await fs.readdir(home),['workspace']);
+ } finally {await fs.rm(home,{recursive:true,force:true});}
+});
+
 test('UTF-8 字符跨 HTTP 分块仍完整，用量位于响应顶层且支持 SSE usage', async () => {
   const statistics = { usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 }, upstream_usage: { input_tokens: 5, output_tokens: 2 }, usage_complete: true };
   const app = await gateway({ token: 'test', port: 0, execute: async body => ({ role: 'assistant', content: body.messages[0].content, ...statistics }) });

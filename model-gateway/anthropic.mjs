@@ -3,12 +3,14 @@ import { gatewayError } from './gateway-error.mjs';
 const fail = message => { throw Object.assign(new Error(message), { status: 400, code: 'UNSUPPORTED_PARAMETER' }); };
 
 // Anthropic 文本与工具协议转换，指令角色保持原位，工具执行仍归调用方。
-export function fromAnthropic(body) {
+export function fromAnthropic(body, { defaultMaxTokens = 128000 } = {}) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) fail('请求必须是 JSON 对象');
   const allowed = new Set(['model', 'system', 'messages', 'tools', 'tool_choice', 'max_tokens', 'stream', 'thinking', 'output_config', 'metadata', 'stop_sequences']);
   for (const key of Object.keys(body)) if (body[key] != null && !allowed.has(key)) fail(`暂不支持 Anthropic 参数 ${key}`);
   if (!Array.isArray(body.messages)) fail('messages 必须是数组');
-  if (!Number.isInteger(body.max_tokens)) fail('max_tokens 必须是整数');
+  // 对齐 Sub2API 的 Claude OAuth Messages 路径；默认预算由服务入口收窄到部署上限。
+  const maxTokens = body.max_tokens === undefined ? defaultMaxTokens : body.max_tokens;
+  if (!Number.isInteger(maxTokens)) fail('max_tokens 必须是整数');
   const messages = [];
   if (body.system != null) {
     // 对齐原有转换路径：前端生成的 billing 提示行属于传输元数据，不是调用方规则。
@@ -50,7 +52,7 @@ export function fromAnthropic(body) {
     }
     flush();
   }
-  const request = { model: body.model, messages, max_tokens: body.max_tokens, stream: body.stream };
+  const request = { model: body.model, messages, max_tokens: maxTokens, stream: body.stream };
   if (body.stop_sequences != null) request.stop = body.stop_sequences;
   if (body.tools != null) {
     if (!Array.isArray(body.tools)) fail('tools 必须是数组');

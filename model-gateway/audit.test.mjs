@@ -91,7 +91,7 @@ test('无效生成参数在 SSE 或 CLI 启动前返回 400', async () => {
     assert.equal(validateRequest(request, { maxOutputTokens: 4096 }), 4096);
     assert.throws(() => validateRequest({ ...request, max_tokens: 128001 }, { maxOutputTokens: 128000 }));
     assert.throws(() => validateRequest({ ...request, store: true }));
-    assert.throws(() => validateRequest({ ...request, max_tokens: 1024, max_completion_tokens: 1024 }));
+    assert.equal(validateRequest({ ...request, max_tokens: 1024, max_completion_tokens: 4096 }), 4096);
   } finally { await app.close(); }
 });
 

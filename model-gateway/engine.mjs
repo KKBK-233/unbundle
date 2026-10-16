@@ -13,12 +13,13 @@ import { createAnomalyCapture } from './anomaly-capture.mjs';
 import { sessionQuotaFailure } from './session-quota-guard.mjs';
 
 // 每轮独立进程、逐消息输入；工作目录固定，凭据继续由官方 CLI 管理。
-export async function infer(request, { cli, home, configDir = path.join(home, '.claude'), model, signal, onText, timing, anomalyDir, cliVersion, timeoutMs = 600000, idleTimeoutMs = 180000, spawnProcess = spawn, testUpstream, cacheBreakpoint = '5m', maxImageBytes = 5 * 1024 * 1024, maxOutputTokens = 8192, killGraceMs = 2000, maxCliOutputBytes = 16 * 1024 * 1024 }) {
-  for (const value of [timeoutMs, idleTimeoutMs]) if (!Number.isSafeInteger(value) || value < 1 || value > 1800000) throw new Error('推理超时配置必须为 1..1800000 毫秒');
+export async function infer(request, { cli, home, configDir = path.join(home, '.claude'), model, signal, onText, timing, anomalyDir, cliVersion, timeoutMs = 0, idleTimeoutMs = 180000, spawnProcess = spawn, testUpstream, cacheBreakpoint = '5m', maxImageBytes = 5 * 1024 * 1024, maxOutputTokens = 8192, killGraceMs = 2000, maxCliOutputBytes = 0, maxMcpRequestBytes = 32 * 1024 * 1024, maxTools = 0 }) {
+  for (const value of [timeoutMs, idleTimeoutMs]) if (!Number.isSafeInteger(value) || value < 0 || value > 2147483647) throw new Error('推理超时配置必须为 0..2147483647 毫秒；0 表示关闭');
   if (!Number.isInteger(maxOutputTokens) || maxOutputTokens < 256 || maxOutputTokens > 128000) throw new Error('输出 token 上限无效');
-  maxOutputTokens = validateRequest(request, { maxOutputTokens, maxImageBytes });
-  if (!Number.isSafeInteger(maxCliOutputBytes) || maxCliOutputBytes < 1) throw new Error('CLI 输出字节上限无效');
-  const { systemPrompt, input, available, exposedTools, metrics } = compileContext(request, { cacheBreakpoint, maxImageBytes });
+  maxOutputTokens = validateRequest(request, { maxOutputTokens, maxImageBytes, maxTools });
+  if (!Number.isSafeInteger(maxCliOutputBytes) || maxCliOutputBytes < 0) throw new Error('CLI 输出字节上限无效');
+  if (!Number.isSafeInteger(maxMcpRequestBytes) || maxMcpRequestBytes < 1024 || maxMcpRequestBytes > 256 * 1024 * 1024) throw new Error('MCP 请求字节上限无效');
+  const { systemPrompt, input, available, exposedTools, metrics } = compileContext(request, { cacheBreakpoint, maxImageBytes, maxTools });
   timing?.mark('context_ready');
   if (process.env.GATEWAY_CONTEXT_DIAGNOSTICS === '1') console.error(JSON.stringify({ type: 'gateway_context_bytes', requestId: timing?.requestId, ...metrics, requestedOutputTokens: maxOutputTokens, effort: resolveEffort(request) || 'auto' }));
   await fs.mkdir(home, { recursive: true, mode: 0o700 });
@@ -56,7 +57,7 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
   // 思考与工具参数片段也算上游进展；CLI 自身心跳和 stderr 不延长无进展时限。
   const refreshProgress = () => {
     clearTimeout(idleTimer);
-    idleTimer = setTimeout(() => { idleTimedOut = true; timing?.mark('idle_timeout'); terminate(); }, idleTimeoutMs);
+    if (idleTimeoutMs > 0) idleTimer = setTimeout(() => { idleTimedOut = true; timing?.mark('idle_timeout'); terminate(); }, idleTimeoutMs);
   };
 
   // MCP 仅提供工具定义；tools/call 不执行也不返回虚假结果，由消息结束事件终止 CLI。
@@ -67,7 +68,7 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
       let bytes = 0; const chunks = [];
       for await (const chunk of req) {
         bytes += chunk.length;
-        if (bytes > 4 * 1024 * 1024) { res.writeHead(413).end(); return; }
+        if (bytes > maxMcpRequestBytes) { res.writeHead(413).end(); return; }
         chunks.push(chunk);
       }
       let body; try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { res.writeHead(400).end(); return; }
@@ -90,7 +91,7 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     for (const k of ['PATH', 'Path', 'SystemRoot', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP', 'LANG']) if (process.env[k]) env[k] = process.env[k];
     Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: configDir,
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1', DISABLE_AUTOUPDATER: '1',
-      ENABLE_TOOL_SEARCH: 'false', MCP_TOOL_TIMEOUT: String(timeoutMs), CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(maxOutputTokens) });
+      ENABLE_TOOL_SEARCH: 'false', MCP_TOOL_TIMEOUT: String(timeoutMs || 2147483647), CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(maxOutputTokens) });
     // 订阅 CLI 默认可能追加 1h 断点；统一 TTL，避免出现 5m 后接 1h 的非法顺序。
     if (cacheBreakpoint === '5m') env.FORCE_PROMPT_CACHING_5M = '1';
     if (cacheBreakpoint === '1h') env.CLAUDE_CODE_PROMPT_CACHE_TTL = '1h';
@@ -111,15 +112,16 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     child = spawnProcess(cli, args, { env, cwd, detached: group, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     child.once('spawn', () => timing?.mark('cli_spawned'));
     const exited = new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
-    timer = setTimeout(() => { timedOut = true; timing?.mark('total_timeout'); terminate(); }, timeoutMs);
+    // 有进展的长任务默认不受整轮时限限制；可单独启用总时限或无进展时限。
+    if (timeoutMs > 0) timer = setTimeout(() => { timedOut = true; timing?.mark('total_timeout'); terminate(); }, timeoutMs);
     refreshProgress();
     signal?.addEventListener('abort', stop, { once: true });
     if (signal?.aborted) stop();
     child.stderr.on('data', chunk => { errors = (errors + chunk).slice(-2000); });
-    // 在 readline 累积超长行前限制总字节数，保护小内存服务器。
+    // 可选累计输出预算；默认不因协议与签名累计字节数中止有进展的请求。
     child.stdout.on('data', chunk => {
       outputBytes += chunk.length;
-      if (outputBytes > maxCliOutputBytes && !protocolError) {
+      if (maxCliOutputBytes > 0 && outputBytes > maxCliOutputBytes && !protocolError) {
         protocolError = new Error('CLI 输出超过字节上限'); lines?.close(); terminate();
       }
     });

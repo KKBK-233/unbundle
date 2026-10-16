@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 
-// 桌面内置工具已超过百项，连接器加载后会继续增加；数量和入站字节上限共同约束内存。
-export const MAX_TOOLS = 512;
+// 默认由请求体和内存预算约束工具集合；可为特定部署显式设置数量限制。
 
 // 历史按消息分块；固定续接说明放在系统提示中，避免每轮改写历史末尾。
 // 开头换行：CLI 会把自身的一句身份说明直接拼在系统提示文件前，缺换行会与本段粘连。
@@ -59,9 +58,10 @@ export function stableJson(value) {
 }
 
 // 提取调用方真实指令角色，保留动态指令的位置，不按相似文本删改规则。
-export function compileContext(request, { cacheBreakpoint = '5m', maxImageBytes = 5 * 1024 * 1024 } = {}) {
+export function compileContext(request, { cacheBreakpoint = '5m', maxImageBytes = 5 * 1024 * 1024, maxTools = 0 } = {}) {
   if (!['5m', '1h', 'off'].includes(cacheBreakpoint)) throw new Error('缓存断点必须为 5m、1h 或 off');
   if (!Number.isSafeInteger(maxImageBytes) || maxImageBytes < 1) throw new Error('单张图片字节上限无效');
+  if (!Number.isSafeInteger(maxTools) || maxTools < 0) throw new Error('工具数量上限无效');
   if (!Array.isArray(request.messages) || !request.messages.length) throw new Error('messages 不能为空');
   for (const message of request.messages) {
     if (!message || !['system', 'developer', 'user', 'assistant', 'tool'].includes(message.role)) throw new Error('消息角色无效');
@@ -133,7 +133,7 @@ export function compileContext(request, { cacheBreakpoint = '5m', maxImageBytes 
   const input = JSON.stringify({ type: 'user', message: { role: 'user', content: blocks } }) + '\n';
   const tools = request.tools || [];
   if (!Array.isArray(tools)) throw new Error('工具列表必须是数组');
-  if (tools.length > MAX_TOOLS) throw Object.assign(new Error(`工具数量超过网关上限：收到 ${tools.length} 个，最多允许 ${MAX_TOOLS} 个`), { status: 400, code: 'TOOL_LIMIT_EXCEEDED' });
+  if (maxTools > 0 && tools.length > maxTools) throw Object.assign(new Error(`工具数量超过网关上限：收到 ${tools.length} 个，最多允许 ${maxTools} 个`), { status: 400, code: 'TOOL_LIMIT_EXCEEDED' });
   if (request.tool_choice && request.tool_choice !== 'auto' && request.tool_choice !== 'none') throw new Error('第一版仅支持 tool_choice auto 或 none');
   const seen = new Set();
   const mapped = tools.map(tool => {
