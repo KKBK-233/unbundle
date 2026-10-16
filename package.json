@@ -1,10 +1,15 @@
 {
   "name": "unbundle",
-  "version": "0.11.22",
+  "version": "1.0.0",
   "description": "单用户自部署的实验性 CLI 适配器：云端推理，本地工具与审批",
   "type": "module",
   "scripts": {
     "test": "node --test model-gateway/*.test.mjs",
+    "deploy": "node deploy/unbundle.mjs install",
+    "login": "node deploy/unbundle.mjs login",
+    "start": "node deploy/unbundle.mjs start",
+    "stop": "node deploy/unbundle.mjs stop",
+    "doctor": "node deploy/unbundle.mjs doctor",
     "prepare:cloud": "node model-gateway/prepare-cloud.mjs",
     "import:omp": "node model-gateway/import-omp.mjs",
     "check:transport": "node model-gateway/transport-check.mjs"

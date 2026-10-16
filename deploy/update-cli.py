@@ -30,8 +30,12 @@ def run(args, timeout=30):
 
 
 def digest(file):
+    # Ubuntu 22.04 的 Python 3.10 尚无 hashlib.file_digest。
+    value = hashlib.sha256()
     with pathlib.Path(file).open('rb') as stream:
-        return hashlib.file_digest(stream, 'sha256').hexdigest()
+        for block in iter(lambda: stream.read(1024 * 1024), b''):
+            value.update(block)
+    return value.hexdigest()
 
 
 def version_tuple(value):

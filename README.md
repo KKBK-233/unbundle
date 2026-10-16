@@ -4,6 +4,25 @@
 
 Unbundle 是实验性 CLI 适配器：在自己控制的服务器上运行官方 Claude Code CLI，通过加密隧道连接本地 Harness。本地工作区、工具执行与审批由调用方掌握，云端网关负责推理请求和协议桥接。
 
+## 1.0 快速安装
+
+准备：Debian/Ubuntu x64 VPS、自己的 Claude 订阅、本机 Node.js 22+、OpenSSH 和 tar。复用已有 SSH 密钥或 Host 配置。
+
+```powershell
+git clone https://github.com/KKBK-233/unbundle.git
+cd unbundle
+npm ci
+npm run deploy -- --host root@你的VPS
+npm run login
+npm run doctor
+```
+
+账号持有人完成官方浏览器登录。安装器准备云端依赖、协议验收、systemd 服务和 SSH 隧道，无需 FRP 或额外公网模型端口。已有网关时增加 `--profile second --local-port 18797`，保留原入口。
+
+Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名称/`；首次 Desktop 切换需用户操作，本版不会覆盖已有活动配置。`doctor` 不调用模型；显式使用 `doctor --live` 才进行一次真实推理。
+
+完整步骤、支持范围与恢复方式见 [安装说明](INSTALL.md)。也可以把本仓库地址、VPS 的 SSH Host 和目标客户端交给本机 AI，按 [AGENTS.md](AGENTS.md) 完成安装。Windows 支持当前用户登录后自动维护隧道；其他本机系统暂用 `npm start` 启动。SSH 重连恢复后续连接，不恢复已断开的推理。
+
 ## 使用范围
 
 - 每套部署面向同一账号持有人，使用自己的账号和设备；同一用户可以运行并发任务。
@@ -17,7 +36,7 @@ Unbundle 是实验性 CLI 适配器：在自己控制的服务器上运行官方
 
 安装前请阅读 [完整说明](https://github.com/KKBK-233/unbundle/blob/docs/README.md)，确认环境要求、部署步骤和兼容边界。
 
-`main` 保存程序、配置模板和部署脚本；[docs 分支](https://github.com/KKBK-233/unbundle/tree/docs) 集中维护详细文档。
+`main` 保存程序、配置模板、部署脚本与当前安装入口；[docs 分支](https://github.com/KKBK-233/unbundle/tree/docs) 集中维护详细文档和历史记录。
 
 部署服务名、供应商 ID 和诊断标记沿用原值，以兼容已有安装和配置。
 
