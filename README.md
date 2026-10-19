@@ -44,6 +44,8 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 ## 隐写与指纹跟踪
 
 按报告分析版本新→旧排列。过滤仅对折叠证据列明的路径成立，不是端到端保证；未经真实流量验证，旧版标记不推定新版仍有。发现时间以原报告首发时间为准，不推断引入时间。
+固定研究上游：[wtfwhs/tengu-decoded](https://github.com/wtfwhs/tengu-decoded)；本轮读取提交 [`068b7a24325b`](https://github.com/wtfwhs/tengu-decoded/commit/068b7a24325bbf92af5f024bdb9525a654251155)。报告目录版本：2.1.300（不代表官方最新发布版本）。历史来源保留供查证。
+
 
 | 报告版本 | 机制 | 过滤 | 触发条件（摘要） | 发现时间 |
 | --- | --- | --- | --- | --- |
