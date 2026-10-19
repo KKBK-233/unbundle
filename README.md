@@ -47,129 +47,153 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 
 | 报告版本 | 机制 | 过滤 | 触发条件（摘要） | 发现时间 |
 | --- | --- | --- | --- | --- |
-| 2.1.196 | 隐写 · 撇号宿主分类标记 [↗](https://thereallo.dev/blog/claude-code-prompt-steganography) | 未过滤 | 需设置 ANTHROPIC&#95;BASE&#95;URL 且主机非官方，构建系统提示日期行时按主机是否命中域名清单或实验室关键词选撇号 [详情](#termiters-evidence-1) | 2026-06-30 |
-| 2.1.196 | 隐写 · 日期分隔符时区标记 [↗](https://thereallo.dev/blog/claude-code-prompt-steganography) | 未过滤 | 需设置 ANTHROPIC&#95;BASE&#95;URL 且主机非官方，系统时区为 Asia/Shanghai 或 Asia/Urumqi 时把日期 - 换成 / [详情](#termiters-evidence-2) | 2026-06-30 |
-| 2.1.169 | 隐写 · 端点分类撇号标记 [↗](https://github.com/anthropics/claude-code/issues/67120) | 未过滤 | 构造系统提示日期行且 gate() 为假时，按 ANTHROPIC&#95;BASE&#95;URL 主机是否命中 KNOWN&#95;HOSTS/LAB&#95;KEYWORDS 组合改写撇号码点。 [详情](#termiters-evidence-3) | 2026-06-10 |
-| 2.1.169 | 隐写 · 时区日期分隔符 [↗](https://github.com/anthropics/claude-code/issues/67120) | 未过滤 | 构造系统提示日期行且 gate() 为假时，若系统时区为 Asia/Shanghai 或 Asia/Urumqi，则日期中的 - 全部替换为 /。 [详情](#termiters-evidence-4) | 2026-06-10 |
-| 2.1.90 / 2.1.92 | 协议指纹 · 计费归属头元数据 [↗](https://raw.githubusercontent.com/rmk40/opencode-anthropic-auth/rmk/docs/claude-code-auth-and-headers-reference.md) | 部分过滤 | 默认启用计费归属头并构造 API 请求时，在注入合成消息前生成，作为 system 首块发送。 [详情](#termiters-evidence-5) | 未说明 |
-| 2.1.90 / 2.1.92 | 环境标记 · 计费头入口标记 [↗](https://raw.githubusercontent.com/rmk40/opencode-anthropic-auth/rmk/docs/claude-code-auth-and-headers-reference.md) | 部分过滤 | 默认启用计费归属头并构造 API 请求时，cc&#95;entrypoint 取环境变量或 unknown，cc&#95;workload 仅在有值时附加。 [详情](#termiters-evidence-6) | 未说明 |
-| 2.1.90 / 2.1.92 | 协议指纹 · cc&#95;version 指纹后缀 [↗](https://raw.githubusercontent.com/rmk40/opencode-anthropic-auth/rmk/docs/claude-code-auth-and-headers-reference.md) | 部分过滤 | 默认启用计费归属头并构造 API 请求时，注入合成消息前，取首条用户消息索引 4/7/20 字符与 salt、版本做 SHA-256，写入 cc&#95;version。 [详情](#termiters-evidence-7) | 未说明 |
-| 2.1.90 / 2.1.92 | 协议指纹 · cch 占位符回写 [↗](https://raw.githubusercontent.com/rmk40/opencode-anthropic-auth/rmk/docs/claude-code-auth-and-headers-reference.md) | 部分过滤 | 默认启用计费归属头并构造 API 请求时，若 NATIVE&#95;CLIENT&#95;ATTESTATION 开启，在 system 首块写 cch=00000，Bun 发送前等长替换。 [详情](#termiters-evidence-8) | 未说明 |
-| 2.1.37 | 协议指纹 · cc&#95;version 后缀哈希 [↗](https://a10k.co/b/reverse-engineering-claude-code-cch.html) | 部分过滤 | 构造计费头时，取首条用户消息索引 4、7、20 字符（不足补 0），加 salt 和版本做 SHA-256，取前 3 位十六进制。 [详情](#termiters-evidence-9) | 未说明 |
-| 2.1.37 | 协议指纹 · cch 请求完整性哈希 [↗](https://a10k.co/b/reverse-engineering-claude-code-cch.html) | 部分过滤 | 向 /v1/messages 发送请求，体含 cch=00000 占位符且带 anthropic-version 头时，Bun 运行时计算并替换 cch。 [详情](#termiters-evidence-10) | 未说明 |
+| 2.1.196 | 隐写 · 日期撇号宿主分类 [↗](https://thereallo.dev/blog/claude-code-prompt-steganography) | 待核实 | 自定义 ANTHROPIC&#95;BASE&#95;URL（非官方主机）且主机命中域名清单或实验室关键词时，日期句撇号改为对应近形字符 [详情](#termiters-evidence-1) | 2026-06-30 |
+| 2.1.196 | 隐写 · 日期分隔符时区标记 [↗](https://thereallo.dev/blog/claude-code-prompt-steganography) | 待核实 | 自定义 ANTHROPIC&#95;BASE&#95;URL（非官方主机）且系统时区为上海/乌鲁木齐时，日期分隔符 - 改为 / [详情](#termiters-evidence-2) | 2026-06-30 |
+| 2.1.169 | 隐写 · 系统提示撇号端点标记 [↗](https://github.com/anthropics/claude-code/issues/67120) | 待核实 | 构造系统提示日期句且 gate() 为假；ANTHROPIC&#95;BASE&#95;URL 主机命中 KNOWN&#95;HOSTS 或含 LAB&#95;KEYWORDS 时按组合替换撇号。 [详情](#termiters-evidence-3) | 2026-06-10 |
+| 2.1.169 | 隐写 · 系统提示日期分隔符标记 [↗](https://github.com/anthropics/claude-code/issues/67120) | 待核实 | 构造系统提示日期句且 gate() 为假；系统时区为 Asia/Shanghai 或 Asia/Urumqi 时将日期 - 替换为 /。 [详情](#termiters-evidence-4) | 2026-06-10 |
+| 2.1.90 / 2.1.92 | 协议指纹 · 计费归属头 [↗](https://raw.githubusercontent.com/rmk40/opencode-anthropic-auth/rmk/docs/claude-code-auth-and-headers-reference.md) | 部分过滤 | 归属头默认启用且未被环境变量/特性开关关闭时，随请求写入 system 首块。 [详情](#termiters-evidence-5) | 未说明 |
+| 2.1.90 / 2.1.92 | 环境标记 · 入口/负载标记 [↗](https://raw.githubusercontent.com/rmk40/opencode-anthropic-auth/rmk/docs/claude-code-auth-and-headers-reference.md) | 部分过滤 | 计费头启用时写入 cc&#95;entrypoint；仅 getWorkload() 有值时附加 cc&#95;workload。 [详情](#termiters-evidence-6) | 未说明 |
+| 2.1.90 / 2.1.92 | 协议指纹 · cc&#95;version 指纹 [↗](https://raw.githubusercontent.com/rmk40/opencode-anthropic-auth/rmk/docs/claude-code-auth-and-headers-reference.md) | 部分过滤 | 构造 API 请求且取首条用户消息，在注入合成消息前计算 3 位十六进制后缀。 [详情](#termiters-evidence-7) | 未说明 |
+| 2.1.90 / 2.1.92 | 协议指纹 · cch 完整性哈希 [↗](https://raw.githubusercontent.com/rmk40/opencode-anthropic-auth/rmk/docs/claude-code-auth-and-headers-reference.md) | 部分过滤 | NATIVE&#95;CLIENT&#95;ATTESTATION 开启且计费头发出时，先写 cch=00000，再由 Bun 发送前回写。 [详情](#termiters-evidence-8) | 未说明 |
+| 2.1.37 | 协议指纹 · 计费归属头 [↗](https://a10k.co/b/reverse-engineering-claude-code-cch.html) | 部分过滤 | 每次请求在system数组首元素注入，位于身份行和系统提示前，含cc&#95;version/cc&#95;entrypoint/cch。 [详情](#termiters-evidence-9) | 未说明 |
+| 2.1.37 | 环境标记 · cc&#95;entrypoint标记 [↗](https://a10k.co/b/reverse-engineering-claude-code-cch.html) | 部分过滤 | 每次请求的system首个计费头写入cc&#95;entrypoint，报告实测均为cli。 [详情](#termiters-evidence-10) | 未说明 |
+| 2.1.37 | 协议指纹 · cc&#95;version后缀哈希 [↗](https://a10k.co/b/reverse-engineering-claude-code-cch.html) | 部分过滤 | 每次请求生成cc&#95;version时，取首条用户消息索引4/7/20字符，与salt和版本做SHA-256取前3位。 [详情](#termiters-evidence-11) | 未说明 |
+| 2.1.37 / 1.3.9 | 协议指纹 · cch请求完整性哈希 [↗](https://a10k.co/b/reverse-engineering-claude-code-cch.html) | 部分过滤 | 请求路径含/v1/messages、带anthropic-version且体含cch=00000时计算并回写完整请求体哈希。 [详情](#termiters-evidence-12) | 未说明 |
 
 <details>
 <summary>展开完整条件与代码证据</summary>
 
 <a id="termiters-evidence-1"></a>
-**1. 撇号宿主分类标记** · 2.1.196 · [原报告](https://thereallo.dev/blog/claude-code-prompt-steganography)
+**1. 日期撇号宿主分类** · Claude Code 2.1.196 · [原报告](https://thereallo.dev/blog/claude-code-prompt-steganography)
 
-机制：系统提示日期句撇号隐写：按 API 基础 URL 主机是否命中解码后的域名清单或 AI 实验室关键词，把 Today's 中的撇号分别写成 '、&#92;u2019、&#92;u02BC、&#92;u02B9，在正常英文句中承载宿主分类位
+机制：系统提示日期句撇号隐写：在构造系统上下文时，依据 ANTHROPIC&#95;BASE&#95;URL 主机是否命中解码域名清单或 AI 实验室关键词，选用 '、’、ʼ、ʹ 四个近形撇号，在 Today's date is … 句中承载宿主分类位。
 
-完整触发条件：必须已设置环境变量 ANTHROPIC&#95;BASE&#95;URL 且其主机不是 api.anthropic.com（未设置或为官方端点时 Crt() 提前返回，不做任何标记），在构建 agent 上下文的日期行时按主机分类替换撇号；域名清单经 base64 存储并以 91 异或解码，命中清单记 known，命中 deepseek/moonshot 等关键词记 labKw
+完整触发条件：仅当 ANTHROPIC&#95;BASE&#95;URL 已设置且主机不是 api.anthropic.com 时进入标记路径；随后若主机命中解码域名清单或包含实验室关键词，日期句撇号才改为对应近形字符，否则保持普通撇号。
 
-未过滤：适配器入站仅移除 x-anthropic-billing-header 行，stableJson 按传入字符串序列化；出站 CliEvents.publishText 与 anthropicWriter.text 直接透传 text&#95;delta，无 U+0027/U+2019/U+02BC/U+02B9 过滤。仅覆盖适配器入站/出站路径，CLI 内部系统提示日期行构造不可见。
+待核实：适配器可见路径仅移除入站 system 的 billing 行，并将自建 systemPrompt 原样写入 CLI；CLI 输出文本原样转发，未见撇号规范化。该机制位于 CLI 内部系统提示构造，提供代码不覆盖该路径，无法确认其是否被过滤。
 
-代码：[model-gateway/context.mjs:56](https://github.com/KKBK-233/unbundle/blob/3c4ebaf5668797f6971eda7e05cb351c43af8ade/model-gateway/context.mjs#L56)、[model-gateway/cli-events.mjs:57](https://github.com/KKBK-233/unbundle/blob/3c4ebaf5668797f6971eda7e05cb351c43af8ade/model-gateway/cli-events.mjs#L57)、[model-gateway/anthropic.mjs:124](https://github.com/KKBK-233/unbundle/blob/3c4ebaf5668797f6971eda7e05cb351c43af8ade/model-gateway/anthropic.mjs#L124)；审阅提交 3c4ebaf56687。发现时间：2026-06-30（以来源首发时间为准）。
+代码：[model-gateway/anthropic.mjs:19](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/anthropic.mjs#L19)、[model-gateway/engine.mjs:110](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/engine.mjs#L110)、[model-gateway/cli-events.mjs:57](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/cli-events.mjs#L57)；审阅提交 1160cc476165。发现时间：2026-06-30（以来源首发时间为准）。
 
 <a id="termiters-evidence-2"></a>
-**2. 日期分隔符时区标记** · 2.1.196 · [原报告](https://thereallo.dev/blog/claude-code-prompt-steganography)
+**2. 日期分隔符时区标记** · Claude Code 2.1.196 · [原报告](https://thereallo.dev/blog/claude-code-prompt-steganography)
 
-机制：系统提示日期分隔符隐写：当系统时区为中国大陆时区时，把写入系统提示的日期字符串中的 - 全部替换为 /，在看似正常的日期句里承载地域/时区标记位
+机制：系统提示日期分隔符隐写：在构造系统上下文时，若系统时区为 Asia/Shanghai 或 Asia/Urumqi，将 Today's date is 后的日期从 YYYY-MM-DD 改为 YYYY/MM/DD，在正常日期句中承载时区标记位。
 
-完整触发条件：必须已设置 ANTHROPIC&#95;BASE&#95;URL 且其主机不是 api.anthropic.com（官方端点或未设置时提前返回），且运行环境系统时区为 Asia/Shanghai 或 Asia/Urumqi，才会触发日期分隔符替换
+完整触发条件：仅当 ANTHROPIC&#95;BASE&#95;URL 已设置且指向非官方主机时进入标记路径；在此基础上，系统时区为 Asia/Shanghai 或 Asia/Urumqi 时，日期分隔符由 - 改为 /。
 
-未过滤：适配器未对日期字符串做分隔符规范化：compileContext 原样序列化消息文本，CliEvents.publishText 直接累积并回调，anthropicWriter.text 原样写入 text&#95;delta；没有把 / 还原为 - 或反向过滤。仅覆盖适配器入站/出站路径，CLI 内部系统提示日期行生成不可见。
+待核实：适配器未见日期分隔符规范化：入站 system 除 billing 行外原样进入提示，systemPrompt 原样写入 CLI，CLI 输出文本原样转发。该标记若由 CLI 内部日期句生成，提供代码不覆盖其构造路径，证据不足。
 
-代码：[model-gateway/context.mjs:111](https://github.com/KKBK-233/unbundle/blob/3c4ebaf5668797f6971eda7e05cb351c43af8ade/model-gateway/context.mjs#L111)、[model-gateway/cli-events.mjs:57](https://github.com/KKBK-233/unbundle/blob/3c4ebaf5668797f6971eda7e05cb351c43af8ade/model-gateway/cli-events.mjs#L57)、[model-gateway/anthropic.mjs:124](https://github.com/KKBK-233/unbundle/blob/3c4ebaf5668797f6971eda7e05cb351c43af8ade/model-gateway/anthropic.mjs#L124)；审阅提交 3c4ebaf56687。发现时间：2026-06-30（以来源首发时间为准）。
+代码：[model-gateway/anthropic.mjs:19](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/anthropic.mjs#L19)、[model-gateway/engine.mjs:110](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/engine.mjs#L110)、[model-gateway/server.mjs:183](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/server.mjs#L183)；审阅提交 1160cc476165。发现时间：2026-06-30（以来源首发时间为准）。
 
 <a id="termiters-evidence-3"></a>
-**3. 端点分类撇号标记** · v2.1.169（npm @anthropic-ai/claude-code，原生 win32-x64 二进制） · [原报告](https://github.com/anthropics/claude-code/issues/67120)
+**3. 系统提示撇号端点标记** · v2.1.169（npm @anthropic-ai/claude-code，native win32-x64 binary） · [原报告](https://github.com/anthropics/claude-code/issues/67120)
 
-机制：系统提示日期句撇号隐写：按 ANTHROPIC&#95;BASE&#95;URL 主机是否命中 KNOWN&#95;HOSTS 或 LAB&#95;KEYWORDS，把 Today's 的撇号写成 U+0027/U+2019/U+02BC/U+02B9 四个近形码点后随系统提示发出。
+机制：系统提示日期句撇号隐写：构造系统提示时，按 ANTHROPIC&#95;BASE&#95;URL 主机是否命中 KNOWN&#95;HOSTS 或包含 LAB&#95;KEYWORDS，在 Today's date is 句中选择 U+0027、U+2019、U+02BC、U+02B9 四个近形撇号，随提示发往端点。
 
-完整触发条件：共同前置条件：进入系统提示日期行构造（Today's date is …），且 classify() 中 gate() 为假才继续分类；此时读取 ANTHROPIC&#95;BASE&#95;URL 主机（未配置或解析失败取 U+0027），按精确或 &#42;.子域命中 KNOWN&#95;HOSTS、子串命中 LAB&#95;KEYWORDS 的四种组合分别取 ' / ’ / ʼ / ʹ。
+完整触发条件：构造系统提示日期句且 gate() 为假；配置了 ANTHROPIC&#95;BASE&#95;URL 且主机精确匹配 KNOWN&#95;HOSTS 或以 .KNOWN&#95;HOST 结尾，或主机包含 LAB&#95;KEYWORDS 时，按命中组合选撇号；未命中则用 ASCII 撇号。
 
-未过滤：提供的适配器未对系统提示日期行做撇号码点规范化；engine.mjs 仅把自己的 systemPrompt 写入 --system-prompt-file 后启动 CLI，CLI 内部日期行不经过适配器，因此适配器不会去除该标记。入站转换与出站事件解析亦无相关过滤，边界是不覆盖 CLI 内部提示构造。
+待核实：复核未通过：原文直接给出四码位撇号按 ANTHROPIC&#95;BASE&#95;URL 主机分类切换的机制、classify()/pickApostrophe() 逻辑与 v2.1.169 版本，trigger&#95;summary 保留了共同前置条件 gate() 为假，并正确概括「精确匹配或 .后缀 KNOWN&#95;HOSTS / 含 LAB&#95;KEYWORDS 组合」与默认 ASCII 撇号，版本字段有原文引文支撑，label 与 category=隐写 相符（近形码位携带端点分类，非协议签名或显式身份字段）。但所给仓库为 model-gateway 适配器，anthropic.mjs 仅删除系统块开头 billing 行，engine.mjs 只以 --system-prompt-file 传入自建提示，日期句由外部 CLI 内部生成并直接上行，代码中既无该撇号生成路径也无拦截/净化路径，且白名单版本为 2.1.280 而非 2.1.169，故代码证据不足以判定该机制存在或已被过滤，supported=false。
 
-代码：[model-gateway/engine.mjs:109](https://github.com/KKBK-233/unbundle/blob/1665f50eb21697a650529ec6c3573a10f14aec65/model-gateway/engine.mjs#L109)、[model-gateway/engine.mjs:105](https://github.com/KKBK-233/unbundle/blob/1665f50eb21697a650529ec6c3573a10f14aec65/model-gateway/engine.mjs#L105)、[model-gateway/context.mjs:102](https://github.com/KKBK-233/unbundle/blob/1665f50eb21697a650529ec6c3573a10f14aec65/model-gateway/context.mjs#L102)；审阅提交 1665f50eb216。发现时间：2026-06-10（以来源首发时间为准）。
+代码：[model-gateway/anthropic.mjs:19](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/anthropic.mjs#L19)、[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/engine.mjs#L104)；审阅提交 1160cc476165。发现时间：2026-06-10（以来源首发时间为准）。
 
 <a id="termiters-evidence-4"></a>
-**4. 时区日期分隔符** · v2.1.169（npm @anthropic-ai/claude-code，原生 win32-x64 二进制） · [原报告](https://github.com/anthropics/claude-code/issues/67120)
+**4. 系统提示日期分隔符标记** · v2.1.169（npm @anthropic-ai/claude-code，native win32-x64 binary） · [原报告](https://github.com/anthropics/claude-code/issues/67120)
 
-机制：系统提示日期分隔符隐写：当系统时区为 Asia/Shanghai 或 Asia/Urumqi 时，把写入系统提示的日期字符串中的 - 全部替换为 /，在正常日期句中承载时区标记。
+机制：系统提示日期分隔符隐写：构造系统提示时，若系统时区为 Asia/Shanghai 或 Asia/Urumqi，将 Today's date is 后的日期从 YYYY-MM-DD 改为 YYYY/MM/DD，在正常日期句中承载时区标记位。
 
-完整触发条件：同一入口：构造 Today's date is … 系统提示日期行时，classify() 中 gate() 为假才继续分类，并由 Intl 时区计算 cnTZ；仅当 cnTZ 为真（系统时区为 Asia/Shanghai 或 Asia/Urumqi）时，日期中所有 - 替换为 /，其余时区保持原样。
+完整触发条件：构造系统提示日期句且 gate() 为假；系统时区为 Asia/Shanghai 或 Asia/Urumqi 时，将日期字符串中的 - 全部替换为 /，否则保持原分隔符。
 
-未过滤：适配器未对日期分隔符做任何规范化；engine.mjs 把 systemPrompt 写入 --system-prompt-file 并启动 CLI，CLI 内部根据时区生成的日期行不经过适配器。入站/出站路径均无将 / 还原为 - 或过滤时区标记的代码，边界是不覆盖 CLI 内部日期构造。
+待核实：复核未通过：原文明确「系统时区为 Asia/Shanghai 或 Asia/Urumqi 时 - 变 /」，并给出 buildDateLine 中 c?.cnTZ ? date.replaceAll('-','/') 的对应代码，trigger&#95;summary 完整保留 gate() 为假这一共同前置条件与两个时区条件，版本 v2.1.169 有原文引文支撑，label 与 category=隐写 相符（格式近似等价的分隔符携带时区分类位）。但所给适配器代码（context.mjs 仅拼接 RELAY&#95;PROMPT 与调用方指令，engine.mjs 写 --system-prompt-file）不包含日期句构造或该字符串的检测处理，无法证明该变异存在，也无法证明其被过滤或未被过滤，且调查版本（CLI 白名单 2.1.280）与报告版本不一致，故代码证据不完整，supported=false。
 
-代码：[model-gateway/engine.mjs:109](https://github.com/KKBK-233/unbundle/blob/1665f50eb21697a650529ec6c3573a10f14aec65/model-gateway/engine.mjs#L109)、[model-gateway/engine.mjs:89](https://github.com/KKBK-233/unbundle/blob/1665f50eb21697a650529ec6c3573a10f14aec65/model-gateway/engine.mjs#L89)、[model-gateway/context.mjs:102](https://github.com/KKBK-233/unbundle/blob/1665f50eb21697a650529ec6c3573a10f14aec65/model-gateway/context.mjs#L102)；审阅提交 1665f50eb216。发现时间：2026-06-10（以来源首发时间为准）。
+代码：[model-gateway/context.mjs:102](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/context.mjs#L102)、[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/engine.mjs#L104)；审阅提交 1160cc476165。发现时间：2026-06-10（以来源首发时间为准）。
 
 <a id="termiters-evidence-5"></a>
-**5. 计费归属头元数据** · 2.1.90/2.1.92 · [原报告](https://raw.githubusercontent.com/rmk40/opencode-anthropic-auth/rmk/docs/claude-code-auth-and-headers-reference.md)
+**5. 计费归属头** · 2.1.90 / 2.1.92 · [原报告](https://raw.githubusercontent.com/rmk40/opencode-anthropic-auth/rmk/docs/claude-code-auth-and-headers-reference.md)
 
-机制：计费归属头协议元数据：在 system 数组首个独立文本块写入 x-anthropic-billing-header，包含 cc&#95;version 指纹、cc&#95;entrypoint、可选 cch 和 cc&#95;workload，作为服务端计费/分析解析字段。
+机制：计费归属头协议元数据：在 system 数组首个独立文本块写入 x-anthropic-billing-header，携带 cc&#95;version 指纹、cc&#95;entrypoint、可选 cch 与 cc&#95;workload，供服务端计费/分析解析。
 
-完整触发条件：默认启用计费归属头并构造 API 请求时，在合成消息注入前生成，并作为 system 数组首个独立文本块发送；可由 CLAUDE&#95;CODE&#95;ATTRIBUTION&#95;HEADER 环境变量或 tengu&#95;attribution&#95;header 功能开关关闭。
+完整触发条件：计费归属头默认启用；可由 CLAUDE&#95;CODE&#95;ATTRIBUTION&#95;HEADER 环境变量或 tengu&#95;attribution&#95;header 特性开关关闭。
 
-部分过滤：入站 /v1/messages 由 fromAnthropic 移除 system 文本块开头的 x-anthropic-billing-header 整行；CLI 出站生成的 system 首块不由适配器改写，出站路径未覆盖。
+部分过滤：仅在 Anthropic /v1/messages 入站 body.system 的各文本块开头删除整行；OpenAI messages 的 system 原样编入 instructions，且 engine 直接 spawn CLI，未提供拦截 CLI 内部出站请求的代码，故仅部分覆盖。
 
-代码：[model-gateway/anthropic.mjs:17](https://github.com/KKBK-233/unbundle/blob/1665f50eb21697a650529ec6c3573a10f14aec65/model-gateway/anthropic.mjs#L17)、[model-gateway/server.mjs:126](https://github.com/KKBK-233/unbundle/blob/1665f50eb21697a650529ec6c3573a10f14aec65/model-gateway/server.mjs#L126)、[model-gateway/engine.mjs:111](https://github.com/KKBK-233/unbundle/blob/1665f50eb21697a650529ec6c3573a10f14aec65/model-gateway/engine.mjs#L111)；审阅提交 1665f50eb216。发现时间：未说明（以来源首发时间为准）。
+代码：[model-gateway/anthropic.mjs:19](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/anthropic.mjs#L19)、[model-gateway/context.mjs:100](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/context.mjs#L100)、[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/engine.mjs#L112)；审阅提交 1160cc476165。发现时间：未说明（以来源首发时间为准）。
 
 <a id="termiters-evidence-6"></a>
-**6. 计费头入口标记** · 2.1.90/2.1.92 · [原报告](https://raw.githubusercontent.com/rmk40/opencode-anthropic-auth/rmk/docs/claude-code-auth-and-headers-reference.md)
+**6. 入口/负载标记** · 2.1.90 / 2.1.92 · [原报告](https://raw.githubusercontent.com/rmk40/opencode-anthropic-auth/rmk/docs/claude-code-auth-and-headers-reference.md)
 
-机制：计费头环境标记：cc&#95;entrypoint 记录入口来源，取 process.env.CLAUDE&#95;CODE&#95;ENTRYPOINT 或 unknown；cc&#95;workload 在 getWorkload() 返回有值时记录工作负载。
+机制：计费头环境标记：cc&#95;entrypoint 记录入口来源，取 CLAUDE&#95;CODE&#95;ENTRYPOINT 或 unknown；cc&#95;workload 在 getWorkload() 返回有值时记录工作负载。
 
-完整触发条件：默认启用计费归属头并构造 API 请求时，cc&#95;entrypoint 取 CLAUDE&#95;CODE&#95;ENTRYPOINT 或 unknown；cc&#95;workload 仅在 getWorkload() 返回有值时附加。
+完整触发条件：计费归属头启用时，cc&#95;entrypoint 取环境变量或 unknown；cc&#95;workload 仅在 getWorkload() 有值时出现。
 
-部分过滤：入站 fromAnthropic 剥离含 cc&#95;entrypoint/cc&#95;workload 的计费头整行，覆盖入站；CLI 出站请求由 engine.mjs 直接 spawn，适配器无出站过滤，环境标记未覆盖。
+部分过滤：无入口/负载标记专门过滤；仅 Anthropic body.system 的 billing 行首整行删除会一并移除 cc&#95;entrypoint/cc&#95;workload。OpenAI 系统消息与 CLI 内部出站未覆盖。
 
-代码：[model-gateway/anthropic.mjs:17](https://github.com/KKBK-233/unbundle/blob/1665f50eb21697a650529ec6c3573a10f14aec65/model-gateway/anthropic.mjs#L17)、[model-gateway/server.mjs:126](https://github.com/KKBK-233/unbundle/blob/1665f50eb21697a650529ec6c3573a10f14aec65/model-gateway/server.mjs#L126)、[model-gateway/engine.mjs:111](https://github.com/KKBK-233/unbundle/blob/1665f50eb21697a650529ec6c3573a10f14aec65/model-gateway/engine.mjs#L111)；审阅提交 1665f50eb216。发现时间：未说明（以来源首发时间为准）。
+代码：[model-gateway/anthropic.mjs:19](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/anthropic.mjs#L19)、[model-gateway/context.mjs:100](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/context.mjs#L100)、[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/engine.mjs#L112)；审阅提交 1160cc476165。发现时间：未说明（以来源首发时间为准）。
 
 <a id="termiters-evidence-7"></a>
-**7. cc&#95;version 指纹后缀** · 2.1.90/2.1.92 · [原报告](https://raw.githubusercontent.com/rmk40/opencode-anthropic-auth/rmk/docs/claude-code-auth-and-headers-reference.md)
+**7. cc&#95;version 指纹** · 2.1.90 / 2.1.92 · [原报告](https://raw.githubusercontent.com/rmk40/opencode-anthropic-auth/rmk/docs/claude-code-auth-and-headers-reference.md)
 
-机制：cc&#95;version 后缀指纹：取首条用户消息索引 4、7、20 的字符（不足补 0），与 FINGERPRINT&#95;SALT 和版本号拼接后做 SHA-256，取前 3 位十六进制作为 cc&#95;version 后缀。
+机制：cc&#95;version 后缀哈希：取首条用户消息索引 4、7、20 的字符（不足补 0），与内置 salt 和版本号拼成 SHA-256，取前 3 位十六进制作为 cc&#95;version 后缀。
 
-完整触发条件：默认启用计费归属头并构造 API 请求时，在消息归一化后、注入合成消息前，从 messagesForAPI 首条用户消息文本提取索引 4、7、20 字符，与 FINGERPRINT&#95;SALT 和 MACRO.VERSION 拼接计算 SHA-256，取前 3 位十六进制写入 system 首块计费头的 cc&#95;version 后缀。
+完整触发条件：构造 API 请求时，从 messagesForAPI 提取首条用户消息并在注入合成消息之前计算指纹。
 
-部分过滤：入站 Anthropic 路径会剥离 system 文本块开头的计费头整行，cc&#95;version 后缀随之被过滤；CLI 出站构造请求直接发往上游，不经过适配器，指纹写入路径未覆盖。
+部分过滤：未单独识别 cc&#95;version 哈希后缀；仅当它位于 Anthropic body.system 的 billing 行首时随整行删除。OpenAI system 原样保留，CLI 内部出站请求由官方 CLI 直发，未覆盖。
 
-代码：[model-gateway/anthropic.mjs:17](https://github.com/KKBK-233/unbundle/blob/1665f50eb21697a650529ec6c3573a10f14aec65/model-gateway/anthropic.mjs#L17)、[model-gateway/server.mjs:126](https://github.com/KKBK-233/unbundle/blob/1665f50eb21697a650529ec6c3573a10f14aec65/model-gateway/server.mjs#L126)、[model-gateway/engine.mjs:111](https://github.com/KKBK-233/unbundle/blob/1665f50eb21697a650529ec6c3573a10f14aec65/model-gateway/engine.mjs#L111)；审阅提交 1665f50eb216。发现时间：未说明（以来源首发时间为准）。
+代码：[model-gateway/anthropic.mjs:19](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/anthropic.mjs#L19)、[model-gateway/context.mjs:100](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/context.mjs#L100)、[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/engine.mjs#L112)；审阅提交 1160cc476165。发现时间：未说明（以来源首发时间为准）。
 
 <a id="termiters-evidence-8"></a>
-**8. cch 占位符回写** · 2.1.90/2.1.92 · [原报告](https://raw.githubusercontent.com/rmk40/opencode-anthropic-auth/rmk/docs/claude-code-auth-and-headers-reference.md)
+**8. cch 完整性哈希** · 2.1.90 / 2.1.92 · [原报告](https://raw.githubusercontent.com/rmk40/opencode-anthropic-auth/rmk/docs/claude-code-auth-and-headers-reference.md)
 
-机制：cch 请求完整性哈希占位符回写：TS 层在启用的计费归属头中写入 cch=00000 占位符，不在 OSS 的 Bun 原生 HTTP 栈在发送前查找并等长替换为计算哈希；OSS 仅能确认占位符与等长替换，哈希算法和输入未验证。
+机制：cch 请求完整性哈希：计费头先写 cch=00000 占位符，原生 Bun HTTP 栈发送前在序列化请求体中查找并等长回写计算哈希；OSS 未验证算法与输入。
 
-完整触发条件：默认启用计费归属头并构造 API 请求时，若 feature('NATIVE&#95;CLIENT&#95;ATTESTATION') 为 true，在 system 首个计费头写入 cch=00000 占位符；请求体序列化后由 Bun 原生 HTTP 在发送前查找并等长替换。
+完整触发条件：仅当 feature('NATIVE&#95;CLIENT&#95;ATTESTATION') 为真且计费头发出时，cch=00000 被写入；发送前由 Bun 原生栈替换。
 
-部分过滤：入站 /v1/messages 经 fromAnthropic 时，system 文本块开头的 x-anthropic-billing-header 整行被剥离，入站 cch 占位符随之移除；CLI 内部 Bun 回写发生在适配器不拦截的出站请求中，未覆盖。
+部分过滤：无 cch 专门匹配；仅 Anthropic body.system 开头 billing 行整行剥离可顺带删去占位符。Bun 发送前回写及 CLI 出站不在适配器代码中，OpenAI 系统消息亦不覆盖。
 
-代码：[model-gateway/anthropic.mjs:17](https://github.com/KKBK-233/unbundle/blob/1665f50eb21697a650529ec6c3573a10f14aec65/model-gateway/anthropic.mjs#L17)、[model-gateway/server.mjs:126](https://github.com/KKBK-233/unbundle/blob/1665f50eb21697a650529ec6c3573a10f14aec65/model-gateway/server.mjs#L126)、[model-gateway/engine.mjs:111](https://github.com/KKBK-233/unbundle/blob/1665f50eb21697a650529ec6c3573a10f14aec65/model-gateway/engine.mjs#L111)；审阅提交 1665f50eb216。发现时间：未说明（以来源首发时间为准）。
+代码：[model-gateway/anthropic.mjs:19](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/anthropic.mjs#L19)、[model-gateway/context.mjs:100](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/context.mjs#L100)、[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/engine.mjs#L112)；审阅提交 1160cc476165。发现时间：未说明（以来源首发时间为准）。
 
 <a id="termiters-evidence-9"></a>
-**9. cc&#95;version 后缀哈希** · Claude Code 2.1.37 · [原报告](https://a10k.co/b/reverse-engineering-claude-code-cch.html)
+**9. 计费归属头** · 2.1.37 · [原报告](https://a10k.co/b/reverse-engineering-claude-code-cch.html)
 
-机制：cc&#95;version 后缀哈希：取第一条用户消息索引 4、7、20 的字符（不足补 0），与嵌在 JS 中的 salt 及版本号拼接后做 SHA-256，取前 3 位十六进制作为 cc&#95;version 后缀。
+机制：计费归属头协议元数据：在 system 数组首个独立文本块写入 x-anthropic-billing-header，携带 cc&#95;version、cc&#95;entrypoint 和 cch。
 
-完整触发条件：构造 Claude Code 计费头时，基于对话首条用户消息的特定位置字符和版本号计算 cc&#95;version 后缀，该后缀随对话内容变化。
+完整触发条件：每次发往 Anthropic API 的请求都会在 system 数组首个元素注入该计费头，位于身份行和系统提示之前。
 
-部分过滤：fromAnthropic 仅移除 Anthropic 入站 system 文本块开头的 x-anthropic-billing-header 整行；若 cc&#95;version 及其 3 位后缀位于该行会被去除，否则正文或其他入口保留。CLI 内部构造并发送到上游的计费头不经适配器，engine 只通过 stdio 读写 CLI，未覆盖出站后缀哈希路径，故为 partial。
+部分过滤：Anthropic 入站顶层 system 块开头的 x-anthropic-billing-header 行会被 fromAnthropic 删除；但 messages 内 system/developer 内容原样转文本，OpenAI 入站经 compileContext 原样序列化，CLI 出站请求也未由适配器代理，覆盖不完整。
 
-代码：[model-gateway/anthropic.mjs:17](https://github.com/KKBK-233/unbundle/blob/3c4ebaf5668797f6971eda7e05cb351c43af8ade/model-gateway/anthropic.mjs#L17)、[model-gateway/engine.mjs:111](https://github.com/KKBK-233/unbundle/blob/3c4ebaf5668797f6971eda7e05cb351c43af8ade/model-gateway/engine.mjs#L111)；审阅提交 3c4ebaf56687。发现时间：未说明（以来源首发时间为准）。
+代码：[model-gateway/anthropic.mjs:19](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/anthropic.mjs#L19)、[model-gateway/anthropic.mjs:26](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/anthropic.mjs#L26)、[model-gateway/context.mjs:100](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/context.mjs#L100)；审阅提交 1160cc476165。发现时间：未说明（以来源首发时间为准）。
 
 <a id="termiters-evidence-10"></a>
-**10. cch 请求完整性哈希** · Claude Code 2.1.37 · [原报告](https://a10k.co/b/reverse-engineering-claude-code-cch.html)
+**10. cc&#95;entrypoint标记** · 2.1.37 · [原报告](https://a10k.co/b/reverse-engineering-claude-code-cch.html)
 
-机制：请求完整性哈希 cch：在 system 数组首个计费头中放置 cch=00000 占位符，Bun nativeFetch 对完整序列化请求体计算 xxHash64 后取低 5 位十六进制并回写替换。
+机制：计费头环境标记：cc&#95;entrypoint 记录入口来源，报告实测始终为 cli；作为请求来源环境信号随计费头发出。
 
-完整触发条件：向 Anthropic API 发送 /v1/messages 请求，且请求体包含 cch=00000 占位符并带有 anthropic-version 头时，Bun nativeFetch 激活哈希替换。
+完整触发条件：每次发往 Anthropic API 的请求在 system 首个计费头写入 cc&#95;entrypoint；报告观察值为 cli。
 
-部分过滤：仅 Anthropic 入站转换路径 fromAnthropic 会移除 system 文本块开头的 x-anthropic-billing-header 整行，若 cch=00000 占位符位于该行则被清除；普通正文内保留。CLI 子进程向上游 /v1/messages 的 Bun nativeFetch 替换不经该适配器，engine 仅以 stdio 启动 CLI，未覆盖出站哈希路径，故为 partial。
+部分过滤：cc&#95;entrypoint 随 billing 行在 Anthropic 顶层 system 块开头被 fromAnthropic 删除；但 messages 内 system/developer 内容原样保留，OpenAI 入站经 compileContext 原样序列化，CLI 出站请求未由适配器代理。
 
-代码：[model-gateway/anthropic.mjs:17](https://github.com/KKBK-233/unbundle/blob/3c4ebaf5668797f6971eda7e05cb351c43af8ade/model-gateway/anthropic.mjs#L17)、[model-gateway/engine.mjs:111](https://github.com/KKBK-233/unbundle/blob/3c4ebaf5668797f6971eda7e05cb351c43af8ade/model-gateway/engine.mjs#L111)；审阅提交 3c4ebaf56687。发现时间：未说明（以来源首发时间为准）。
+代码：[model-gateway/anthropic.mjs:19](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/anthropic.mjs#L19)、[model-gateway/anthropic.mjs:26](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/anthropic.mjs#L26)、[model-gateway/context.mjs:100](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/context.mjs#L100)；审阅提交 1160cc476165。发现时间：未说明（以来源首发时间为准）。
+
+<a id="termiters-evidence-11"></a>
+**11. cc&#95;version后缀哈希** · 2.1.37 · [原报告](https://a10k.co/b/reverse-engineering-claude-code-cch.html)
+
+机制：cc&#95;version 后缀哈希：取首条用户消息索引 4、7、20 的字符（不足补 0），与内置 salt 和版本号拼成 SHA-256，取前 3 位十六进制作为 cc&#95;version 后缀。
+
+完整触发条件：每次请求生成 cc&#95;version 时，从对话首条用户消息取固定索引字符参与哈希，生成三字符十六进制后缀。
+
+部分过滤：cc&#95;version 位于 billing 行时，Anthropic 入站顶层 system 块首行会被 fromAnthropic 删除，后缀哈希随之不入上游；但适配器不计算该后缀，也不代理 CLI 出站请求，messages 内 system 角色与 OpenAI 入站均未覆盖。
+
+代码：[model-gateway/anthropic.mjs:19](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/anthropic.mjs#L19)、[model-gateway/anthropic.mjs:26](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/anthropic.mjs#L26)、[model-gateway/engine.mjs:98](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/engine.mjs#L98)；审阅提交 1160cc476165。发现时间：未说明（以来源首发时间为准）。
+
+<a id="termiters-evidence-12"></a>
+**12. cch请求完整性哈希** · Claude Code 2.1.37 / 定制 Bun 1.3.9-canary.51+d5628db23 · [原报告](https://a10k.co/b/reverse-engineering-claude-code-cch.html)
+
+机制：cch 请求完整性哈希：在 system 首个计费头写入 cch=00000 占位符，原生 Bun 对完整序列化请求体计算 xxHash64 后取低 5 位十六进制回写。
+
+完整触发条件：请求路径含 /v1/messages、带 anthropic-version 头且请求体含 cch=00000 占位符时激活；哈希覆盖整个序列化请求体。
+
+部分过滤：Anthropic 入站顶层 system 文本块开头的 billing 行会被 fromAnthropic 整体删除，故其中的 cch 占位符不会透传；但 cch 哈希由 CLI 内部出站请求计算，engine 直接 spawn CLI 且正式入口不注入 testUpstream，适配器未代理该出站路径。
+
+代码：[model-gateway/anthropic.mjs:19](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/anthropic.mjs#L19)、[model-gateway/engine.mjs:98](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/engine.mjs#L98)；审阅提交 1160cc476165。发现时间：未说明（以来源首发时间为准）。
 
 </details>
 
