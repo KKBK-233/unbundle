@@ -12,6 +12,7 @@ export class CliEvents {
     this.toolEnd = false;
     this.outputLimitReached = false;
     this.blocks = new Map();
+    this.recoveredToolStops = 0;
     this.stops = stops;
     this.pendingText = '';
     this.receivedText = false;
@@ -74,6 +75,23 @@ export class CliEvents {
     this.calls.set(block.id, call);
   }
 
+  // 消息结束也是工具参数的边界；兼容 CLI 未透出逐块 stop，但不猜补残缺 JSON。
+  finishToolMessage() {
+    const pending = [...this.blocks.values()].map(block => {
+      if (!block.fragments.trim()) throw new Error('CLI 工具消息不完整：缺少完整参数');
+      let input;
+      try { input = JSON.parse(block.fragments); }
+      catch { throw new Error('CLI 工具消息不完整：参数 JSON 未完整结束'); }
+      return { ...block, input };
+    });
+    // 复用正常收尾的工具白名单、对象参数及同 ID 冲突校验，失败不交付部分调用。
+    for (const block of pending) this.addCall(block);
+    if (!this.calls.size) throw new Error('CLI 工具消息不完整');
+    this.recoveredToolStops += pending.length;
+    this.blocks.clear();
+    this.toolEnd = true;
+  }
+
   accept(event) {
     // 首次截断即封存本轮输出；进程停止前排队的续写事件不能再追加文本或用量。
     if (this.outputLimitReached || this.stopSequence !== undefined) return;
@@ -122,10 +140,7 @@ export class CliEvents {
         if (this.blocks.size || this.calls.size) throw new Error('输出截断时工具消息不完整');
         this.outputLimitReached = true;
       }
-      if (inner.delta?.stop_reason === 'tool_use') {
-        if (this.blocks.size || !this.calls.size) throw new Error('CLI 工具消息不完整');
-        this.toolEnd = true;
-      }
+      if (inner.delta?.stop_reason === 'tool_use') this.finishToolMessage();
     }
   }
 

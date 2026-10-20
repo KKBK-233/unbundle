@@ -42,7 +42,7 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
   let outputBytes = 0, toolArgumentBytes = 0, upstreamMessages = 0, retryEvents = 0, mcpCalls = 0;
   // 仅向阶段日志提供大小和计数，不记录工具名、参数、回复或凭据。
   const observe = event => timing?.observe?.(event, { stdoutBytes: outputBytes, toolArgumentBytes, upstreamMessages, retryEvents, mcpCalls,
-    pendingTools: events.blocks.size, completedTools: events.calls.size });
+    pendingTools: events.blocks.size, completedTools: events.calls.size, recoveredToolStops: events.recoveredToolStops });
   const group = process.platform !== 'win32';
   // 先温和退出，超时后终止同一进程组，避免残留进程持有输出管道。
   const kill = signalName => {
@@ -170,7 +170,7 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     events.flushText();
     if (events.outputLimitReached) return { role: 'assistant', content: events.text, finish_reason: 'length', ...events.usage() };
     if (events.toolEnd && events.calls.size) return { role: 'assistant', content: events.text || null, tool_calls: [...events.calls.values()], ...events.usage() };
-    if (events.calls.size || events.toolEnd) throw new Error('CLI 工具消息不完整，未返回部分调用');
+    if (events.blocks.size || events.calls.size || events.toolEnd) throw new Error('CLI 工具消息不完整，未返回部分调用');
     if (code !== 0 || !events.result || events.result.is_error) {
       const detail = events.result?.result || errors;
       // 明确的账户额度错误交给服务层终止重试；不从模型正文或任意 stderr 猜测额度。
