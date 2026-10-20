@@ -31,7 +31,7 @@ export function createTiming(sink) {
       if (!allowed.includes(event)) return;
       const elapsedMs = Math.round(performance.now() - start);
       const metrics = {};
-      for (const key of ['stdoutBytes', 'toolArgumentBytes', 'upstreamMessages', 'retryEvents', 'mcpCalls', 'pendingTools', 'completedTools']) {
+      for (const key of ['stdoutBytes', 'toolArgumentBytes', 'upstreamMessages', 'retryEvents', 'mcpCalls', 'pendingTools', 'completedTools', 'recoveredToolStops']) {
         if (Number.isSafeInteger(counters?.[key]) && counters[key] >= 0) metrics[key] = counters[key];
       }
       progress = { event, lastEventMs: elapsedMs, ...metrics };
