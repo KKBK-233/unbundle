@@ -52,28 +52,37 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 | 报告版本 | 机制 | 默认配置结论 | 原因（简述） | 发现时间 |
 | --- | --- | --- | --- | --- |
 | 2.1.300 | 环境标记 · ATIS pin attribute [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/feature-flags.md) | 默认关闭／不触发 | GrowthBook 关闭，atisPin 不进入评估 [详情](#termiters-evidence-1) | 2026-10-14 |
-| 2.1.300 | 环境标记 · 后台调度订阅层级环境变量 [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/environment-variables.md) | 默认关闭／不触发 | 默认无工具、无后台子进程，BG&#95;DISPATCHER&#95;&#42; 不传递。 [详情](#termiters-evidence-2) | 2026-10-14 |
-| 2.1.300 | 环境标记 · Bridge host profile [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md) | 待核实（代码已变化） | 条件或配置已变化，等待重新评估。 [详情](#termiters-evidence-3) | 2026-10-14 |
-| 2.1.300 | 环境标记 · Bridge machine ID [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md) | 待核实（代码已变化） | 条件或配置已变化，等待重新评估。 [详情](#termiters-evidence-4) | 2026-10-14 |
-| 2.1.300 | 环境标记 · 桥接所有者账号环境变量 [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/environment-variables.md) | 默认关闭／不触发 | 默认未启用远程控制桥接，OWNER&#95;&#42; 环境不生成。 [详情](#termiters-evidence-5) | 2026-10-14 |
-| 2.1.300 | 环境标记 · CCR 心跳探测字段 [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md) | 待核实（代码已变化） | 条件或配置已变化，等待重新评估。 [详情](#termiters-evidence-6) | 2026-10-14 |
-| 2.1.300 | 协议指纹 · CCR idle heartbeat probe [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/feature-flags.md) | 默认关闭／不触发 | CCR 心跳 flag 默认 false，不发送 [详情](#termiters-evidence-7) | 2026-10-14 |
-| 2.1.300 | 环境标记 · 设备绑定证明 [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md) | 待核实（代码已变化） | 条件或配置已变化，等待重新评估。 [详情](#termiters-evidence-8) | 2026-10-14 |
-| 2.1.300 | 协议指纹 · Device bind attestation [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md) | 待核实（代码已变化） | 条件或配置已变化，等待重新评估。 [详情](#termiters-evidence-9) | 2026-10-14 |
-| 2.1.300 | 协议指纹 · 环境运行器版本头 [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md) | 待核实（代码已变化） | 条件或配置已变化，等待重新评估。 [详情](#termiters-evidence-10) | 2026-10-14 |
-| 2.1.300 | 协议指纹 · feature&#95;name 闭集遥测枚举 [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/codenames.md) | 待核实（代码已变化） | 条件或配置已变化，等待重新评估。 [详情](#termiters-evidence-11) | 2026-10-14 |
-| 2.1.300 | 协议指纹 · GB authed eval endpoint [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/feature-flags.md) | 默认关闭／不触发 | 默认禁用 GrowthBook，authed eval 不发送 [详情](#termiters-evidence-12) | 2026-10-14 |
-| 2.1.300 | 环境标记 · Install userID metadata passthrough [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md) | 待核实（代码已变化） | 条件或配置已变化，等待重新评估。 [详情](#termiters-evidence-13) | 2026-10-14 |
-| 2.1.300 | 环境标记 · MachineID error prefix [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md) | 待核实（代码已变化） | 条件或配置已变化，等待重新评估。 [详情](#termiters-evidence-14) | 2026-10-14 |
-| 2.1.300 | 环境标记 · OTel user email [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md) | 待核实（代码已变化） | 条件或配置已变化，等待重新评估。 [详情](#termiters-evidence-15) | 2026-10-14 |
-| 2.1.300 | 协议指纹 · peer message fromMode [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/feature-flags.md) | 未过滤 | 默认 peer fromMode 保留，网关不介入 [详情](#termiters-evidence-16) | 2026-10-14 |
-| 2.1.300 | 环境标记 · Plugin telemetry deviceId [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md) | 待核实（代码已变化） | 条件或配置已变化，等待重新评估。 [详情](#termiters-evidence-17) | 2026-10-14 |
-| 2.1.300 | 协议指纹 · x-cc-tender-quilt 拒绝切换头 [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/codenames.md) | 待核实（代码已变化） | 条件或配置已变化，等待重新评估。 [详情](#termiters-evidence-18) | 2026-10-14 |
-| 2.1.300 | 环境标记 · 自托管运行器JWT身份环境变量 [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/environment-variables.md) | 默认关闭／不触发 | 默认未启用自托管运行器 hook，CLAUDE&#95;RUNNER&#95;&#42; 不生成。 [详情](#termiters-evidence-19) | 2026-10-14 |
-| 2.1.300 | 协议指纹 · 自托管运行器版本头 [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md) | 待核实（代码已变化） | 条件或配置已变化，等待重新评估。 [详情](#termiters-evidence-20) | 2026-10-14 |
-| 2.1.300 | 协议指纹 · Summon SID HMAC [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md) | 待核实（代码已变化） | 条件或配置已变化，等待重新评估。 [详情](#termiters-evidence-21) | 2026-10-14 |
-| 2.1.300 | 环境标记 · 可信设备令牌头 [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md) | 待核实（代码已变化） | 条件或配置已变化，等待重新评估。 [详情](#termiters-evidence-22) | 2026-10-14 |
-| 2.1.300 | 协议指纹 · Trusted device token [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md) | 待核实（代码已变化） | 条件或配置已变化，等待重新评估。 [详情](#termiters-evidence-23) | 2026-10-14 |
+| 2.1.300 | 协议指纹 · auto-mode classifier beta header [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md) | 默认关闭／不触发 | 默认 dontAsk 启动，自动模式分类器 beta 头不发起。 [详情](#termiters-evidence-2) | 2026-10-14 |
+| 2.1.300 | 环境标记 · 后台调度订阅层级环境变量 [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/environment-variables.md) | 默认关闭／不触发 | 默认无工具、无后台子进程，BG&#95;DISPATCHER&#95;&#42; 不传递。 [详情](#termiters-evidence-3) | 2026-10-14 |
+| 2.1.300 | 环境标记 · 后台调度层级环境标记 [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/plan-tier-gating.md) | 默认关闭／不触发 | 默认单轮 -p 运行，不产生 bg 调度标记 [详情](#termiters-evidence-4) | 2026-10-14 |
+| 2.1.300 | 环境标记 · Bridge host profile [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md) | 待核实（代码已变化） | 条件或配置已变化，等待重新评估。 [详情](#termiters-evidence-5) | 2026-10-14 |
+| 2.1.300 | 环境标记 · Bridge machine ID [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md) | 待核实（代码已变化） | 条件或配置已变化，等待重新评估。 [详情](#termiters-evidence-6) | 2026-10-14 |
+| 2.1.300 | 环境标记 · 桥接机器 UUID 原样发送 [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/overview.md) | 默认关闭／不触发 | 默认远程控制启动关闭，桥环境注册不触发，UUID 不发送 [详情](#termiters-evidence-7) | 2026-10-14 |
+| 2.1.300 | 环境标记 · 桥接所有者账号环境变量 [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/environment-variables.md) | 默认关闭／不触发 | 默认未启用远程控制桥接，OWNER&#95;&#42; 环境不生成。 [详情](#termiters-evidence-8) | 2026-10-14 |
+| 2.1.300 | 环境标记 · CCR 心跳探测字段 [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md) | 待核实（代码已变化） | 条件或配置已变化，等待重新评估。 [详情](#termiters-evidence-9) | 2026-10-14 |
+| 2.1.300 | 协议指纹 · CCR idle heartbeat probe [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/feature-flags.md) | 默认关闭／不触发 | CCR 心跳 flag 默认 false，不发送 [详情](#termiters-evidence-10) | 2026-10-14 |
+| 2.1.300 | 环境标记 · 设备绑定证明 [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md) | 待核实（代码已变化） | 条件或配置已变化，等待重新评估。 [详情](#termiters-evidence-11) | 2026-10-14 |
+| 2.1.300 | 协议指纹 · Device bind attestation [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md) | 待核实（代码已变化） | 条件或配置已变化，等待重新评估。 [详情](#termiters-evidence-12) | 2026-10-14 |
+| 2.1.300 | 协议指纹 · 环境运行器版本头 [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md) | 待核实（代码已变化） | 条件或配置已变化，等待重新评估。 [详情](#termiters-evidence-13) | 2026-10-14 |
+| 2.1.300 | 协议指纹 · feature&#95;name 闭集遥测枚举 [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/codenames.md) | 待核实（代码已变化） | 条件或配置已变化，等待重新评估。 [详情](#termiters-evidence-14) | 2026-10-14 |
+| 2.1.300 | 协议指纹 · GB authed eval endpoint [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/feature-flags.md) | 默认关闭／不触发 | 默认禁用 GrowthBook，authed eval 不发送 [详情](#termiters-evidence-15) | 2026-10-14 |
+| 2.1.300 | 环境标记 · Install userID metadata passthrough [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md) | 待核实（代码已变化） | 条件或配置已变化，等待重新评估。 [详情](#termiters-evidence-16) | 2026-10-14 |
+| 2.1.300 | 环境标记 · userID 元数据原样透传 [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/overview.md) | 未过滤 | Messages API 的 metadata.user&#95;id 由 CLI 自发发送，网关不代理过滤 [详情](#termiters-evidence-17) | 2026-10-14 |
+| 2.1.300 | 协议指纹 · 低优先级慢速协议头 [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/plan-tier-gating.md) | 默认关闭／不触发 | 默认非交互且未启用低优先级，头部不发 [详情](#termiters-evidence-18) | 2026-10-14 |
+| 2.1.300 | 环境标记 · MachineID error prefix [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md) | 待核实（代码已变化） | 条件或配置已变化，等待重新评估。 [详情](#termiters-evidence-19) | 2026-10-14 |
+| 2.1.300 | 环境标记 · machineID 错误报告截断 [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/overview.md) | 默认关闭／不触发 | 默认禁用错误跟踪，12 字符 machineID 前缀不会上报 [详情](#termiters-evidence-20) | 2026-10-14 |
+| 2.1.300 | 环境标记 · OTel user email [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md) | 待核实（代码已变化） | 条件或配置已变化，等待重新评估。 [详情](#termiters-evidence-21) | 2026-10-14 |
+| 2.1.300 | 协议指纹 · 超额范围协议头 [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/plan-tier-gating.md) | 未过滤 | 响应头由 CLI 直连解析，网关未介入 [详情](#termiters-evidence-22) | 2026-10-14 |
+| 2.1.300 | 协议指纹 · peer message fromMode [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/feature-flags.md) | 未过滤 | 默认 peer fromMode 保留，网关不介入 [详情](#termiters-evidence-23) | 2026-10-14 |
+| 2.1.300 | 环境标记 · 计划层级环境覆盖 [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/plan-tier-gating.md) | 已过滤 | 两个计划层级环境变量被白名单剥除 [详情](#termiters-evidence-24) | 2026-10-14 |
+| 2.1.300 | 环境标记 · Plugin telemetry deviceId [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md) | 待核实（代码已变化） | 条件或配置已变化，等待重新评估。 [详情](#termiters-evidence-25) | 2026-10-14 |
+| 2.1.300 | 协议指纹 · x-cc-tender-quilt 拒绝切换头 [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/codenames.md) | 待核实（代码已变化） | 条件或配置已变化，等待重新评估。 [详情](#termiters-evidence-26) | 2026-10-14 |
+| 2.1.300 | 环境标记 · 自托管运行器JWT身份环境变量 [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/environment-variables.md) | 默认关闭／不触发 | 默认未启用自托管运行器 hook，CLAUDE&#95;RUNNER&#95;&#42; 不生成。 [详情](#termiters-evidence-27) | 2026-10-14 |
+| 2.1.300 | 协议指纹 · 自托管运行器版本头 [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md) | 待核实（代码已变化） | 条件或配置已变化，等待重新评估。 [详情](#termiters-evidence-28) | 2026-10-14 |
+| 2.1.300 | 协议指纹 · server-side arbiter beta header [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md) | 默认关闭／不触发 | 默认 dontAsk 启动，arbiter beta 头与 safeguard&#95;results 不发起。 [详情](#termiters-evidence-29) | 2026-10-14 |
+| 2.1.300 | 协议指纹 · Summon SID HMAC [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md) | 待核实（代码已变化） | 条件或配置已变化，等待重新评估。 [详情](#termiters-evidence-30) | 2026-10-14 |
+| 2.1.300 | 环境标记 · 可信设备令牌头 [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md) | 待核实（代码已变化） | 条件或配置已变化，等待重新评估。 [详情](#termiters-evidence-31) | 2026-10-14 |
+| 2.1.300 | 协议指纹 · Trusted device token [↗](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md) | 待核实（代码已变化） | 条件或配置已变化，等待重新评估。 [详情](#termiters-evidence-32) | 2026-10-14 |
 
 <details>
 <summary>展开完整条件与代码证据</summary>
@@ -94,7 +103,22 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 代码：[model-gateway/engine.mjs:90](https://github.com/KKBK-233/unbundle/blob/c95455119f8479636dc880f6267c135646b422d1/model-gateway/engine.mjs#L90)；审阅提交 c95455119f84。发现时间：2026-10-14（上游报告提交日期）。
 
 <a id="termiters-evidence-2"></a>
-**2. 后台调度订阅层级环境变量** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/environment-variables.md)
+**2. auto-mode classifier beta header** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)
+
+评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
+
+机制：自动模式分类器 beta 头协议指纹：客户端调用自动模式分类器时在请求中携带 &#96;auto-mode-classifier-2026-07-16&#96; beta 头，标识该分类器请求类型。
+
+完整触发条件：自动模式分类器发起请求时（默认两阶段分类或严重度评分路径）。
+
+默认关闭／不触发：引擎固定以 &#96;--permission-mode dontAsk&#96; 启动 CLI；报告将 dontAsk 与 auto 列为不同模式，自动模式分类器及其 beta 头在默认配置下不会发起。网关仅经 stdio 启动 CLI，不介入其出站请求，但默认条件下无该信号。
+
+关联报告依据：[versions/2.1.300/security-model.md](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)
+
+代码：[model-gateway/engine.mjs:105](https://github.com/KKBK-233/unbundle/blob/c5ff84ac0652cef55683b4993fff57cca924b09b/model-gateway/engine.mjs#L105)；审阅提交 c5ff84ac0652。发现时间：2026-10-14（上游报告提交日期）。
+
+<a id="termiters-evidence-3"></a>
+**3. 后台调度订阅层级环境变量** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/environment-variables.md)
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
@@ -108,8 +132,23 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 
 代码：[model-gateway/engine.mjs:90](https://github.com/KKBK-233/unbundle/blob/c95455119f8479636dc880f6267c135646b422d1/model-gateway/engine.mjs#L90)、[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/c95455119f8479636dc880f6267c135646b422d1/model-gateway/engine.mjs#L104)；审阅提交 c95455119f84。发现时间：2026-10-14（上游报告提交日期）。
 
-<a id="termiters-evidence-3"></a>
-**3. Bridge host profile** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md)
+<a id="termiters-evidence-4"></a>
+**4. 后台调度层级环境标记** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/plan-tier-gating.md)
+
+评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
+
+机制：后台调度订阅层级环境标记：后台调度器把订阅类型和速率限制层级写入 CLAUDE&#95;BG&#95;DISPATCHER&#95;&#42; 环境变量，后台子进程在无 OAuth/FD token 且非 bg 快照时据此继承父会话计划。
+
+完整触发条件：后台调度会话（CLAUDE&#95;CODE&#95;SESSION&#95;KIND=bg）且无 CLAUDE&#95;CODE&#95;OAUTH&#95;TOKEN、无 FD token、token 非来自 bg 快照时，读取调度器写入的订阅类型和速率限制层级环境变量，子进程继承父会话层级。
+
+默认关闭／不触发：报告要求 CLAUDE&#95;CODE&#95;SESSION&#95;KIND=bg 且无 OAuth/FD token 时才读取调度层级；engine.mjs 以 -p、--no-session-persistence、--max-turns 2 单轮运行，子进程环境按固定白名单重建且不含 SESSION&#95;KIND，默认不产生后台调度，两个标记不会出现。
+
+关联报告依据：[versions/2.1.300/plan-tier-gating.md](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/plan-tier-gating.md)
+
+代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/c5ff84ac0652cef55683b4993fff57cca924b09b/model-gateway/engine.mjs#L104)、[model-gateway/engine.mjs:90](https://github.com/KKBK-233/unbundle/blob/c5ff84ac0652cef55683b4993fff57cca924b09b/model-gateway/engine.mjs#L90)；审阅提交 c5ff84ac0652。发现时间：2026-10-14（上游报告提交日期）。
+
+<a id="termiters-evidence-5"></a>
+**5. Bridge host profile** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md)
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
@@ -123,8 +162,8 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 
 代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/10e3b5ed3047a73a00285e472bb253e41d6d833e/model-gateway/engine.mjs#L104)；审阅提交 10e3b5ed3047。发现时间：2026-10-14（上游报告提交日期）。
 
-<a id="termiters-evidence-4"></a>
-**4. Bridge machine ID** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md)
+<a id="termiters-evidence-6"></a>
+**6. Bridge machine ID** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md)
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
@@ -138,8 +177,23 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 
 代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/10e3b5ed3047a73a00285e472bb253e41d6d833e/model-gateway/engine.mjs#L104)；审阅提交 10e3b5ed3047。发现时间：2026-10-14（上游报告提交日期）。
 
-<a id="termiters-evidence-5"></a>
-**5. 桥接所有者账号环境变量** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/environment-variables.md)
+<a id="termiters-evidence-7"></a>
+**7. 桥接机器 UUID 原样发送** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/overview.md)
+
+评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
+
+机制：桥接环境机器 ID 透传：remoteControlMachineId 为 UUID，注册远程控制桥环境时原样发送。
+
+完整触发条件：身份初始化后，remoteControlMachineId 作为 UUID 不做哈希或截断，直接进入远程控制桥环境注册请求。
+
+默认关闭／不触发：报告称 remoteControlMachineId 随 POST /v1/environments/bridge 原样发送；控制项 tengu&#95;cobalt&#95;harbor 默认 false，默认部署不额外启用远程控制/桥接，engine 固定 -p 单次运行也未启用 bridge。必要触发条件不成立，UUID 不发送；不是网关过滤 UUID。
+
+关联报告依据：[versions/2.1.300/overview.md](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/overview.md)；[versions/2.1.300/feature-flags.md](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/feature-flags.md)
+
+代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/c5ff84ac0652cef55683b4993fff57cca924b09b/model-gateway/engine.mjs#L104)、[model-gateway/engine.mjs:92](https://github.com/KKBK-233/unbundle/blob/c5ff84ac0652cef55683b4993fff57cca924b09b/model-gateway/engine.mjs#L92)；审阅提交 c5ff84ac0652。发现时间：2026-10-14（上游报告提交日期）。
+
+<a id="termiters-evidence-8"></a>
+**8. 桥接所有者账号环境变量** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/environment-variables.md)
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
@@ -153,8 +207,8 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 
 代码：[model-gateway/engine.mjs:90](https://github.com/KKBK-233/unbundle/blob/c95455119f8479636dc880f6267c135646b422d1/model-gateway/engine.mjs#L90)、[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/c95455119f8479636dc880f6267c135646b422d1/model-gateway/engine.mjs#L104)；审阅提交 c95455119f84。发现时间：2026-10-14（上游报告提交日期）。
 
-<a id="termiters-evidence-6"></a>
-**6. CCR 心跳探测字段** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)
+<a id="termiters-evidence-9"></a>
+**9. CCR 心跳探测字段** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
@@ -168,8 +222,8 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 
 代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/1041cadac6fc7609c308a9da6dc5913402eb1904/model-gateway/engine.mjs#L104)；审阅提交 1041cadac6fc。发现时间：2026-10-14（上游报告提交日期）。
 
-<a id="termiters-evidence-7"></a>
-**7. CCR idle heartbeat probe** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/feature-flags.md)
+<a id="termiters-evidence-10"></a>
+**10. CCR idle heartbeat probe** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/feature-flags.md)
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
@@ -183,8 +237,8 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 
 代码：[model-gateway/engine.mjs:90](https://github.com/KKBK-233/unbundle/blob/c95455119f8479636dc880f6267c135646b422d1/model-gateway/engine.mjs#L90)、[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/c95455119f8479636dc880f6267c135646b422d1/model-gateway/engine.mjs#L104)；审阅提交 c95455119f84。发现时间：2026-10-14（上游报告提交日期）。
 
-<a id="termiters-evidence-8"></a>
-**8. 设备绑定证明** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)
+<a id="termiters-evidence-11"></a>
+**11. 设备绑定证明** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
@@ -198,8 +252,8 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 
 代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/1041cadac6fc7609c308a9da6dc5913402eb1904/model-gateway/engine.mjs#L104)；审阅提交 1041cadac6fc。发现时间：2026-10-14（上游报告提交日期）。
 
-<a id="termiters-evidence-9"></a>
-**9. Device bind attestation** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md)
+<a id="termiters-evidence-12"></a>
+**12. Device bind attestation** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md)
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
@@ -213,8 +267,8 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 
 代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/10e3b5ed3047a73a00285e472bb253e41d6d833e/model-gateway/engine.mjs#L104)；审阅提交 10e3b5ed3047。发现时间：2026-10-14（上游报告提交日期）。
 
-<a id="termiters-evidence-10"></a>
-**10. 环境运行器版本头** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)
+<a id="termiters-evidence-13"></a>
+**13. 环境运行器版本头** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
@@ -228,8 +282,8 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 
 代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/1041cadac6fc7609c308a9da6dc5913402eb1904/model-gateway/engine.mjs#L104)；审阅提交 1041cadac6fc。发现时间：2026-10-14（上游报告提交日期）。
 
-<a id="termiters-evidence-11"></a>
-**11. feature&#95;name 闭集遥测枚举** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/codenames.md)
+<a id="termiters-evidence-14"></a>
+**14. feature&#95;name 闭集遥测枚举** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/codenames.md)
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
@@ -243,8 +297,8 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 
 代码：[model-gateway/engine.mjs:92](https://github.com/KKBK-233/unbundle/blob/1041cadac6fc7609c308a9da6dc5913402eb1904/model-gateway/engine.mjs#L92)；审阅提交 1041cadac6fc。发现时间：2026-10-14（上游报告提交日期）。
 
-<a id="termiters-evidence-12"></a>
-**12. GB authed eval endpoint** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/feature-flags.md)
+<a id="termiters-evidence-15"></a>
+**15. GB authed eval endpoint** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/feature-flags.md)
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
@@ -258,8 +312,8 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 
 代码：[model-gateway/engine.mjs:90](https://github.com/KKBK-233/unbundle/blob/c95455119f8479636dc880f6267c135646b422d1/model-gateway/engine.mjs#L90)；审阅提交 c95455119f84。发现时间：2026-10-14（上游报告提交日期）。
 
-<a id="termiters-evidence-13"></a>
-**13. Install userID metadata passthrough** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md)
+<a id="termiters-evidence-16"></a>
+**16. Install userID metadata passthrough** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md)
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
@@ -273,8 +327,38 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 
 代码：[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/10e3b5ed3047a73a00285e472bb253e41d6d833e/model-gateway/engine.mjs#L112)；审阅提交 10e3b5ed3047。发现时间：2026-10-14（上游报告提交日期）。
 
-<a id="termiters-evidence-14"></a>
-**14. MachineID error prefix** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md)
+<a id="termiters-evidence-17"></a>
+**17. userID 元数据原样透传** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/overview.md)
+
+评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
+
+机制：持久安装用户标识透传：随机生成的 64 位十六进制 userID 作为账号或设备标识，随 Messages API metadata.user&#95;id、1P 事件、GrowthBook 和 OTel 原样发出。
+
+完整触发条件：身份初始化时生成随机 32 字节值，经 64 位十六进制校验并持久化到全局配置后，userID 不哈希、不截断，原样写入 Messages API metadata.user&#95;id、1P 事件、GrowthBook 与 OTel。
+
+未过滤：报告基准下，userID 原样进入 Messages API metadata.user&#95;id；默认环境仅停用非必要遥测/1P/GrowthBook/OTel，不禁核心 Messages API。引擎仅 spawn CLI 并以 stdio 交互，不代理其出站 HTTP，故该 CLI 自发路径满足条件时未经过网关过滤。
+
+关联报告依据：[versions/2.1.300/overview.md](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/overview.md)；[versions/2.1.300/telemetry.md](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/telemetry.md)
+
+代码：[model-gateway/engine.mjs:92](https://github.com/KKBK-233/unbundle/blob/c5ff84ac0652cef55683b4993fff57cca924b09b/model-gateway/engine.mjs#L92)、[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/c5ff84ac0652cef55683b4993fff57cca924b09b/model-gateway/engine.mjs#L112)；审阅提交 c5ff84ac0652。发现时间：2026-10-14（上游报告提交日期）。
+
+<a id="termiters-evidence-18"></a>
+**18. 低优先级慢速协议头** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/plan-tier-gating.md)
+
+评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
+
+机制：低优先级慢速通道协议头：服务端以 anthropic-ratelimit-unified-slow-&#42; 组头下发 treatment/control 与状态，客户端在低优先级激活时发送 anthropic-usage-limit: slow（历史 extended 值仍可用）。
+
+完整触发条件：仅当消费者 OAuth（kt）成立，且 iL 或 tengu&#95;toasty&#95;breeze.enabled=true，并满足非 usage&#95;based、firstParty、交互式、非远程、非 $t()、five&#95;hour 资格；低优先级激活时请求携带 anthropic-usage-limit: slow，服务端 slow-offer 仅在 treatment 组报价。
+
+默认关闭／不触发：报告资格含交互式会话、消费者 OAuth 且 iL 或 tengu&#95;toasty&#95;breeze.enabled 为真；engine.mjs 以 -p 非交互运行、未设该 flag，默认不进入低优先级，anthropic-usage-limit: slow 不会发出；且该头由 CLI 直连 API，不经网关。
+
+关联报告依据：[versions/2.1.300/plan-tier-gating.md](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/plan-tier-gating.md)
+
+代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/c5ff84ac0652cef55683b4993fff57cca924b09b/model-gateway/engine.mjs#L104)；审阅提交 c5ff84ac0652。发现时间：2026-10-14（上游报告提交日期）。
+
+<a id="termiters-evidence-19"></a>
+**19. MachineID error prefix** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md)
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
@@ -288,8 +372,23 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 
 代码：[model-gateway/engine.mjs:90](https://github.com/KKBK-233/unbundle/blob/10e3b5ed3047a73a00285e472bb253e41d6d833e/model-gateway/engine.mjs#L90)；审阅提交 10e3b5ed3047。发现时间：2026-10-14（上游报告提交日期）。
 
-<a id="termiters-evidence-15"></a>
-**15. OTel user email** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md)
+<a id="termiters-evidence-20"></a>
+**20. machineID 错误报告截断** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/overview.md)
+
+评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
+
+机制：机器标识截断透传：持久化的 64 位十六进制 machineID 只以 12 字符前缀形式出现在错误报告中。
+
+完整触发条件：身份初始化并持久化 machineID 后，触发错误报告时只截取前 12 个字符作为机器标识，不发送完整值。
+
+默认关闭／不触发：默认 engine 环境设置 CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC=1；报告控制矩阵明确其禁用 error tracking，且 Datadog 错误跟踪默认 OFF、受 tengu&#95;orford&#95;ness 等门控。默认配置下错误报告必要触发条件不成立，12 字符 machineID 前缀不会发出；这是触发控制而非网关截断。
+
+关联报告依据：[versions/2.1.300/telemetry.md](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/telemetry.md)
+
+代码：[model-gateway/engine.mjs:92](https://github.com/KKBK-233/unbundle/blob/c5ff84ac0652cef55683b4993fff57cca924b09b/model-gateway/engine.mjs#L92)；审阅提交 c5ff84ac0652。发现时间：2026-10-14（上游报告提交日期）。
+
+<a id="termiters-evidence-21"></a>
+**21. OTel user email** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md)
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
@@ -303,8 +402,23 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 
 代码：[model-gateway/engine.mjs:90](https://github.com/KKBK-233/unbundle/blob/10e3b5ed3047a73a00285e472bb253e41d6d833e/model-gateway/engine.mjs#L90)；审阅提交 10e3b5ed3047。发现时间：2026-10-14（上游报告提交日期）。
 
-<a id="termiters-evidence-16"></a>
-**16. peer message fromMode** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/feature-flags.md)
+<a id="termiters-evidence-22"></a>
+**22. 超额范围协议头** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/plan-tier-gating.md)
+
+评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
+
+机制：限流超额范围协议头：服务端 anthropic-ratelimit-unified-overage-scope 取值 service、channel 或 group&#95;pool，客户端据此显示团队共享预算、渠道月度支出限额或普通超额文案。
+
+完整触发条件：仅当响应头 anthropic-ratelimit-unified-overage-scope 存在时解析为 service、channel 或 group&#95;pool；group&#95;pool 显示团队共享预算提示，channel 且触发 spend cap 显示渠道月度支出限额提示。
+
+未过滤：该机制是 CLI 解析服务端 anthropic-ratelimit-unified-overage-scope 响应头生成提示文案，属 CLI 直连 api.anthropic.com 路径；engine.mjs 仅以 stdio 启动独立 CLI，默认不设 ANTHROPIC&#95;BASE&#95;URL，网关不转发也不解析该响应头，未过滤，也未实际触发。
+
+关联报告依据：[versions/2.1.300/plan-tier-gating.md](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/plan-tier-gating.md)
+
+代码：[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/c5ff84ac0652cef55683b4993fff57cca924b09b/model-gateway/engine.mjs#L112)、[model-gateway/engine.mjs:100](https://github.com/KKBK-233/unbundle/blob/c5ff84ac0652cef55683b4993fff57cca924b09b/model-gateway/engine.mjs#L100)；审阅提交 c5ff84ac0652。发现时间：2026-10-14（上游报告提交日期）。
+
+<a id="termiters-evidence-23"></a>
+**23. peer message fromMode** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/feature-flags.md)
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
@@ -318,8 +432,23 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 
 代码：[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/c95455119f8479636dc880f6267c135646b422d1/model-gateway/engine.mjs#L112)、[model-gateway/engine.mjs:128](https://github.com/KKBK-233/unbundle/blob/c95455119f8479636dc880f6267c135646b422d1/model-gateway/engine.mjs#L128)；审阅提交 c95455119f84。发现时间：2026-10-14（上游报告提交日期）。
 
-<a id="termiters-evidence-17"></a>
-**17. Plugin telemetry deviceId** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md)
+<a id="termiters-evidence-24"></a>
+**24. 计划层级环境覆盖** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/plan-tier-gating.md)
+
+评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
+
+机制：计划层级环境覆盖：存在 OAuth token 或托管/FD token 时，用 CLAUDE&#95;CODE&#95;SUBSCRIPTION&#95;TYPE 与 CLAUDE&#95;CODE&#95;RATE&#95;LIMIT&#95;TIER 覆盖 subscriptionType/rateLimitTier，bg 快照亦写入 process.env 并透传子进程。
+
+完整触发条件：当设置 CLAUDE&#95;CODE&#95;OAUTH&#95;TOKEN 或存在托管/FD token 时读取两个环境变量并覆盖计划/层级；bg 认证快照也会把二者写入 process.env，且二者在子进程环境透传允许列表中。
+
+已过滤：机制经 CLAUDE&#95;CODE&#95;SUBSCRIPTION&#95;TYPE / CLAUDE&#95;CODE&#95;RATE&#95;LIMIT&#95;TIER 覆盖计划层级；engine.mjs 只按固定白名单重建子进程环境，这两个变量与 CLAUDE&#95;CODE&#95;OAUTH&#95;TOKEN 都不传入，覆盖通道被去除；CLI 自有凭据中的计划显示不属此机制。
+
+关联报告依据：[versions/2.1.300/plan-tier-gating.md](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/plan-tier-gating.md)
+
+代码：[model-gateway/engine.mjs:90](https://github.com/KKBK-233/unbundle/blob/c5ff84ac0652cef55683b4993fff57cca924b09b/model-gateway/engine.mjs#L90)；审阅提交 c5ff84ac0652。发现时间：2026-10-14（上游报告提交日期）。
+
+<a id="termiters-evidence-25"></a>
+**25. Plugin telemetry deviceId** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md)
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
@@ -333,8 +462,8 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 
 代码：[model-gateway/engine.mjs:90](https://github.com/KKBK-233/unbundle/blob/10e3b5ed3047a73a00285e472bb253e41d6d833e/model-gateway/engine.mjs#L90)；审阅提交 10e3b5ed3047。发现时间：2026-10-14（上游报告提交日期）。
 
-<a id="termiters-evidence-18"></a>
-**18. x-cc-tender-quilt 拒绝切换头** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/codenames.md)
+<a id="termiters-evidence-26"></a>
+**26. x-cc-tender-quilt 拒绝切换头** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/codenames.md)
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
@@ -348,8 +477,8 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 
 代码：[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/1041cadac6fc7609c308a9da6dc5913402eb1904/model-gateway/engine.mjs#L112)、[model-gateway/cloud-server.mjs:8](https://github.com/KKBK-233/unbundle/blob/1041cadac6fc7609c308a9da6dc5913402eb1904/model-gateway/cloud-server.mjs#L8)；审阅提交 1041cadac6fc。发现时间：2026-10-14（上游报告提交日期）。
 
-<a id="termiters-evidence-19"></a>
-**19. 自托管运行器JWT身份环境变量** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/environment-variables.md)
+<a id="termiters-evidence-27"></a>
+**27. 自托管运行器JWT身份环境变量** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/environment-variables.md)
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
@@ -363,8 +492,8 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 
 代码：[model-gateway/engine.mjs:90](https://github.com/KKBK-233/unbundle/blob/c95455119f8479636dc880f6267c135646b422d1/model-gateway/engine.mjs#L90)、[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/c95455119f8479636dc880f6267c135646b422d1/model-gateway/engine.mjs#L104)；审阅提交 c95455119f84。发现时间：2026-10-14（上游报告提交日期）。
 
-<a id="termiters-evidence-20"></a>
-**20. 自托管运行器版本头** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)
+<a id="termiters-evidence-28"></a>
+**28. 自托管运行器版本头** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
@@ -378,8 +507,23 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 
 代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/1041cadac6fc7609c308a9da6dc5913402eb1904/model-gateway/engine.mjs#L104)；审阅提交 1041cadac6fc。发现时间：2026-10-14（上游报告提交日期）。
 
-<a id="termiters-evidence-21"></a>
-**21. Summon SID HMAC** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md)
+<a id="termiters-evidence-29"></a>
+**29. server-side arbiter beta header** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)
+
+评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
+
+机制：服务端仲裁器 beta 头协议指纹：服务端分类器（arbiter）请求携带 &#96;dangerous-tool-use-2026-09-03&#96; beta 头，响应以 &#96;safeguard&#95;results&#96; 返回裁决。
+
+完整触发条件：自动模式使用服务端分类器审查工具调用且 &#96;cE(tool)&#96; 返回 &#96;arbiter&#96; 或 &#96;arbiterWithLocalFallback&#96; 时。
+
+默认关闭／不触发：默认固定 &#96;--permission-mode dontAsk&#96;，未进入 auto 模式；报告把 server-side arbiter 归入自动模式分类器路径，因此该 beta 头与 safeguard&#95;results 请求在默认配置下不发起，网关也未介入 CLI 出站。
+
+关联报告依据：[versions/2.1.300/security-model.md](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)
+
+代码：[model-gateway/engine.mjs:105](https://github.com/KKBK-233/unbundle/blob/c5ff84ac0652cef55683b4993fff57cca924b09b/model-gateway/engine.mjs#L105)；审阅提交 c5ff84ac0652。发现时间：2026-10-14（上游报告提交日期）。
+
+<a id="termiters-evidence-30"></a>
+**30. Summon SID HMAC** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md)
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
@@ -393,8 +537,8 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 
 代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/10e3b5ed3047a73a00285e472bb253e41d6d833e/model-gateway/engine.mjs#L104)；审阅提交 10e3b5ed3047。发现时间：2026-10-14（上游报告提交日期）。
 
-<a id="termiters-evidence-22"></a>
-**22. 可信设备令牌头** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)
+<a id="termiters-evidence-31"></a>
+**31. 可信设备令牌头** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
@@ -408,8 +552,8 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 
 代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/1041cadac6fc7609c308a9da6dc5913402eb1904/model-gateway/engine.mjs#L104)；审阅提交 1041cadac6fc。发现时间：2026-10-14（上游报告提交日期）。
 
-<a id="termiters-evidence-23"></a>
-**23. Trusted device token** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md)
+<a id="termiters-evidence-32"></a>
+**32. Trusted device token** · 2.1.300 · [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/device-fingerprinting.md)
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
@@ -423,8 +567,8 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 
 代码：[model-gateway/engine.mjs:90](https://github.com/KKBK-233/unbundle/blob/10e3b5ed3047a73a00285e472bb253e41d6d833e/model-gateway/engine.mjs#L90)、[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/10e3b5ed3047a73a00285e472bb253e41d6d833e/model-gateway/engine.mjs#L104)；审阅提交 10e3b5ed3047。发现时间：2026-10-14（上游报告提交日期）。
 
-<a id="termiters-evidence-24"></a>
-**24. 日期撇号宿主分类** · Claude Code 2.1.196 · [原报告](https://thereallo.dev/blog/claude-code-prompt-steganography)
+<a id="termiters-evidence-33"></a>
+**33. 日期撇号宿主分类** · Claude Code 2.1.196 · [原报告](https://thereallo.dev/blog/claude-code-prompt-steganography)
 
 评估基准：历史记录，尚未按报告版本假设重新评估。
 
@@ -438,8 +582,8 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 
 代码：[model-gateway/anthropic.mjs:19](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/anthropic.mjs#L19)、[model-gateway/engine.mjs:110](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/engine.mjs#L110)、[model-gateway/cli-events.mjs:57](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/cli-events.mjs#L57)；审阅提交 1160cc476165。发现时间：2026-06-30（文章标题日期）。
 
-<a id="termiters-evidence-25"></a>
-**25. 日期分隔符时区标记** · Claude Code 2.1.196 · [原报告](https://thereallo.dev/blog/claude-code-prompt-steganography)
+<a id="termiters-evidence-34"></a>
+**34. 日期分隔符时区标记** · Claude Code 2.1.196 · [原报告](https://thereallo.dev/blog/claude-code-prompt-steganography)
 
 评估基准：历史记录，尚未按报告版本假设重新评估。
 
@@ -453,8 +597,8 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 
 代码：[model-gateway/anthropic.mjs:19](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/anthropic.mjs#L19)、[model-gateway/engine.mjs:110](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/engine.mjs#L110)、[model-gateway/server.mjs:183](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/server.mjs#L183)；审阅提交 1160cc476165。发现时间：2026-06-30（文章标题日期）。
 
-<a id="termiters-evidence-26"></a>
-**26. 系统提示撇号端点标记** · v2.1.169（npm @anthropic-ai/claude-code，native win32-x64 binary） · [原报告](https://github.com/anthropics/claude-code/issues/67120)
+<a id="termiters-evidence-35"></a>
+**35. 系统提示撇号端点标记** · v2.1.169（npm @anthropic-ai/claude-code，native win32-x64 binary） · [原报告](https://github.com/anthropics/claude-code/issues/67120)
 
 评估基准：历史记录，尚未按报告版本假设重新评估。
 
@@ -468,8 +612,8 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 
 代码：[model-gateway/anthropic.mjs:19](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/anthropic.mjs#L19)、[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/engine.mjs#L104)；审阅提交 1160cc476165。发现时间：2026-06-10（结构化首发时间）。
 
-<a id="termiters-evidence-27"></a>
-**27. 系统提示日期分隔符标记** · v2.1.169（npm @anthropic-ai/claude-code，native win32-x64 binary） · [原报告](https://github.com/anthropics/claude-code/issues/67120)
+<a id="termiters-evidence-36"></a>
+**36. 系统提示日期分隔符标记** · v2.1.169（npm @anthropic-ai/claude-code，native win32-x64 binary） · [原报告](https://github.com/anthropics/claude-code/issues/67120)
 
 评估基准：历史记录，尚未按报告版本假设重新评估。
 
@@ -483,8 +627,8 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 
 代码：[model-gateway/context.mjs:102](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/context.mjs#L102)、[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/engine.mjs#L104)；审阅提交 1160cc476165。发现时间：2026-06-10（结构化首发时间）。
 
-<a id="termiters-evidence-28"></a>
-**28. 计费归属头** · 2.1.90 / 2.1.92 · [原报告](https://raw.githubusercontent.com/rmk40/opencode-anthropic-auth/rmk/docs/claude-code-auth-and-headers-reference.md)
+<a id="termiters-evidence-37"></a>
+**37. 计费归属头** · 2.1.90 / 2.1.92 · [原报告](https://raw.githubusercontent.com/rmk40/opencode-anthropic-auth/rmk/docs/claude-code-auth-and-headers-reference.md)
 
 评估基准：历史记录，尚未按报告版本假设重新评估。
 
@@ -498,8 +642,8 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 
 代码：[model-gateway/anthropic.mjs:19](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/anthropic.mjs#L19)、[model-gateway/context.mjs:100](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/context.mjs#L100)、[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/engine.mjs#L112)；审阅提交 1160cc476165。发现时间：未说明（上游未提供可用日期）。
 
-<a id="termiters-evidence-29"></a>
-**29. 入口/负载标记** · 2.1.90 / 2.1.92 · [原报告](https://raw.githubusercontent.com/rmk40/opencode-anthropic-auth/rmk/docs/claude-code-auth-and-headers-reference.md)
+<a id="termiters-evidence-38"></a>
+**38. 入口/负载标记** · 2.1.90 / 2.1.92 · [原报告](https://raw.githubusercontent.com/rmk40/opencode-anthropic-auth/rmk/docs/claude-code-auth-and-headers-reference.md)
 
 评估基准：历史记录，尚未按报告版本假设重新评估。
 
@@ -513,8 +657,8 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 
 代码：[model-gateway/anthropic.mjs:19](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/anthropic.mjs#L19)、[model-gateway/context.mjs:100](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/context.mjs#L100)、[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/engine.mjs#L112)；审阅提交 1160cc476165。发现时间：未说明（上游未提供可用日期）。
 
-<a id="termiters-evidence-30"></a>
-**30. cc&#95;version 指纹** · 2.1.90 / 2.1.92 · [原报告](https://raw.githubusercontent.com/rmk40/opencode-anthropic-auth/rmk/docs/claude-code-auth-and-headers-reference.md)
+<a id="termiters-evidence-39"></a>
+**39. cc&#95;version 指纹** · 2.1.90 / 2.1.92 · [原报告](https://raw.githubusercontent.com/rmk40/opencode-anthropic-auth/rmk/docs/claude-code-auth-and-headers-reference.md)
 
 评估基准：历史记录，尚未按报告版本假设重新评估。
 
@@ -528,8 +672,8 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 
 代码：[model-gateway/anthropic.mjs:19](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/anthropic.mjs#L19)、[model-gateway/context.mjs:100](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/context.mjs#L100)、[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/engine.mjs#L112)；审阅提交 1160cc476165。发现时间：未说明（上游未提供可用日期）。
 
-<a id="termiters-evidence-31"></a>
-**31. cch 完整性哈希** · 2.1.90 / 2.1.92 · [原报告](https://raw.githubusercontent.com/rmk40/opencode-anthropic-auth/rmk/docs/claude-code-auth-and-headers-reference.md)
+<a id="termiters-evidence-40"></a>
+**40. cch 完整性哈希** · 2.1.90 / 2.1.92 · [原报告](https://raw.githubusercontent.com/rmk40/opencode-anthropic-auth/rmk/docs/claude-code-auth-and-headers-reference.md)
 
 评估基准：历史记录，尚未按报告版本假设重新评估。
 
@@ -543,8 +687,8 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 
 代码：[model-gateway/anthropic.mjs:19](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/anthropic.mjs#L19)、[model-gateway/context.mjs:100](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/context.mjs#L100)、[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/engine.mjs#L112)；审阅提交 1160cc476165。发现时间：未说明（上游未提供可用日期）。
 
-<a id="termiters-evidence-32"></a>
-**32. 计费归属头** · 2.1.37 · [原报告](https://a10k.co/b/reverse-engineering-claude-code-cch.html)
+<a id="termiters-evidence-41"></a>
+**41. 计费归属头** · 2.1.37 · [原报告](https://a10k.co/b/reverse-engineering-claude-code-cch.html)
 
 评估基准：历史记录，尚未按报告版本假设重新评估。
 
@@ -558,8 +702,8 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 
 代码：[model-gateway/anthropic.mjs:19](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/anthropic.mjs#L19)、[model-gateway/anthropic.mjs:26](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/anthropic.mjs#L26)、[model-gateway/context.mjs:100](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/context.mjs#L100)；审阅提交 1160cc476165。发现时间：未说明（上游未提供可用日期）。
 
-<a id="termiters-evidence-33"></a>
-**33. cc&#95;entrypoint标记** · 2.1.37 · [原报告](https://a10k.co/b/reverse-engineering-claude-code-cch.html)
+<a id="termiters-evidence-42"></a>
+**42. cc&#95;entrypoint标记** · 2.1.37 · [原报告](https://a10k.co/b/reverse-engineering-claude-code-cch.html)
 
 评估基准：历史记录，尚未按报告版本假设重新评估。
 
@@ -573,8 +717,8 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 
 代码：[model-gateway/anthropic.mjs:19](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/anthropic.mjs#L19)、[model-gateway/anthropic.mjs:26](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/anthropic.mjs#L26)、[model-gateway/context.mjs:100](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/context.mjs#L100)；审阅提交 1160cc476165。发现时间：未说明（上游未提供可用日期）。
 
-<a id="termiters-evidence-34"></a>
-**34. cc&#95;version后缀哈希** · 2.1.37 · [原报告](https://a10k.co/b/reverse-engineering-claude-code-cch.html)
+<a id="termiters-evidence-43"></a>
+**43. cc&#95;version后缀哈希** · 2.1.37 · [原报告](https://a10k.co/b/reverse-engineering-claude-code-cch.html)
 
 评估基准：历史记录，尚未按报告版本假设重新评估。
 
@@ -588,8 +732,8 @@ Claude Desktop 的配置说明与 CLI 设置文件输出到 `.local/profiles/名
 
 代码：[model-gateway/anthropic.mjs:19](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/anthropic.mjs#L19)、[model-gateway/anthropic.mjs:26](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/anthropic.mjs#L26)、[model-gateway/engine.mjs:98](https://github.com/KKBK-233/unbundle/blob/1160cc476165dbb2a3bace38c281b6fee8046dc3/model-gateway/engine.mjs#L98)；审阅提交 1160cc476165。发现时间：未说明（上游未提供可用日期）。
 
-<a id="termiters-evidence-35"></a>
-**35. cch请求完整性哈希** · Claude Code 2.1.37 / 定制 Bun 1.3.9-canary.51+d5628db23 · [原报告](https://a10k.co/b/reverse-engineering-claude-code-cch.html)
+<a id="termiters-evidence-44"></a>
+**44. cch请求完整性哈希** · Claude Code 2.1.37 / 定制 Bun 1.3.9-canary.51+d5628db23 · [原报告](https://a10k.co/b/reverse-engineering-claude-code-cch.html)
 
 评估基准：历史记录，尚未按报告版本假设重新评估。
 
