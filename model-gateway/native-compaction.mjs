@@ -54,10 +54,24 @@ export async function readNativeCompactSummary(session,boundary){
   const rows=content.split('\n').flatMap(line=>{try{return [JSON.parse(line)];}catch{return [];}});
   const at=rows.findLastIndex(row=>row.type==='system'&&row.subtype==='compact_boundary'&&row.uuid===boundary.uuid);
   const summary=at>=0?rows.slice(at+1).find(row=>row.type==='user'&&row.isCompactSummary===true):undefined;
-  if(summary){const text=typeof summary.message?.content==='string'?summary.message.content:Array.isArray(summary.message?.content)?summary.message.content.filter(b=>b.type==='text').map(b=>b.text).join('\n'):undefined;return {body:nativeSummaryBody(text,file),file,boundaryUuid:boundary.uuid};}
+  if(summary){
+   const text=typeof summary.message?.content==='string'?summary.message.content:Array.isArray(summary.message?.content)?summary.message.content.filter(b=>b.type==='text').map(b=>b.text).join('\n'):undefined;
+   const previous=rows.slice(0,at).findLast(row=>row.type==='assistant'),blocks=previous?.message?.content;
+   const sourceAssistant=Array.isArray(blocks)&&blocks.some(b=>b.type==='text')&&blocks.every(b=>['text','thinking','redacted_thinking'].includes(b.type))
+    ?{role:'assistant',content:blocks.filter(b=>b.type==='text').map(b=>b.text).join('')}:undefined;
+   return {body:nativeSummaryBody(text,file),file,boundaryUuid:boundary.uuid,sourceAssistantHash:sourceAssistant?historyKey(sourceAssistant,{hashKey:session.options.historyHashKey}):undefined};
+  }
   await new Promise(resolve=>setTimeout(resolve,25));
  }
  throw failure('NATIVE_COMPACT_NOT_PERSISTED','原生压缩边界尚未完整落盘；禁止另行生成摘要');
+}
+// 旧映射漏记末条回复时，仅从同 UUID 压缩边界前的真实原生记录补齐 HMAC。
+export async function hydrateCompactionSource(session){
+ const record=session.compaction;if(!record?.nativeCommitted||record.sourceAssistantHash||!Array.isArray(record.source))return;
+ const saved=await readNativeCompactSummary(session,{uuid:record.nativeBoundaryUuid});
+ if(!saved.sourceAssistantHash)return;
+ record.sourceAssistantHash=saved.sourceAssistantHash;
+ if(record.source.at(-1)!==saved.sourceAssistantHash)record.source.push(saved.sourceAssistantHash);
 }
 function retainedText(boundary){
  const lines=[];

@@ -61,12 +61,14 @@ export function compactionBoundary(session,request,{hashKey,onReject}={}) {
 export function desktopSummary(value) {
  return value.replace(/<analysis>[\s\S]*?<\/analysis>/,'').replace(/<summary>([\s\S]*?)<\/summary>/,(_,body)=>`Summary:\n${body.trim()}`).replace(/\n\n+/g,'\n\n').trim();
 }
-export function compactionRecord(session,request,result,{hashKey}={}) {
+export function compactionRecord(session,request,result,{hashKey,sourceAssistantHash}={}) {
  if(typeof result.content!=='string'||!result.content.trim()||result.tool_calls?.length)return;
  const payload=desktopSummary(result.content);if(!payload)return;
  const options={hashKey,toolSchemas:session.request.tools};
+ const source=conversation(request.messages).slice(0,-1).map(m=>historyKey(m,options));
+ if(sourceAssistantHash&&source.at(-1)!==sourceAssistantHash)source.push(sourceAssistantHash);
  return {version:1,nativeCommitted:Boolean(session.nativeCompactionCommit?.boundaryUuid),nativeBoundaryUuid:session.nativeCompactionCommit?.boundaryUuid,summaryHash:historyKey({role:'user',content:payload},{hashKey,exact:true}),summaryLength:payload.length,
-  source:conversation(request.messages).slice(0,-1).map(m=>historyKey(m,options)),
+  source,...(sourceAssistantHash?{sourceAssistantHash}:{}),
   systems:leading(session.request.messages).map(m=>historyKey(m,{hashKey,exact:true}))};
 }
 export function compactedDelta(session,request,{hashKey}={}) {

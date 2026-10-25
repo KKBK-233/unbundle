@@ -1,4 +1,5 @@
 import {compactionIntent,compactionBoundary,compactionRecord,compactedDelta} from './compaction-boundary.mjs';
+import {hydrateCompactionSource} from './native-compaction.mjs';
 import {recoveryDelta,retryIdentity,recoveryError,archivedSessions,exportHandoff} from './session-recovery.mjs';
 import {continueRecoveryRequest} from './continue-recovery.mjs';
 import { sessionEntry } from './session-entry.mjs';
@@ -86,12 +87,14 @@ export function sessionRelay(options, retained) {
         if(session.compacting)throw Object.assign(new Error('原生会话正在压缩'),{code:'SESSION_BUSY',status:409,retryable:false});
         session.compacting=true;
         try {
+          const sourceAssistantHash=boundary.sourceAssistantHash||(session.state==='idle'&&!session.pendingIds.size&&session.lastAssistant&&!session.lastAssistant.tool_calls?.length
+            ?historyKey(session.lastAssistant,{hashKey:store?.key,toolSchemas:session.request.tools}):undefined);
           await store?.checkAffinity(affinityHash);
           await store?.forget(session.nativeSessionId);
           timing?.mark('cli_session_reused');
           const result=await session.summarize(request,boundary,{signal,onText,timing});
           session.nativeCompactionCommit.requestKey=replayKey;
-          session.compaction=compactionRecord(session,request,result,{hashKey:store?.key});
+          session.compaction=compactionRecord(session,request,result,{hashKey:store?.key,sourceAssistantHash});
           if(!session.compaction)throw Object.assign(new Error('摘要为空或包含工具调用，未建立压缩映射'),{code:'COMPACTION_RESULT_INVALID',status:502,retryable:false});
           await store?.checkpoint(session);
           try{options.onSessionEvent?.({type:'native_compaction',sessionId:session.sessionId,requestId:timing?.requestId,event:'summary_complete',code:'native_context_compacted',pre_tokens:session.nativeCompactionCommit.metadata?.pre_tokens,post_tokens:session.nativeCompactionCommit.metadata?.post_tokens});}catch{}
@@ -140,6 +143,7 @@ export function sessionRelay(options, retained) {
       const rejectedBoundarySessions=new Set(), mismatchedSessions=new Set();
       for (const session of sessions) {
         if (session.affinityHash !== affinityHash) continue;
+        if(session.state==='idle'&&session.compaction?.nativeCommitted)await hydrateCompactionSource(session);
         if (session.state === 'closed' && !session.freezing) { sessions.delete(session); continue; }
         if (affinityHash && session.freezing) {
           await session.freezing;
