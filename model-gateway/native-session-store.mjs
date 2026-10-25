@@ -1,4 +1,5 @@
 import {compactedDelta,compactionIntent} from './compaction-boundary.mjs';
+import {compactMemoryAliases,compactMemoryContext} from './compact-memory-alias.mjs';
 import { archiveSession } from './session-quarantine.mjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -95,6 +96,7 @@ export class NativeSessionStore {
     const compactSource=session.lastAssistant?{model:session.request.model,outputTokens:session.options.outputTokens,toolsHash:session.compiled.metrics.toolsHash,
       systems:messages.slice(0,first<0?messages.length:first).map(m=>historyKey(m,{hashKey:this.key,exact:true})),
       instructions:sessionHistory(messages).filter(m=>['system','developer'].includes(m.role)).map(m=>historyKey(m,{hashKey:this.key,exact:true})),
+      memoryAliases:compactMemoryAliases(messages,{hashKey:this.key,toolSchemas:session.request.tools}).map(({index,hash})=>({index,hash})),
       conversation:[...sessionHistory(messages).filter(m=>!['system','developer'].includes(m.role)),session.lastAssistant].map(m=>historyKey(m,{hashKey:this.key,toolSchemas:session.request.tools}))}:undefined;
     this.records.set(session.nativeSessionId, { id: session.nativeSessionId, signature: session.signature,compactSource,
       historyNormalization: session.historyNormalization, affinityHash: session.affinityHash, history: session.history, expected: session.expected, compaction:session.compaction, snapshot, savedAt: Date.now() });
@@ -114,20 +116,29 @@ export class NativeSessionStore {
     await this.ready;const intent=compactionIntent(request);if(!intent?.ordinary)return;
     const promptIndex=request.messages.findLastIndex(m=>m.role==='user'),sourceMessages=request.messages.slice(0,promptIndex);
     const instructions=sessionHistory(sourceMessages).filter(m=>['system','developer'].includes(m.role));
-    const matches=[...this.records.values()].filter(row=>{
+    const matches=[...this.records.values()].flatMap(row=>{
       const source=row.compactSource;
       if(row.affinityHash!==affinityHash||!source||source.model!==request.model||source.toolsHash!==compiled.metrics.toolsHash
-        ||!Array.isArray(source.systems)||!Array.isArray(source.conversation)||!Number.isSafeInteger(source.outputTokens))return false;
-      if(source.systems.length!==intent.rules.length||!source.systems.every((h,i)=>h===historyKey(intent.rules[i],{hashKey:this.key,exact:true})))return false;
-      if(!Array.isArray(source.instructions)||source.instructions.length!==instructions.length||!source.instructions.every((h,i)=>h===historyKey(instructions[i],{hashKey:this.key,exact:true})))return false;
-      if(intent.messages.length<source.conversation.length||!source.conversation.every((h,i)=>h===historyKey(intent.messages[i],{hashKey:this.key,toolSchemas:request.tools})))return false;
-      return intent.messages.slice(source.conversation.length).every(m=>m.role==='user'&&typeof m.content==='string');
+        ||!Array.isArray(source.systems)||!Array.isArray(source.conversation)||!Number.isSafeInteger(source.outputTokens))return [];
+      if(source.systems.length!==intent.rules.length||!source.systems.every((h,i)=>h===historyKey(intent.rules[i],{hashKey:this.key,exact:true})))return [];
+      if(!Array.isArray(source.instructions)||source.instructions.length!==instructions.length||!source.instructions.every((h,i)=>h===historyKey(instructions[i],{hashKey:this.key,exact:true})))return [];
+      for(const length of [source.conversation.length,source.conversation.length-1]){
+       let alias;
+       if(length<1||intent.messages.length<length||!source.conversation.slice(0,length).every((h,i)=>{
+        const value=historyKey(intent.messages[i],{hashKey:this.key,toolSchemas:request.tools});
+        return h===value||(alias=(source.memoryAliases||[]).find(a=>a.index===i&&a.hash===value));
+       }))continue;
+       if(intent.messages.slice(length).some(m=>m.role!=='user'||typeof m.content!=='string'))continue;
+       const extra=alias?compactMemoryContext(intent.messages[alias.index]):undefined;if(alias&&!extra)continue;
+       return [{row,length,extra}];
+      }
+      return [];
     });
     if(matches.length!==1)return;
-    const row=matches[0],snapshot=await this.transcriptSnapshot(row.id);
+    const {row,length,extra}=matches[0],snapshot=await this.transcriptSnapshot(row.id);
     if(!snapshot||snapshot.size!==row.snapshot.size||snapshot.mtimeMs!==row.snapshot.mtimeMs)return;
     await this.checkAffinity(affinityHash);await this.forget(row.id);
-    return {row,boundary:{prompt:intent.prompt,receipts:[],additionalUsers:intent.messages.slice(row.compactSource.conversation.length)},
+    return {row,boundary:{prompt:intent.prompt,receipts:[],additionalUsers:[...intent.messages.slice(length),...(extra?[extra]:[])]},
       sourceRequest:{...request,max_tokens:row.compactSource.outputTokens,messages:sourceMessages}};
   }
   async transcriptSnapshot(id) {

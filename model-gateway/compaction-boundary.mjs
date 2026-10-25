@@ -1,4 +1,5 @@
 import {historyKey,sessionHistory} from './session-history.mjs';
+import {compactMemoryAliases,compactMemoryContext} from './compact-memory-alias.mjs';
 
 export const SUMMARY_SYSTEM='You are a helpful AI assistant tasked with summarizing conversations.';
 const CLI_IDENTIFIERS=["You are Claude Code, Anthropic's official CLI for Claude.","You are Claude Code, Anthropic's official CLI for Claude, running within the Claude Agent SDK.","You are a Claude agent, built on Anthropic's Claude Agent SDK."];
@@ -36,9 +37,20 @@ export function compactionBoundary(session,request,{hashKey,onReject}={}) {
  const original=conversation(session.request.messages);
  const expected=[...original,session.lastAssistant],actual=intent.messages;
  const options={hashKey,toolSchemas:session.request.tools};
- if(actual.length<expected.length||!expected.every((m,i)=>historyKey(m,options)===historyKey(actual[i],options)
-  ||i===expected.length-1&&session.expected===historyKey(actual[i],options)))return reject('source_history_mismatch');
- const appended=actual.slice(expected.length),receipts=appended.filter(m=>m.role==='tool'),additionalUsers=appended.filter(m=>m.role==='user');
+ const aliases=compactMemoryAliases(session.request.messages,options);let alias;
+ const same=(m,i)=>actual[i]&&(historyKey(m,options)===historyKey(actual[i],options)
+   ||i===expected.length-1&&session.expected===historyKey(actual[i],options)
+   ||(alias=aliases.find(a=>a.index===i&&a.hash===historyKey(actual[i],options))));
+ let length=expected.length;
+ if(actual.length<expected.length||!expected.every(same)){
+  alias=undefined;
+  // Desktop 压缩可复用最后一次 API 输入；原生 CLI 已完成的末条回复仍在原会话中。
+  if(session.state!=='idle'||session.pendingIds.size||actual.length<original.length||!original.every(same)
+    ||actual.slice(original.length).some(m=>m.role!=='user'))return reject('source_history_mismatch');
+  length=original.length;
+ }
+ const appended=actual.slice(length),receipts=appended.filter(m=>m.role==='tool'),additionalUsers=appended.filter(m=>m.role==='user');
+ if(alias){const context=compactMemoryContext(actual[alias.index]);if(!context)return reject('memory_alias_invalid');additionalUsers.push(context);}
  const ids=new Set(receipts.map(m=>m.tool_call_id));
  if(appended.some(m=>!['tool','user'].includes(m.role))||additionalUsers.some(m=>text(m)===undefined))return reject('unexpected_summary_append');
  if(receipts.length!==session.pendingIds.size||ids.size!==receipts.length
