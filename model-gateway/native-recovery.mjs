@@ -1,7 +1,16 @@
+import {callerRuntimeStatus} from './runtime-status.mjs';
 import {randomUUID} from 'node:crypto';
 import {normalizeImage,stableJson} from './context.mjs';
 import {resumeCli} from './process-freeze.mjs';
 import {recoveryError} from './session-recovery.mjs';
+
+// 进入普通用户增量前，将可信目录通知转为独立事实块，避免被当作开头系统指令剥离。
+export function recoveryInputMessages(messages){
+ return messages.filter(m=>m.role!=='tool').map(message=>{
+  const status=callerRuntimeStatus(message);
+  return status?.type==='environment'?{role:'user',content:[{type:'text',text:stableJson({kind:'caller_runtime_status',snapshots:[{...status,content:message.content}]})}]}:message;
+ });
+}
 
 // 工具已经在 Desktop 完成：中断的仅是 CLI 等待，再以不推理的原生帧保存真实收据。
 // 收据全部确认后，调用方只需提交新用户消息；不重跑原工具，也不把新指令塞进工具结果。
