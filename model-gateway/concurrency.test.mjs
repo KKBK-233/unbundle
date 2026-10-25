@@ -19,7 +19,7 @@ test('排队按顺序执行，取消等待不占用后续容量，释放不重�
   finish(); assert.equal(pool.running, 0);
   const hold = await pool.acquire();
   const closed = assert.rejects(pool.acquire(), error => error.code === 'GATEWAY_CLOSING');
-  pool.close(); await closed; hold();
+  pool.close({discardFrozen:true}); await closed; hold();
 });
 
 test('主请求与辅助请求实际重叠，排队请求断线后不执行，下一请求仍能成功', async () => {
@@ -51,7 +51,7 @@ test('主请求与辅助请求实际重叠，排队请求断线后不执行，�
     for (const response of await Promise.all([first, second, third])) assert.equal(response.status, 200);
     assert.deepEqual(started, ['main', 'classifier', 'agent']);
     assert.equal(server.activeRequests, 0); assert.equal(server.queuedRequests, 0);
-  } finally { release(); await server.close(); }
+  } finally { release(); await server.close({discardFrozen:true}); }
 });
 
 test('等待超时移除请求，后续释放仍可获取容量', async () => {

@@ -49,5 +49,5 @@ test('停止串终止挂起进程，原生 JSON 与 SSE 都返回准确结束原
       }
     }
     assert.deepEqual(await fs.readdir(home), ['workspace']);
-  } finally { await app.close(); await fs.rm(home, { recursive: true, force: true }); }
+  } finally { await app.close({discardFrozen:true}); await fs.rm(home, { recursive: true, force: true }); }
 });

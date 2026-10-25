@@ -43,7 +43,7 @@ test('文本截断返回 length，停止续写且不暴露 CLI 错误消息', as
   const broken = new CliEvents([{name:'read',original:'read'}]); broken.accept(assistant('first'));
   assert.throws(()=>broken.accept({type:'stream_event',event:{type:'message_delta',delta:{stop_reason:'max_tokens'}}}), /工具消息不完整/);
   assert.deepEqual(await fs.readdir(home), ['workspace']);
- } finally { await app.close(); await fs.rm(home, {recursive:true,force:true}); }
+ } finally { await app.close({discardFrozen:true}); await fs.rm(home, {recursive:true,force:true}); }
 });
 
 test('追加历史保留旧消息块，工具重排不会改变工具定义', () => {
@@ -87,7 +87,7 @@ test('进程桥保留延迟到达的第二个工具，拒绝不完整消息并�
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'gateway-state-'));
   const fake = `
     let input='';for await(const c of process.stdin)input+=c;
-    const text=JSON.parse(JSON.parse(input).message.content[0].text).content;
+    const text=JSON.parse(input).message.content[0].text;
     if(text==='hang'){setInterval(()=>{},1000);} else {
       const emit=v=>console.log(JSON.stringify(v));
       emit(${JSON.stringify(assistant('first'))});
@@ -156,5 +156,5 @@ test('UTF-8 字符跨 HTTP 分块仍完整，用量位于响应顶层且支持 S
     const chunks=(await res.text()).split('\n').filter(line=>line.startsWith('data: {')).map(line=>JSON.parse(line.slice(6)));
     assert.equal(chunks.filter(c=>c.usage).length,1);
     assert.deepEqual(chunks.at(-1).choices,[]);
-  } finally { await app.close(); }
+  } finally { await app.close({discardFrozen:true}); }
 });

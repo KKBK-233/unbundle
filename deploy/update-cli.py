@@ -92,7 +92,7 @@ def gateway_status():
 
 def idle(status):
     # 尚在接收入站体的请求没有启动 CLI，可在其真正执行前使用已验收新版。
-    return all(status.get(key, 0) == 0 for key in ['activeRequests', 'queuedRequests'])
+    return all(status.get(key, 0) == 0 for key in ['activeRequests', 'queuedRequests', 'nativeSessions', 'nativeFrozenSessions']) and not status.get('busy', False)
 
 
 def health_matches(before, after, version):

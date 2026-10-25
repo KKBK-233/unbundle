@@ -28,7 +28,7 @@ test('无效强度在发出 SSE 或执行模型前返回 400', async () => {
     assert.equal(response.status, 400);
     assert.equal((await response.json()).error.code, 'UNSUPPORTED_REASONING_EFFORT');
     assert.equal(calls, 0);
-  } finally { await app.close(); }
+  } finally { await app.close({discardFrozen:true}); }
 });
 
 // 用 Node 子进程检查真实 argv，不在本地运行 Claude，也不把强度写进提示词。

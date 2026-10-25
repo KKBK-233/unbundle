@@ -44,9 +44,9 @@ test('客户端合并的多个运行余量标签仍留在历史原位，不改�
 
 test('中继身份说明与 CLI 环境块消歧位于系统提示开头', () => {
   const { systemPrompt } = compileContext({ messages: [{ role: 'user', content: 'hi' }] });
-  assert(systemPrompt.startsWith('\nYou are reached through claude-code-relay'));
-  assert(systemPrompt.includes('describes the relay server, not the place where your tools execute'));
-  assert(systemPrompt.includes('verify with a tool call'));
+  assert(systemPrompt.startsWith('\nCaller MCP tools execute on the caller computer'));
+  assert(systemPrompt.includes('not the relay server'));
+  assert(systemPrompt.includes('verify with caller tools'));
 });
 
 test('指令只传一次，工具定义不嵌入历史，调用方原始内容不被删改', () => {
@@ -199,15 +199,16 @@ const value = flag => args[args.indexOf(flag) + 1];
 const system = await fs.readFile(value('--system-prompt-file'), 'utf8');
 const config = JSON.parse(await fs.readFile(value('--mcp-config'), 'utf8'));
 let input = ''; for await (const chunk of process.stdin) input += chunk;
-const conversation = { messages: JSON.parse(input).message.content.map(block => JSON.parse(block.text)) };
+const conversation = { messages: [JSON.parse(input).message] };
+const imported = args.includes('--resume') ? (await fs.readFile(value('--resume'),'utf8')).trim().split('\\n').map(line=>JSON.parse(line).message) : [];
 const mcp = config.mcpServers.omp;
 const rpc = async (method, params) => {
   const response = await fetch(mcp.url, { method: 'POST', headers: { ...mcp.headers, 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
   return (await response.json()).result;
 };
 const exposed = mcp ? (await rpc('tools/list')).tools : [];
-if (['REQUEST_TOOL', 'REQUEST_MCP'].includes(conversation.messages.at(-1)?.content)) {
-  const selected = conversation.messages.at(-1).content === 'REQUEST_MCP' ? exposed.find(tool => tool.name === 'mcp__linear__get_issue') : exposed[0];
+if (['REQUEST_TOOL', 'REQUEST_MCP'].includes(conversation.messages.at(-1)?.content[0]?.text)) {
+  const selected = conversation.messages.at(-1).content[0]?.text === 'REQUEST_MCP' ? exposed.find(tool => tool.name === 'mcp__linear__get_issue') : exposed[0];
   if (!selected) throw new Error('Missing synthetic MCP tool');
   console.log(JSON.stringify({type:'assistant',message:{id:'msg_tool',content:[{type:'tool_use',id:'call_1',name:'mcp__omp__'+selected.name,input:{path:'proof.txt'}}]}}));
   console.log(JSON.stringify({type:'stream_event',event:{type:'message_delta',delta:{stop_reason:'tool_use'}}}));
@@ -217,46 +218,15 @@ if (['REQUEST_TOOL', 'REQUEST_MCP'].includes(conversation.messages.at(-1)?.conte
 }
 `;
 
-test('模拟进程验证长指令文件、工具往返和临时文件清理', async () => {
-  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'gateway-context-'));
-  const options = {
-    cli: 'mock-only', home, model: 'mock-model', timeoutMs: 10000,
-    spawnProcess: (_cli, args, options) => spawn(process.execPath, ['--input-type=module', '-e', fakeCli, '--', ...args], options),
-  };
-  try {
-    const instruction = 'CALLER_RULE_中文'.repeat(4000);
-    const messages = [{ role: 'system', content: instruction }, { role: 'user', content: 'REQUEST_TOOL' }];
-    const first = await infer({ messages, tools }, options);
-    assert.equal(first.tool_calls[0].function.name, 'read_file');
-    assert.deepEqual(JSON.parse(first.tool_calls[0].function.arguments), { path: 'proof.txt' });
-    messages.push(first, { role: 'tool', tool_call_id: first.tool_calls[0].id, content: 'REAL_TOOL_RESULT' });
-    const next = JSON.parse((await infer({ messages, tools }, options)).content);
-    assert(next.system.includes(instruction));
-    assert.deepEqual(next.conversation.messages, messages.slice(1));
-    assert.equal(next.exposed.length, 1);
-    assert.equal(next.exposed[0].name, 'read_file');
-    assert.equal(next.args[next.args.indexOf('--tools') + 1], '');
-    assert(!next.args.includes('--bare'));
-    assert(!next.args.includes('--append-system-prompt'));
-    assert(!next.args.includes('--resume'));
-    assert(!next.args.some(arg => arg.includes(instruction)));
-    const none = JSON.parse((await infer({ messages, tools, tool_choice: 'none' }, options)).content);
-    assert.deepEqual(none.exposed, []);
-    // 验证动态指令经过真实临时文件与进程输入，仍位于对应历史位置。
-    messages.push({ role: 'system', content: 'DYNAMIC_SYSTEM' }, { role: 'developer', content: 'DYNAMIC_DEVELOPER' });
-    const dynamic = JSON.parse((await infer({ messages, tools }, options)).content);
-    assert(dynamic.system.includes('DYNAMIC_SYSTEM'));
-    assert(dynamic.system.includes('DYNAMIC_DEVELOPER'));
-    assert.deepEqual(dynamic.conversation.messages.slice(-2), [
-      { role: 'system', instruction_ref: 'message_4' },
-      { role: 'developer', instruction_ref: 'message_5' },
-    ]);
-    assert(!JSON.stringify(dynamic.conversation).includes('DYNAMIC_SYSTEM'));
-    assert.deepEqual(await fs.readdir(home), ['workspace']);
-    await fs.rmdir(path.join(home, 'workspace'));
-  } finally {
-    await fs.rmdir(home);
-  }
+test('模拟进程验证长指令和真实工具调用；独立进程禁止历史重建',async()=>{
+ const home=await fs.mkdtemp(path.join(os.tmpdir(),'gateway-context-'));let spawns=0;
+ const options={cli:'mock-only',home,model:'mock-model',timeoutMs:10000,spawnProcess:(_cli,args,options)=>{spawns++;return spawn(process.execPath,['--input-type=module','-e',fakeCli,'--',...args],options);}};
+ try{
+  const messages=[{role:'system',content:'CALLER_RULE_中文'.repeat(4000)},{role:'user',content:'REQUEST_TOOL'}];
+  const first=await infer({messages,tools},options);assert.equal(first.tool_calls[0].function.name,'read_file');
+  messages.push(first,{role:'tool',tool_call_id:first.tool_calls[0].id,content:'REAL_TOOL_RESULT'},{role:'assistant',content:'完成'},{role:'user',content:'继续'});
+  await assert.rejects(infer({messages,tools},options),{code:'NATIVE_RESUME_REQUIRED'});assert.equal(spawns,1);
+ }finally{await fs.rm(home,{recursive:true,force:true});}
 });
 
 // 模拟桌面加载连接器后超过旧的 128 项门槛，检查 MCP 映射和工具结果续接，不调用真实模型。
@@ -274,9 +244,9 @@ test('桌面与连接器的大工具集合仍能完成 MCP 调用及续接', asy
     assert.equal(first.tool_calls.length, 1);
     assert.equal(first.tool_calls[0].function.name, 'mcp__linear__get_issue');
     messages.push(first, { role: 'tool', tool_call_id: first.tool_calls[0].id, content: 'SYNTHETIC_LINEAR_RESULT' });
-    const next = JSON.parse((await infer({ messages, tools: many }, options)).content);
-    assert.equal(next.exposed.length, 161);
-    assert.equal(next.conversation.messages.at(-1).content, 'SYNTHETIC_LINEAR_RESULT');
+    await assert.rejects(infer({messages,tools:many},options),{code:'NATIVE_HISTORY_UNSAFE'});
+    messages.push({role:'assistant',content:'已完成'},{role:'user',content:'继续'});
+    await assert.rejects(infer({messages,tools:many},options),{code:'NATIVE_RESUME_REQUIRED'});
     assert.deepEqual(await fs.readdir(home), ['workspace']);
   } finally { await fs.rm(home, { recursive: true, force: true }); }
 });

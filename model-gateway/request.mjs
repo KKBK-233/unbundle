@@ -12,7 +12,7 @@ export function validateRequest(body, { maxOutputTokens = 8192, maxImageBytes, m
   if (stops != null && (!Array.isArray(stops) || stops.length > 4 || stops.some(value => typeof value !== 'string' || !value || value.length > 4096))) fail('stop 必须为非空字符串或最多四个非空字符串，单项最多 4096 字符');
   if (body.n != null && body.n !== 1) fail('仅支持 n=1');
   if (body.store != null && body.store !== false) fail('仅支持 store=false；网关不提供响应存储接口');
-  if (body.parallel_tool_calls != null && body.parallel_tool_calls !== true) fail('暂不支持禁止并行工具调用');
+  if (body.parallel_tool_calls != null && typeof body.parallel_tool_calls !== 'boolean') fail('parallel_tool_calls 必须是布尔值');
   if (body.stream != null && typeof body.stream !== 'boolean') fail('stream 必须是布尔值');
   if (body.stream_options != null && (typeof body.stream_options !== 'object' || Array.isArray(body.stream_options) || Object.keys(body.stream_options).some(key => key !== 'include_usage') || (body.stream_options.include_usage != null && typeof body.stream_options.include_usage !== 'boolean'))) fail('stream_options 仅支持 include_usage 布尔值');
   // 对齐 Sub2API 的 Chat Completions 转换：新字段优先，兼容同时发送两个长度字段的客户端。

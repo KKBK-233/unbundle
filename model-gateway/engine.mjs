@@ -1,8 +1,12 @@
+import { sessionEntry } from './session-entry.mjs';
+import { nativeResumeSeed } from './native-history.mjs';
+import { toolSearchConfig } from './tool-search-config.mjs';
+import { toolChoice, enforceToolChoice } from './tool-choice.mjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import readline from 'node:readline';
 import { compileContext } from './context.mjs';
 import { CliEvents } from './cli-events.mjs';
@@ -13,19 +17,25 @@ import { createAnomalyCapture } from './anomaly-capture.mjs';
 import { sessionQuotaFailure } from './session-quota-guard.mjs';
 
 // 每轮独立进程、逐消息输入；工作目录固定，凭据继续由官方 CLI 管理。
-export async function infer(request, { cli, home, configDir = path.join(home, '.claude'), model, signal, onText, timing, anomalyDir, cliVersion, timeoutMs = 0, idleTimeoutMs = 180000, spawnProcess = spawn, testUpstream, cacheBreakpoint = '5m', maxImageBytes = 5 * 1024 * 1024, maxOutputTokens = 8192, killGraceMs = 2000, maxCliOutputBytes = 0, maxMcpRequestBytes = 32 * 1024 * 1024, maxTools = 0 }) {
+export async function infer(request, { cli, home, configDir = path.join(home, '.claude'), model, signal, onText, timing, anomalyDir, cliVersion, toolSearch = false, maxToolSearchCalls = 8, timeoutMs = 0, idleTimeoutMs = 180000, spawnProcess = spawn, testUpstream, cacheBreakpoint = '5m', maxImageBytes = 5 * 1024 * 1024, maxOutputTokens = 8192, killGraceMs = 2000, maxCliOutputBytes = 0, maxMcpRequestBytes = 32 * 1024 * 1024, maxTools = 0 }) {
+  const discovery = toolSearchConfig({ toolSearch, maxToolSearchCalls });
   for (const value of [timeoutMs, idleTimeoutMs]) if (!Number.isSafeInteger(value) || value < 0 || value > 2147483647) throw new Error('推理超时配置必须为 0..2147483647 毫秒；0 表示关闭');
   if (!Number.isInteger(maxOutputTokens) || maxOutputTokens < 256 || maxOutputTokens > 128000) throw new Error('输出 token 上限无效');
   maxOutputTokens = validateRequest(request, { maxOutputTokens, maxImageBytes, maxTools });
   if (!Number.isSafeInteger(maxCliOutputBytes) || maxCliOutputBytes < 0) throw new Error('CLI 输出字节上限无效');
   if (!Number.isSafeInteger(maxMcpRequestBytes) || maxMcpRequestBytes < 1024 || maxMcpRequestBytes > 256 * 1024 * 1024) throw new Error('MCP 请求字节上限无效');
-  const { systemPrompt, input, available, exposedTools, metrics } = compileContext(request, { cacheBreakpoint, maxImageBytes, maxTools });
+  const compiled = compileContext(request, { cacheBreakpoint, maxImageBytes, maxTools });
+  const { available, exposedTools, metrics } = compiled;
+  const entry = sessionEntry(request, compiled, {maxImageBytes});
+  const {systemPrompt, input} = entry;
   timing?.mark('context_ready');
   if (process.env.GATEWAY_CONTEXT_DIAGNOSTICS === '1') console.error(JSON.stringify({ type: 'gateway_context_bytes', requestId: timing?.requestId, ...metrics, requestedOutputTokens: maxOutputTokens, effort: resolveEffort(request) || 'auto' }));
   await fs.mkdir(home, { recursive: true, mode: 0o700 });
   const cwd = path.join(home, 'workspace');
   await fs.mkdir(cwd, { recursive: true, mode: 0o700 });
   const work = await fs.mkdtemp(path.join(home, 'request-'));
+  const resumeFile = entry.history.length ? path.join(work, 'resume.jsonl') : undefined;
+  if (resumeFile) await fs.writeFile(resumeFile, nativeResumeSeed(entry, {sessionId:randomUUID(),cwd,model}), {mode:0o600});
   const bearer = randomBytes(32).toString('hex');
   const stops = request.stop == null ? [] : typeof request.stop === 'string' ? [request.stop] : request.stop;
   const probes = [takeWireProbe(timing?.requestId), createAnomalyCapture({ directory: anomalyDir, requestId: timing?.requestId,
@@ -36,7 +46,8 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     for (const probe of probes) try { const value = probe[method](...args); if (value?.then) pending.push(value.catch(() => {})); } catch {}
     return pending.length ? Promise.all(pending) : undefined;
   };
-  const events = new CliEvents(available, text => { probeCall('output', text); onText?.(text); }, stops);
+  const policy = toolChoice(request);
+  const events = new CliEvents(available, text => { probeCall('output', text); if (!policy.required && !policy.single) onText?.(text); }, stops, { allowToolSearch: discovery.enabled, maxToolSearchCalls: discovery.maxCalls });
   let probeOutcome = 'completed';
   let child, timer, idleTimer, killTimer, lines, errors = '', aborted = false, timedOut = false, idleTimedOut = false, protocolError;
   let outputBytes = 0, toolArgumentBytes = 0, upstreamMessages = 0, retryEvents = 0, mcpCalls = 0;
@@ -91,7 +102,7 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     for (const k of ['PATH', 'Path', 'SystemRoot', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP', 'LANG']) if (process.env[k]) env[k] = process.env[k];
     Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: configDir,
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1', DISABLE_AUTOUPDATER: '1',
-      ENABLE_TOOL_SEARCH: 'false', MCP_TOOL_TIMEOUT: String(timeoutMs || 2147483647), CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(maxOutputTokens) });
+      ENABLE_TOOL_SEARCH: discovery.environment, MCP_TOOL_TIMEOUT: String(timeoutMs || 2147483647), CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(maxOutputTokens) });
     // 订阅 CLI 默认可能追加 1h 断点；统一 TTL，避免出现 5m 后接 1h 的非法顺序。
     if (cacheBreakpoint === '5m') env.FORCE_PROMPT_CACHING_5M = '1';
     if (cacheBreakpoint === '1h') env.CLAUDE_CODE_PROMPT_CACHE_TTL = '1h';
@@ -101,9 +112,11 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
       if (!testUpstream.preserveModelAliases) Object.assign(env, { ANTHROPIC_MODEL: model,
         ANTHROPIC_DEFAULT_SONNET_MODEL: model, ANTHROPIC_DEFAULT_HAIKU_MODEL: model, ANTHROPIC_DEFAULT_OPUS_MODEL: model });
     }
-    const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,
+    const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', discovery.builtin, '--strict-mcp-config', '--mcp-config', mcp,
       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',
-      '--allowedTools', 'mcp__omp__*', '--no-session-persistence', '--max-turns', '2', '--model', model, '--system-prompt-file', promptFile];
+      '--allowedTools', 'mcp__omp__*', '--no-session-persistence', '--max-turns', String(discovery.enabled ? discovery.maxCalls + 2 : 2), '--model', model, '--system-prompt-file', promptFile];
+    if (resumeFile) args.push('--resume', resumeFile);
+    if (discovery.enabled) args.splice(args.indexOf('--allowedTools') + 1, 0, 'ToolSearch');
     const effort = resolveEffort(request);
     if (effort) args.push('--effort', effort);
     await fs.writeFile(mcp, JSON.stringify({ mcpServers: available.length ? { omp: { type: 'http', url: `http://127.0.0.1:${server.address().port}/mcp`, headers: { Authorization: `Bearer ${bearer}` } } } : {} }), { mode: 0o600 });
@@ -166,6 +179,7 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     if (timedOut) throw Object.assign(new Error(`推理达到总时限（${timeoutMs / 1000} 秒）`), { code: 'INFERENCE_TIMEOUT' });
     if (idleTimedOut) throw Object.assign(new Error(`上游连续 ${idleTimeoutMs / 1000} 秒没有推理进展`), { code: 'INFERENCE_IDLE_TIMEOUT' });
     if (protocolError) throw protocolError;
+    if (events.stopSequence !== undefined || events.outputLimitReached || events.toolEnd) enforceToolChoice(policy, [...events.calls.values()], events.usage());
     if (events.stopSequence !== undefined) return { role: 'assistant', content: events.text, stop_sequence: events.stopSequence, ...events.usage() };
     events.flushText();
     if (events.outputLimitReached) return { role: 'assistant', content: events.text, finish_reason: 'length', ...events.usage() };
@@ -179,6 +193,7 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
       throw new Error((testUpstream ? String(detail || '').replaceAll(testUpstream.token, '[REDACTED]') : detail) || 'Claude 推理未完成');
     }
     if (!events.receivedText) { events.emit(events.result.result || ''); events.flushText(); }
+    enforceToolChoice(policy, [], events.usage());
     return { role: 'assistant', content: events.text || '', ...(events.stopSequence !== undefined ? { stop_sequence: events.stopSequence } : {}), ...events.usage() };
   } catch (error) {
     probeOutcome = aborted ? 'cancelled' : timedOut || idleTimedOut ? 'timeout' : 'error';
@@ -194,6 +209,7 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     clearTimeout(timer); clearTimeout(idleTimer); clearTimeout(killTimer); signal?.removeEventListener('abort', stop); lines?.close();
     kill('SIGKILL'); server.closeAllConnections();
     if (server.listening) await new Promise(resolve => server.close(resolve));
+    if (resumeFile) await fs.rm(resumeFile,{force:true});
     await fs.rm(mcp, { force: true }); await fs.rm(promptFile, { force: true });
     await fs.rmdir(work).catch(() => {});
     timing?.mark('cleanup_complete');

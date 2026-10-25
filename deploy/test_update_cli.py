@@ -20,7 +20,7 @@ class UpdateTests(unittest.TestCase):
 
     def test_busy_gateway_defers(self):
         self.assertTrue(update_cli.idle({}))
-        for field in ['activeRequests', 'queuedRequests']:
+        for field in ['activeRequests', 'queuedRequests', 'nativeSessions', 'nativeFrozenSessions', 'busy']:
             self.assertFalse(update_cli.idle({field: 1}))
         self.assertTrue(update_cli.idle({'inflightBytes': 1024}))
 
