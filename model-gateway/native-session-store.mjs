@@ -1,4 +1,5 @@
 import {compactedDelta,compactionIntent} from './compaction-boundary.mjs';
+import {hydrateCompactionSource} from './native-compaction.mjs';
 import {compactMemoryAliases,compactMemoryContext} from './compact-memory-alias.mjs';
 import { archiveSession } from './session-quarantine.mjs';
 import fs from 'node:fs/promises';
@@ -138,7 +139,7 @@ export class NativeSessionStore {
     const {row,length,extra}=matches[0],snapshot=await this.transcriptSnapshot(row.id);
     if(!snapshot||snapshot.size!==row.snapshot.size||snapshot.mtimeMs!==row.snapshot.mtimeMs)return;
     await this.checkAffinity(affinityHash);await this.forget(row.id);
-    return {row,boundary:{prompt:intent.prompt,receipts:[],additionalUsers:[...intent.messages.slice(length),...(extra?[extra]:[])]},
+    return {row,boundary:{prompt:intent.prompt,receipts:[],sourceAssistantHash:row.expected,additionalUsers:[...intent.messages.slice(length),...(extra?[extra]:[])]},
       sourceRequest:{...request,max_tokens:row.compactSource.outputTokens,messages:sourceMessages}};
   }
   async transcriptSnapshot(id) {
@@ -170,6 +171,7 @@ export class NativeSessionStore {
     for (const row of this.records.values()) {
       if (row.affinityHash !== affinityHash) continue;
       if (row.signature !== signature) { if (affinityHash) return this.rejectRestore(row,request,{mismatch:true},'CHECKPOINT_HISTORY_MISMATCH'); continue; }
+      if(row.compaction?.nativeCommitted)await hydrateCompactionSource({nativeSessionId:row.id,compaction:row.compaction,options:{home:this.home,configDir:this.configDir,historyHashKey:this.key}});
       const delta = compactedDelta({...row,pendingIds:new Set()},request,{hashKey:this.key}) || continuationDelta({ ...row, pendingIds: new Set() }, request,
         { allowInstructionUpdates, hashKey: this.key });
       if (!delta) { if (affinityHash) return this.rejectRestore(row,request,{mismatch:true},'CHECKPOINT_HISTORY_MISMATCH'); continue; }
