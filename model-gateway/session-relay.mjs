@@ -1,3 +1,5 @@
+import {automaticRecoveryRequest,automaticRecoveryIdentity} from './automatic-recovery.mjs';
+import {settleFrozenTools} from './native-recovery.mjs';
 import {SessionLifecycle} from './session-lifecycle.mjs';
 import {compactionIntent,compactionBoundary,compactionRecord,compactedDelta} from './compaction-boundary.mjs';
 import {hydrateCompactionSource} from './native-compaction.mjs';
@@ -105,28 +107,58 @@ export function sessionRelay(options, retained) {
           throw error;
         } finally {session.compacting=false;}
       }
+      const replay=[...sessions].find(s=>['idle','waiting-tool'].includes(s.state)&&s.signature===signature&&s.affinityHash===affinityHash
+        &&s.automaticRecoveryResult?.identity===automaticRecoveryIdentity(request)&&s.automaticRecoveryResult.history===s.history&&s.automaticRecoveryResult.expected===s.expected);
+      if(replay){
+        try{options.onSessionEvent?.({type:'native_automatic_recovery',sessionId:replay.sessionId,event:'replayed',model_requests:0});}catch{}
+        return {...structuredClone(replay.automaticRecoveryResult.result),usage_complete:true,upstream_usage:{input_tokens:0,output_tokens:0,cache_creation_input_tokens:0,cache_read_input_tokens:0},usage:{prompt_tokens:0,completion_tokens:0,total_tokens:0}};
+      }
+      if([...sessions].some(s=>s.recoveryInProgress&&s.affinityHash===affinityHash&&(s.recoveryIdentity===retryIdentity(request)||automaticRecoveryRequest({state:'frozen',frozenRequest:s.frozenRequest},request))))throw recoveryError('SESSION_BUSY','同一会话的恢复仍在进行');
       const armed=[...sessions].filter(session=>session.state==='frozen'&&session.recoveryArmed);
-      let recoveryRequest=request;
-      const recovering=armed.find(session=>{
-        if(session.recoveryIdentity===retryIdentity(request))return true;
-        const continuation=continueRecoveryRequest(session,request);
-        if(continuation&&session.recoveryIdentity===retryIdentity(continuation)){recoveryRequest=continuation;return true;}
-        return false;
+      const candidates=[...sessions].filter(s=>s.state==='frozen').flatMap(session=>{
+        if(session.affinityHash!==affinityHash)return [];
+        const automatic=automaticRecoveryRequest(session,request);
+        if(automatic){
+          const control=continueRecoveryRequest({state:'frozen',recoveryArmed:true,frozenRequest:session.frozenRequest},request);
+          const tail=control?automatic.tail.filter(m=>m.role!=='user'):automatic.tail;
+          return [{session,recoveryRequest:automatic.request,tail,attemptIdentity:automatic.identity,automatic:true}];
+        }
+        if(session.recoveryArmed&&session.recoveryIdentity===retryIdentity(request))return [{session,recoveryRequest:request,tail:[],automatic:false}];
+        return [];
       });
-      if(recovering){
+      if(candidates.length>1)throw recoveryError('RECOVERY_SESSION_AMBIGUOUS','新消息不能唯一关联冻结会话，未恢复进程');
+      if(candidates.length){
+        const {session:recovering,recoveryRequest,tail,attemptIdentity,automatic}=candidates[0];
         if(recovering.recoveryInProgress)throw recoveryError('SESSION_BUSY','正在恢复原会话');
+        if(automatic&&recovering.automaticRecoveryAttempt?.identity===attemptIdentity){
+          const previous=recovering.automaticRecoveryAttempt;
+          throw recoveryError(previous.code||'RECOVERY_ALREADY_ATTEMPTED',previous.message||'同一新消息已经尝试恢复，不自动重复执行');
+        }
         recovering.recoveryInProgress=true;
+        if(automatic)recovering.automaticRecoveryAttempt={identity:attemptIdentity};
+        const quarantine=recovering.quarantineRecord;
         try {
-        if(recovering.signature!==signature||recovering.affinityHash!==affinityHash)throw recoveryError('RECOVERY_CONFIG_MISMATCH','模型、工具、规则或会话身份已经变化');
-        if(!await recovering.verifySuspended())throw recoveryError('NATIVE_PROCESS_GONE','原 CLI 进程已丢失或不在暂停状态');
-        const delta=recoveryDelta(recovering,recoveryRequest,{hashKey:store?.key,allowInstructionUpdates:options.liveInstructionUpdates===true});
-        await store?.releaseQuarantine(recovering.quarantineRecord);
-        for(let i=quarantined.length-1;i>=0;i--)if(quarantined[i]===recovering.quarantineRecord)quarantined.splice(i,1);
-        recovering.recoveryArmed=false;
-        const updates=recoveryRequest===request?[]:sessionHistory(request.messages).slice(sessionHistory(recovering.frozenRequest.messages).length).filter(m=>m.role==='system');
-        const result=await recovering.run(request,[...delta,...updates],{signal,onText,timing,resumeFrozen:true});
-        try{await store?.checkpoint(recovering);}catch{try{options.onSessionEvent?.({type:'native_checkpoint_failed',code:'CHECKPOINT_WRITE_FAILED'});}catch{}}
-        return result;
+          if(recovering.signature!==signature||recovering.affinityHash!==affinityHash)throw recoveryError('RECOVERY_CONFIG_MISMATCH','模型、工具、规则或会话身份已经变化');
+          if(!quarantine)throw recoveryError('RECOVERY_BOUNDARY_UNSAFE','缺少已保存的封存记录');
+          if(!await recovering.verifySuspended())throw recoveryError('NATIVE_PROCESS_GONE','原 CLI 已退出或暂停状态不可确认，未重建历史');
+          const delta=recoveryDelta(recovering,recoveryRequest,{hashKey:store?.key,allowInstructionUpdates:options.liveInstructionUpdates===true});
+          let forward=[...delta,...tail],resumeFrozen=true;
+          if(tail.some(m=>m.role==='user')&&recovering.pendingIds.size){await settleFrozenTools(recovering,delta,{signal});forward=forward.filter(m=>m.role!=='tool');resumeFrozen=false;}
+          recovering.recoveryArmed=false;
+          const result=await recovering.run(request,forward,{signal,onText,timing,resumeFrozen});
+          // 成功交接后才清除原封存记录；失败不能留下已解封却未恢复的状态。
+          await store?.releaseQuarantine(quarantine);
+          for(let i=quarantined.length-1;i>=0;i--)if(quarantined[i]===quarantine)quarantined.splice(i,1);
+          if(recovering.quarantineRecord===quarantine)recovering.quarantineRecord=undefined;
+          try{await store?.checkpoint(recovering);}catch{try{options.onSessionEvent?.({type:'native_checkpoint_failed',code:'CHECKPOINT_WRITE_FAILED'});}catch{}}
+          if(automatic)recovering.automaticRecoveryResult={identity:attemptIdentity,result:structuredClone(result),history:recovering.history,expected:recovering.expected};
+          recovering.freezeReason=undefined;recovering.frozenRequest=undefined;
+          try{options.onSessionEvent?.({type:'native_automatic_recovery',sessionId:recovering.sessionId,event:'completed',automatic,historyRebuilt:false,toolsReplayed:false,newUserMessages:tail.filter(m=>m.role==='user').length});}catch{}
+          return result;
+        }catch(error){
+          if(recovering.state!=='frozen')await recovering.freeze(error.code||'RECOVERY_FAILED',{request});
+          if(automatic)recovering.automaticRecoveryAttempt={identity:attemptIdentity,code:error.code||'RECOVERY_FAILED',message:error.message};
+          throw error;
         }finally{recovering.recoveryInProgress=false;}
       }
       if(armed.some(session=>session.affinityHash===affinityHash&&(affinityHash||session.history.length<=sessionHistory(request.messages).length&&session.history.every((h,i)=>h===historyKey(sessionHistory(request.messages)[i],{hashKey:store?.key,exact:options.liveInstructionUpdates===true,toolSchemas:session.historyNormalization?request.tools:undefined})))))throw recoveryError('RECOVERY_RETRY_REQUIRED','请重试原失败请求；不能追加新消息或重建会话');
@@ -300,7 +332,7 @@ export function sessionRelay(options, retained) {
       if(!session.quarantineRecord)throw recoveryError('RECOVERY_BOUNDARY_UNSAFE','缺少冻结索引，不能自动解除');
       if(!session.frozenRequest)throw recoveryError('RECOVERY_BOUNDARY_UNSAFE','没有可核验的原失败请求');
       recoveryDelta(session,session.frozenRequest,{hashKey:store?.key,allowInstructionUpdates:options.liveInstructionUpdates===true});
-      session.recoveryIdentity=retryIdentity(session.frozenRequest);session.recoveryArmed=true;
+      session.automaticRecoveryAttempt=undefined;session.recoveryIdentity=retryIdentity(session.frozenRequest);session.recoveryArmed=true;
       return {sessionId:session.sessionId,pid:session.child.pid,state:'frozen',recoveryArmed:true,processStillPaused:true,
         nextAction:'retry_original_failed_request',modelRequests:0};
     },

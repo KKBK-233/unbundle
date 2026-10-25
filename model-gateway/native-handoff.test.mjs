@@ -156,7 +156,7 @@ test('审核后原请求重试及直接继续均恢复同一CLI，不重建也�
   await assert.rejects(state.relay.infer(next),{code:'ASSISTANT_MESSAGE_MISMATCH'});
   const frozen=(await state.relay.listSessions()).sessions.find(s=>s.state==='frozen');assert(frozen.processPreserved);
   const armed=await state.relay.recover(frozen.sessionId);assert.equal(armed.processStillPaused,true);assert.equal(armed.pid,frozen.pid);assert.equal(armed.modelRequests,0);
-  await assert.rejects(state.relay.infer({...next,messages:[...next.messages,{role:'user',content:'继续并重做'}]}),{code:'RECOVERY_RETRY_REQUIRED'});
+  await assert.rejects(state.relay.infer({...next,messages:[...next.messages,{role:'user',content:'继续并重做'}]}),{code:'RECOVERY_INTERRUPT_UNAVAILABLE'});
   const selected=strategy==='retry'?next:{...next,messages:[...next.messages,{role:'user',content:'继续'}]};
   const result=await state.relay.infer(selected);assert.equal(result.content,'DONE');assert.equal(state.spawns(),1);
   const live=(await state.relay.listSessions()).sessions.find(s=>s.sessionId===frozen.sessionId);assert.equal(live.pid,frozen.pid);assert.equal(live.state,'idle');
