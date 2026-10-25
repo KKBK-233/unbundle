@@ -48,8 +48,8 @@ test('文本截断返回 length，停止续写且不暴露 CLI 错误消息', as
 
 test('追加历史保留旧消息块，工具重排不会改变工具定义', () => {
   const base = { ...request, tools: [tool('write'), tool('read')] };
-  const before = compileContext(base);
-  const after = compileContext({ ...base, tools: [...base.tools].reverse(), messages: [...base.messages, { role: 'assistant', content: '已读' }] });
+  const before = compileContext(base, {cacheBreakpoint:'5m'});
+  const after = compileContext({ ...base, tools: [...base.tools].reverse(), messages: [...base.messages, { role: 'assistant', content: '已读' }] }, {cacheBreakpoint:'5m'});
   const blocks = input => JSON.parse(input).message.content;
   assert.equal(blocks(before.input)[0].text, blocks(after.input)[0].text);
   assert.deepEqual(before.exposedTools, after.exposedTools);

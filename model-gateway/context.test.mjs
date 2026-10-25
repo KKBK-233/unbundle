@@ -81,7 +81,7 @@ test('user 图片转原生块，base64 不进文本，断点覆盖图片且跨�
   const image = { type: 'image', source: { type: 'base64', media_type: 'image/png', data: png } };
   const messages = [{ role: 'system', content: '规则' },
     { role: 'user', content: [{ type: 'text', text: '看这张图' }, image] }];
-  const compiled = compileContext({ messages, tools });
+  const compiled = compileContext({ messages, tools }, {cacheBreakpoint:'5m'});
   const blocks = JSON.parse(compiled.input).message.content;
 
   // 文本块只保留原位引用；base64 仅出现在并列的原生 image 块中。
@@ -110,7 +110,7 @@ test('user 图片转原生块，base64 不进文本，断点覆盖图片且跨�
   assert.throws(() => compileContext({ messages: [{ role: 'assistant', content: [image] }] }), /暂不支持 assistant 消息中的图片/);
 
   // 追加历史不改写既有块，图片轮次的前缀同样稳定。
-  const next = compileContext({ messages: [...messages, { role: 'assistant', content: '看到了' }], tools });
+  const next = compileContext({ messages: [...messages, { role: 'assistant', content: '看到了' }], tools }, {cacheBreakpoint:'5m'});
   const after = JSON.parse(next.input).message.content;
   assert.deepEqual(after.slice(0, 3).map(({ cache_control, ...block }) => block), blocks.map(({ cache_control, ...block }) => block));
   assert.equal(next.metrics.systemHash, compiled.metrics.systemHash);
@@ -166,7 +166,7 @@ test('动态指令保留优先级、原位引用和单份正文，嵌入角色�
     { role: 'system', content: 'LATER_SYSTEM' },
   ];
   const original = structuredClone(messages);
-  const compiled = compileContext({ messages, tools });
+  const compiled = compileContext({ messages, tools }, {cacheBreakpoint:'5m'});
   assert.deepEqual(messages, original);
   const updates = JSON.parse(compiled.systemPrompt.split('\nCaller instruction updates:\n')[1]);
   assert.deepEqual(updates, [3, 4, 7].map(index => ({ id: `message_${index}`, messageIndex: index, message: messages[index] })));

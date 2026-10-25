@@ -1,3 +1,4 @@
+import {cacheEnvironment} from './cache-policy.mjs';
 import {nativeCompact} from './native-compaction.mjs';
 import {statelessQuotaFailure} from './stateless-quota.mjs';
 import {suspendCli,resumeCli,verifySuspended} from './process-freeze.mjs';
@@ -52,6 +53,7 @@ export class NativeCliSession {
     if (o.resumeNativeId) {
       const incremental = { ...this.request, messages: o.resumeDelta };
       this.entryMode = 'native_resume';
+      this.initialInstructionDelta = o.resumeDelta;
       systemPrompt = this.compiled.nativeSystemPrompt;
       this.initialInput = o.resumeForCompaction?undefined:nativeIncrement(incremental, compileContext(incremental, o), o);
       this.report('session_entry', 'native_resume:persisted_checkpoint');
@@ -81,15 +83,14 @@ export class NativeCliSession {
       CLAUDE_CODE_TOTAL_TOKENS_REMINDER: 'off',
       ENABLE_TOOL_SEARCH: discovery.environment, MCP_TOOL_TIMEOUT: String(o.toolWaitTimeoutMs || DEFAULT_TOOL_WAIT_MS),
       CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT:String(o.toolWaitTimeoutMs||DEFAULT_TOOL_WAIT_MS),CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(o.outputTokens) });
-    if ((o.cacheBreakpoint || '5m') === '5m') env.FORCE_PROMPT_CACHING_5M = '1';
-    if (o.cacheBreakpoint === '1h') env.CLAUDE_CODE_PROMPT_CACHE_TTL = '1h';
+    Object.assign(env, cacheEnvironment(o.cacheBreakpoint));
     if (o.testUpstream) Object.assign(env, { ANTHROPIC_BASE_URL: o.testUpstream.baseUrl, ANTHROPIC_AUTH_TOKEN: o.testUpstream.token });
     const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
       '--tools', discovery.builtin, '--strict-mcp-config', '--mcp-config', mcp, '--setting-sources', '', '--no-chrome',
       '--permission-mode', 'dontAsk', '--allowedTools', 'mcp__omp__*', '--model', o.model, '--system-prompt-file', prompt];
     if (o.persistentSessions !== true) args.push('--no-session-persistence');
     else if (!this.resumeFile && !o.resumeNativeId) args.push('--session-id', this.nativeSessionId);
-    if (o.resumeNativeId) args.push('--resume', o.resumeNativeId, '--system-prompt-snapshot', 'off');
+    if (o.resumeNativeId) args.push('--resume', o.resumeNativeId, '--system-prompt-snapshot', 'on');
     if (discovery.enabled) args.splice(args.indexOf('--allowedTools') + 1, 0, 'ToolSearch');
     const effort = resolveEffort(this.request); if (effort) args.push('--effort', effort);
     if (this.resumeFile) args.push('--resume', this.resumeFile);
@@ -295,10 +296,11 @@ export class NativeCliSession {
         }
         if(resumeFrozen&&this.turn===turn){this.freezing=undefined;this.recoveryArmed=false;if(!resumedForControl)void resumeCli(this.child).then(()=>this.report('recovered','same_process')).catch(error=>this.fail(error));}
       };
-      if (delta !== undefined && this.options.liveInstructionUpdates === true) {
-        const controls=delta.some(m=>['system','developer'].includes(m.role)&&!callerRuntimeStatus(m));
+      const instructionDelta = delta ?? this.initialInstructionDelta;
+      if (instructionDelta !== undefined && this.options.liveInstructionUpdates === true) {
+        const controls=instructionDelta.some(m=>['system','developer'].includes(m.role)&&!callerRuntimeStatus(m));
         const ready=resumeFrozen&&controls?resumeCli(this.child).then(()=>{resumedForControl=true;}):Promise.resolve();
-        void ready.then(()=>this.updateInstructions(request, delta)).then(advance).catch(error => { if (this.turn === turn) this.fail(error); });
+        void ready.then(()=>this.updateInstructions(request, instructionDelta)).then(()=>{this.initialInstructionDelta=undefined;advance();}).catch(error => { if (this.turn === turn) this.fail(error); });
       } else advance();
     });
   }

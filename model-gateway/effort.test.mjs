@@ -35,7 +35,7 @@ test('无效强度在发出 SSE 或执行模型前返回 400', async () => {
 test('所选档位逐请求传入 CLI，auto 和后续未指定请求不会继承上一档位', async () => {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'relay-effort-'));
   const options = { cli: 'fake', home, model: 'sonnet', spawnProcess: (_cli, args, opts) => {
-    assert.equal(opts.env.FORCE_PROMPT_CACHING_5M, '1');
+    assert.equal(opts.env.FORCE_PROMPT_CACHING_5M, undefined);
     const fake = `let input='';for await (const chunk of process.stdin) input+=chunk;console.log(JSON.stringify({type:'result',result:JSON.stringify({args:process.argv.slice(1),input})}));`;
     return spawn(process.execPath, ['--input-type=module', '-e', fake, '--', ...args], opts);
   } };
