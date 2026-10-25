@@ -62,10 +62,11 @@ const liveInstructionUpdates = process.env.GATEWAY_LIVE_INSTRUCTION_UPDATES === 
 // 保存真实原生会话以便完成轮次后恢复；须显式启用，不改变现有部署。
 const persistentSessions = process.env.GATEWAY_NATIVE_SESSION_PERSISTENCE === '1';
 const nativeSessionTtlMs = Number(process.env.GATEWAY_SESSION_TTL_MS || 1800000);
+const archiveRetentionMs = Number(process.env.GATEWAY_ARCHIVE_RETENTION_DAYS || 30) * 86400000;
 // 显式启用原生会话；关闭后恢复逐轮 CLI 路径，不在失败时自动双发。
 const nativeRelay = process.env.GATEWAY_SESSION_RELAY === '1' ? sessionRelay({
   cli, home, configDir, modelFor: model => upstreamModels[model], maxSessions: Number(process.env.GATEWAY_MAX_SESSIONS || 2),
-  sessionTtlMs: nativeSessionTtlMs,toolWaitTimeoutMs,
+  sessionTtlMs: nativeSessionTtlMs,archiveRetentionMs,toolWaitTimeoutMs,
   maxTools, maxCliOutputBytes, maxMcpRequestBytes, cacheBreakpoint: process.env.GATEWAY_CACHE_BREAKPOINT || 'auto',
   maxImageBytes, maxOutputTokens, timeoutMs, idleTimeoutMs, toolSearch, maxToolSearchCalls, liveInstructionUpdates,
   persistentSessions, cliVersion: startupCliVersion,
@@ -84,14 +85,14 @@ function authStatus() {
     });
   });
 }
-const server = await gateway({ token, port, models, modelAliases, status: async () => ({ ...await authStatus(), cliVersion: (await readCliRelease())?.version || startupCliVersion, busy: server.busy || (nativeRelay?.frozenSize || 0)>0,
+const server = await gateway({ token, port, models, modelAliases, status: async () => ({ ...await authStatus(), cliVersion: (await readCliRelease())?.version || startupCliVersion, busy: server.busy || nativeRelay?.maintenance===true || (nativeRelay?.frozenSize || 0)>0,
   activeRequests: server.activeRequests, queuedRequests: server.queuedRequests, receivingRequests: server.receivingRequests, maxConcurrent, maxQueued, contextWindow, upstreamModels,
   relayHost: process.env.GATEWAY_FRP_RELAY_HOST || null,
   nativeSessionRelay: Boolean(nativeRelay), nativeSessions: (nativeRelay?.size || 0)+(nativeRelay?.frozenSize || 0), nativeFrozenSessions:nativeRelay?.frozenSize || 0, liveInstructionUpdates: Boolean(nativeRelay) && liveInstructionUpdates,
-  nativeSessionPersistence: Boolean(nativeRelay) && persistentSessions,
+  nativeSessionMaintenance:nativeRelay?.maintenance===true, nativeSessionPersistence: Boolean(nativeRelay) && persistentSessions,
   nativeCompactionProtocol:nativeRelay&&persistentSessions?'cli_command_boundary_v1':null,
   sessionRecoveryAvailable:Boolean(nativeRelay), nativeHistoryImportAllowed:false, nativeFreezePreservesProcess:true, nativeHistoryFallback: false, stickySessions: Boolean(nativeRelay), sessionErrorQuarantine: Boolean(nativeRelay),
-  nativeSessionTtlMs,nativeToolWaitTimeoutMs:toolWaitTimeoutMs,strictNativeToolContinuation: Boolean(nativeRelay),
+  nativeSessionTtlMs,nativeArchiveRetentionMs:archiveRetentionMs,nativeToolWaitTimeoutMs:toolWaitTimeoutMs,strictNativeToolContinuation: Boolean(nativeRelay),
   inputModalities: ['text', 'image'], timeoutMs, idleTimeoutMs, toolSearch, maxToolSearchCalls, maxTools, maxCliOutputBytes, maxMcpRequestBytes, maxRequestBytes, maxImageBytes, maxInflightBytes, inflightBytes: server.inflightBytes }), maxOutputTokens, maxTools, maxConcurrent, maxQueued, queueTimeoutMs, bodyIdleTimeoutMs, bodyTimeoutMs, maxRequestBytes, maxImageBytes, maxInflightBytes,
   onTiming: process.env.GATEWAY_TIMING_DIAGNOSTICS === '0' ? undefined : record => console.error(JSON.stringify(record)),
   async beforeExecute(request) {
@@ -108,4 +109,4 @@ const server = await gateway({ token, port, models, modelAliases, status: async 
   },
 });
 console.log(`云端模型入口监听 127.0.0.1:${port}；工具由客户端执行`);
-for (const event of ['SIGINT', 'SIGTERM']) process.on(event, async () => { if(nativeRelay?.frozenSize){console.error(JSON.stringify({type:'shutdown_blocked',code:'FROZEN_SESSION_RETAINED',sessions:nativeRelay.frozenSize}));return;} await server.close(); await nativeRelay?.close(); process.exit(0); });
+for (const event of ['SIGINT', 'SIGTERM']) process.on(event, async () => { if(nativeRelay?.maintenance){console.error(JSON.stringify({type:'shutdown_blocked',code:'SESSION_MAINTENANCE'}));return;} if(nativeRelay?.frozenSize){console.error(JSON.stringify({type:'shutdown_blocked',code:'FROZEN_SESSION_RETAINED',sessions:nativeRelay.frozenSize}));return;} await server.close(); await nativeRelay?.close(); process.exit(0); });

@@ -74,6 +74,12 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
     if(sessionControl && (pathname==='/sessions'||pathname.startsWith('/sessions/'))){
       try {
         if(req.method==='GET'&&pathname==='/sessions'){json(200,await sessionControl.listSessions());return;}
+        if(req.method==='GET'&&pathname==='/sessions/lifecycle'){json(200,await sessionControl.lifecycle('list'));return;}
+        const lifecycleMatch=/^\/sessions\/([a-f0-9-]{36})\/(retain|release-retention|retire|restore)$/i.exec(pathname);
+        if(req.method==='POST'&&(lifecycleMatch||pathname==='/sessions/lifecycle/sweep')){
+          if(req.headers['transfer-encoding']||Number(req.headers['content-length']||0)!==0){req.resume();json(400,{error:{code:'LIFECYCLE_BODY_REJECTED',message:'生命周期操作不接受替换历史或文件路径'}});return;}
+          json(200,await sessionControl.lifecycle(lifecycleMatch?.[2]||'sweep',lifecycleMatch?.[1]));return;
+        }
         const match=/^\/sessions\/([a-f0-9-]{24,36})\/(recover|handoff)$/i.exec(pathname);
         if(!match){json(404,{error:{code:'SESSION_ROUTE_NOT_FOUND',message:'会话操作不存在'}});return;}
         if(req.method==='POST'&&match[2]==='recover'){

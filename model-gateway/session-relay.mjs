@@ -1,3 +1,4 @@
+import {SessionLifecycle} from './session-lifecycle.mjs';
 import {compactionIntent,compactionBoundary,compactionRecord,compactedDelta} from './compaction-boundary.mjs';
 import {hydrateCompactionSource} from './native-compaction.mjs';
 import {recoveryDelta,retryIdentity,recoveryError,archivedSessions,exportHandoff} from './session-recovery.mjs';
@@ -35,7 +36,8 @@ export function sessionRelay(options, retained) {
   const failedRestores = retained?.failedRestores || new Map(), quarantined = retained?.quarantined || [], locks = retained?.locks || new Set();
   const maxSessions = options.maxSessions || 2;
   if (!Number.isInteger(maxSessions) || maxSessions < 1 || maxSessions > 8) throw new Error('原生会话数量必须为 1..8');
-  let closed = false;
+  let closed = false, maintenance = false, activeTurns = 0;
+  const lifecycle = store ? new SessionLifecycle(store,{protectedIds:()=>new Set([...sessions].filter(s=>s.state!=='closed').map(s=>s.nativeSessionId)),retentionMs:options.archiveRetentionMs}) : undefined;
   async function inferTurn(request, { signal, onText, timing, affinity } = {}) {
       if (closed) throw new Error('原生会话池已关闭');
       await store?.ready;
@@ -130,8 +132,22 @@ export function sessionRelay(options, retained) {
       if(armed.some(session=>session.affinityHash===affinityHash&&(affinityHash||session.history.length<=sessionHistory(request.messages).length&&session.history.every((h,i)=>h===historyKey(sessionHistory(request.messages)[i],{hashKey:store?.key,exact:options.liveInstructionUpdates===true,toolSchemas:session.historyNormalization?request.tools:undefined})))))throw recoveryError('RECOVERY_RETRY_REQUIRED','请重试原失败请求；不能追加新消息或重建会话');
       await store?.checkAffinity(affinityHash);
       const incomingHistory = sessionHistory(request.messages).map(message=>historyKey(message,{hashKey:store?.key,exact:options.liveInstructionUpdates===true}));
-      if ([...quarantined,...(store?.blocked||[])].some(row=>row.affinityHash===affinityHash && (affinityHash || row.history.length && row.history.length<=incomingHistory.length && row.history.every((value,index)=>value=== (row.historyNormalization ? historyKey(sessionHistory(request.messages)[index],{hashKey:store?.key,exact:options.liveInstructionUpdates===true,toolSchemas:request.tools}) : incomingHistory[index]))))) {
-        throw Object.assign(new Error('此对话已因异常封存；禁止自动重建长历史'),{code:'SESSION_QUARANTINED',status:409,retryable:false});
+      const blockedRow=[...quarantined,...(store?.blocked||[])].find(row=>{
+        if(row.affinityHash!==affinityHash)return false;
+        if(affinityHash)return true;
+        const messages=sessionHistory(request.messages);
+        if(row.origin==='lifecycle_retired'){
+          if(!Number.isSafeInteger(row.historyLength)||row.historyLength<1||messages.length<=row.historyLength)return false;
+          const prefix=messages.slice(0,row.historyLength).map(m=>historyKey(m,{hashKey:store?.key,exact:options.liveInstructionUpdates===true,toolSchemas:row.historyNormalization?request.tools:undefined}));
+          return createHmac('sha256',store.key).update(JSON.stringify(prefix)).digest('hex')===row.historyDigest
+            &&historyKey(messages[row.historyLength],{hashKey:store.key,toolSchemas:row.historyNormalization?request.tools:undefined})===row.expected;
+        }
+        if(!row.history.length||row.history.length>incomingHistory.length||!row.history.every((value,index)=>value===(row.historyNormalization?historyKey(messages[index],{hashKey:store?.key,exact:options.liveInstructionUpdates===true,toolSchemas:request.tools}):incomingHistory[index])))return false;
+        return true;
+      });
+      if(blockedRow){
+        const retired=blockedRow.origin==='lifecycle_retired';
+        throw Object.assign(new Error(retired?'此会话已明确退役，请先恢复归档；禁止重建历史':'此对话已因异常封存；禁止自动重建长历史'),{code:retired?'SESSION_RETIRED':'SESSION_QUARANTINED',status:409,retryable:false});
       }
       const restoreKey = createHmac('sha256', matchKey).update(signature + stableJson(sessionHistory(request.messages)
         .map(message => historyKey(message, { exact: true, hashKey: matchKey })))).digest('hex');
@@ -237,10 +253,12 @@ export function sessionRelay(options, retained) {
   }
   return {
     async infer(request, context={}) {
+      if(maintenance)throw recoveryError('SESSION_MAINTENANCE','会话维护中，请稍后重试');
       const lock=context.affinity?.key;
       if(lock && locks.has(lock))throw Object.assign(new Error('固定会话仍在处理上一轮'),{code:'SESSION_BUSY',status:409,retryable:false});
       if(lock)locks.add(lock);
-      try{return await inferTurn(request,context);}finally{if(lock)locks.delete(lock);}
+      activeTurns++;
+      try{return await inferTurn(request,context);}finally{activeTurns--;if(lock)locks.delete(lock);}
     },
     async listSessions(){
       const live=await Promise.all([...sessions].map(async session=>{
@@ -257,7 +275,22 @@ export function sessionRelay(options, retained) {
       const archived=(await archivedSessions(options.home)).filter(row=>!known.has(row.metadata.sessionId)).map(({metadata:m})=>({sessionId:m.sessionId,nativeSessionId:m.nativeSessionId,state:'archived',reason:m.reason,processPreserved:false,recoverable:false,recoveryCode:'NATIVE_PROCESS_GONE'}));
       return {sessions:[...live,...archived]};
     },
+    async lifecycle(action,id){
+      if(!lifecycle)throw recoveryError('LIFECYCLE_DISABLED','需要启用原生持久化');
+      if(closed||maintenance||activeTurns||[...sessions].some(s=>s.recoveryInProgress||s.compacting))throw recoveryError('SESSION_BUSY','会话仍在执行，暂不能维护');
+      maintenance=true;
+      try{
+        for(const s of sessions){if(s.freezing)await s.freezing;if(s.state==='closed'){await s.closing;sessions.delete(s);}}
+        if(action==='list')return await lifecycle.list();
+        if(action==='retain'||action==='release-retention')return await lifecycle.pin(id,action==='retain');
+        if(action==='retire')return await lifecycle.retire(id);
+        if(action==='restore')return await lifecycle.restore(id);
+        if(action==='sweep')return await lifecycle.sweep();
+        throw recoveryError('LIFECYCLE_ACTION_INVALID','不支持的生命周期操作');
+      }finally{maintenance=false;}
+    },
     async recover(id){
+      if(maintenance)throw recoveryError('SESSION_MAINTENANCE','会话维护中');
       const session=[...sessions].find(s=>s.sessionId===id||s.nativeSessionId===id);
       if(!session||session.state==='closed')throw recoveryError('NATIVE_PROCESS_GONE','原 CLI 已丢失；只能导出精简交接，禁止重建历史');
       if(session.state!=='frozen')throw recoveryError('SESSION_NOT_FROZEN','会话不处于冻结状态');
@@ -273,7 +306,8 @@ export function sessionRelay(options, retained) {
     },
     exportHandoff(id){return exportHandoff(options.home,id);},
     get size() { return [...sessions].filter(s => !['closed','frozen'].includes(s.state)).length; },
+    get maintenance() {return maintenance;},
     get frozenSize() {return [...sessions].filter(s=>s.state==='frozen').length;},
-    async close({discardFrozen=false}={}) { if(!discardFrozen&&[...sessions].some(s=>s.state==='frozen'))return false; closed = true; await Promise.all([...sessions].map(async session => {if(session.freezing)await session.freezing;await session.close('shutdown',{discardFrozen});})); sessions.clear(); await store?.writes; key.fill(0); },
+    async close({discardFrozen=false}={}) { if(maintenance)return false; if(!discardFrozen&&[...sessions].some(s=>s.state==='frozen'))return false; closed = true; await Promise.all([...sessions].map(async session => {if(session.freezing)await session.freezing;await session.close('shutdown',{discardFrozen});})); sessions.clear(); await store?.writes; key.fill(0); },
   };
 }

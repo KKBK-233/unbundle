@@ -4,7 +4,7 @@ import {compactMemoryAliases,compactMemoryContext} from './compact-memory-alias.
 import { archiveSession } from './session-quarantine.mjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { continuationDelta,historyKey,sessionHistory } from './session-history.mjs';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -27,17 +27,18 @@ export class NativeSessionStore {
     if (this.key.length !== 32) throw new Error('原生会话索引密钥无效');
     try {
       const raw = await fs.readFile(path.join(this.folder, 'index.json'), 'utf8');
-      if (Buffer.byteLength(raw) > 4 * 1024 * 1024) throw new Error('原生会话索引超过上限');
+      if (Buffer.byteLength(raw) > 64 * 1024 * 1024) throw new Error('原生会话索引超过上限');
       const rows = JSON.parse(raw);
       if (!Array.isArray(rows)) throw new Error('原生会话索引格式无效');
       for (const row of rows) if ((row.affinityHash===undefined || hash.test(row.affinityHash)) && uuid.test(row.id) && hash.test(row.signature) && hash.test(row.expected)
         && Array.isArray(row.history) && row.history.length <= 20000 && row.history.every(value => hash.test(value))
         && Number.isFinite(row.snapshot?.size) && Number.isFinite(row.snapshot?.mtimeMs)
-        && Number.isFinite(row.savedAt) && Date.now() - row.savedAt < 7 * 86400000) this.records.set(row.id, row);
+        && Number.isFinite(row.savedAt)) this.records.set(row.id, row);
     } catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
   persist() {
-    const content = JSON.stringify([...this.records.values()].sort((a,b) => b.savedAt-a.savedAt).slice(0,128));
+    const content = JSON.stringify([...this.records.values()].sort((a,b) => b.savedAt-a.savedAt));
+    if (Buffer.byteLength(content) > 64 * 1024 * 1024) throw new Error('原生会话索引超过上限，请显式退役已完成会话；未丢弃任何旧记录');
     this.writes = this.writes.catch(() => {}).then(async () => {
       const temp = path.join(this.folder, `index-${randomUUID()}.tmp`);
       try { await fs.writeFile(temp, content, { mode: 0o600 }); await fs.rename(temp, path.join(this.folder,'index.json')); }
@@ -49,10 +50,11 @@ export class NativeSessionStore {
     await this.ready;
     if(id)await fs.writeFile(path.join(this.folder,'binding-'+id),nativeId,{mode:0o600});
   }
-  async quarantineHistory(signature, history, affinityHash, historyNormalization, nativeSessionId) {
+  async quarantineHistory(signature, history, affinityHash, historyNormalization, nativeSessionId, origin, expected) {
     await this.ready;
     this.writes=this.writes.catch(()=>{}).then(async()=>{
-      const row={signature,history,affinityHash,historyNormalization,nativeSessionId};
+      const row={signature,history,affinityHash,historyNormalization,nativeSessionId,...(origin?{origin,expected}:{})};
+      if(origin==='lifecycle_retired'){row.historyLength=history.length;row.historyDigest=createHmac('sha256',this.key).update(JSON.stringify(history)).digest('hex');row.history=[];}
       const content=JSON.stringify([...this.blocked,row]);
       const temp=path.join(this.folder,'quarantine-'+randomUUID()+'.tmp');
       try {
@@ -65,7 +67,7 @@ export class NativeSessionStore {
   }
   async releaseQuarantine(target) {
     await this.ready;
-    const same=row=>row.nativeSessionId===target.nativeSessionId&&row.signature===target.signature&&row.affinityHash===target.affinityHash
+    const same=row=>row.origin===target.origin&&row.expected===target.expected&&row.historyDigest===target.historyDigest&&row.historyLength===target.historyLength&&row.nativeSessionId===target.nativeSessionId&&row.signature===target.signature&&row.affinityHash===target.affinityHash
       &&row.historyNormalization===target.historyNormalization&&JSON.stringify(row.history)===JSON.stringify(target.history);
     this.writes=this.writes.catch(()=>{}).then(async()=>{
       const rows=this.blocked.filter(row=>!same(row)),temp=path.join(this.folder,'review-'+randomUUID()+'.tmp');
