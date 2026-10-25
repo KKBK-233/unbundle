@@ -1,0 +1,94 @@
+import { createHmac, randomBytes } from 'node:crypto';
+import { stableJson, normalizeImage } from './context.mjs';
+import { callerRuntimeStatus } from './runtime-status.mjs';
+import { assistantDifference } from './assistant-diff.mjs';
+import { mappedBashAssistant } from './bash-roundtrip.mjs';
+
+// 仅用于匹配同一调用方的历史前缀；不保存正文、工具参数或可离线猜测的裸哈希。
+const key = randomBytes(32);
+export function runtimeStatus(message) {
+  const value = Array.isArray(message.content) && message.content.length === 1 ? message.content[0].text : message.content;
+  return message.role === 'system' && typeof value === 'string'
+    && /^\s*(?:<total_tokens>\d+ tokens left<\/total_tokens>\s*)+$/.test(value);
+}
+export function sessionHistory(messages) { return messages.filter(message => !runtimeStatus(message)); }
+export function historyKey(message, { exact = false, hashKey = key, toolSchemas } = {}) {
+  const content = !exact && typeof message.content === 'string' ? message.content.replace(/\r\n/g, '\n').trim() : message.content;
+  // Desktop 可能按工具 schema 重排 input 键；参数字符串内的 JSON 也须规范化。
+  // 仅忽略 JSON 对象键顺序，保留 ID、工具名、数组顺序与所有参数值。
+  const normalized = { ...message, content: exact ? content : content || null };
+  if (Array.isArray(message.tool_calls)) normalized.tool_calls = message.tool_calls.map(call => {
+    if (typeof call?.function?.arguments !== 'string') return call;
+    let args;
+    try { args = JSON.parse(call.function.arguments); } catch { return call; }
+    const schema=toolSchemas?.find(tool=>tool?.function?.name===call.function.name)?.function?.parameters;
+    // 仅规范化已确认的 Desktop Edit 默认值；真实参数变化和其他工具仍严格比较。
+    if(call.function.name==='Edit' && schema?.properties?.replace_all?.type==='boolean'
+      && schema.properties.replace_all.default===false && !schema.required?.includes('replace_all')
+      && args && typeof args==='object' && !Array.isArray(args) && args.replace_all===false) {
+      args={...args};delete args.replace_all;
+    }
+    return { ...call, function: { ...call.function, arguments: stableJson(args) } };
+  });
+  return createHmac('sha256', hashKey).update(stableJson(normalized)).digest('hex');
+}
+export function assistantMessage(execution) {
+  return { role: 'assistant', content: execution.content || null,
+    ...(execution.tool_calls?.length ? { tool_calls: execution.tool_calls } : {}) };
+}
+export function continuationDelta(session, request, { allowInstructionUpdates = false, onReject, onAssistantMismatch, hashKey } = {}) {
+  const reject = reason => { onReject?.(reason); return undefined; };
+  const toolSchemas=session.historyNormalization===true ? request.tools : undefined;
+  const messages = sessionHistory(request.messages), prefix = session.history;
+  if (messages.length <= prefix.length) return reject('messages_not_appended');
+  if (!prefix.every((value, index) => historyKey(messages[index], { exact: allowInstructionUpdates, hashKey, toolSchemas }) === value)) return reject('history_prefix_mismatch');
+  if (session.interrupted === true) {
+    // 仅接受没有可见助手输出、没有工具交接的已确认中断；不猜补助手消息。
+    const delta = messages.slice(prefix.length);
+    if (!delta.some(message => message.role === 'user') || delta.some(message => message.role !== 'user'
+      && !(callerRuntimeStatus(message)?.type === 'environment'
+        || allowInstructionUpdates && ['system', 'developer'].includes(message.role)))) return reject('unsafe_interrupted_delta');
+    return delta;
+  }
+  if (!session.expected) return reject('no_expected_assistant');
+  const actual=messages[prefix.length];
+  const strictMatch=historyKey(actual,{hashKey,toolSchemas})===session.expected;
+  // 使用原调用发出前保存的请求，不采用本轮新出现或工具执行后的 cwd。
+  const mappedMatch=!strictMatch&&session.request&&historyKey(mappedBashAssistant(actual,session.request.messages),{hashKey,toolSchemas})===session.expected;
+  if (!strictMatch&&!mappedMatch) {
+    try { onAssistantMismatch?.(assistantDifference(session.expectedFingerprint,messages[prefix.length],{hashKey})); } catch {}
+    return reject('assistant_message_mismatch');
+  }
+  const delta = messages.slice(prefix.length + 1);
+  const allowedUpdate = message => callerRuntimeStatus(message)?.type === 'environment'
+    || allowInstructionUpdates && ['system', 'developer'].includes(message.role);
+  if (session.pendingIds.size) {
+    const tools = delta.filter(message => message.role === 'tool');
+    if (tools.length !== session.pendingIds.size) return reject('tool_result_count_mismatch');
+    if (delta.some(message => message.role !== 'tool' && !allowedUpdate(message))) return reject('unsafe_tool_delta');
+    const ids = new Set(tools.map(message => message.tool_call_id));
+    if (ids.size !== tools.length || [...ids].some(id => !session.pendingIds.has(id))) return reject('tool_result_id_mismatch');
+  } else if (!delta.some(message => message.role === 'user') || delta.some(message => message.role !== 'user' && !allowedUpdate(message))) return reject('unsafe_user_delta');
+  return delta;
+}
+
+// 原结果各块保持原样，只在首个结果后追加明确分隔的调用方目录状态。
+export function continuationToolResults(delta, maxImageBytes) {
+  const snapshots = delta.filter(message => callerRuntimeStatus(message)?.type === 'environment').map(message => ({
+    ...callerRuntimeStatus(message), content: message.content,
+  }));
+  const results = delta.filter(message => message.role === 'tool').map(message => [message.tool_call_id, mcpToolResult(message, maxImageBytes)]);
+  if (snapshots.length && results.length) results[0][1].content.push({ type: 'text', text: stableJson({ kind: 'caller_runtime_status', snapshots }) });
+  return new Map(results);
+}
+
+// MCP 结果由调用方提供；网关不执行工具，也不生成占位结果。
+export function mcpToolResult(message, maxImageBytes) {
+  const content = typeof message.content === 'string'
+    ? [{ type: 'text', text: message.content }] : (message.content || []).map(block => {
+      if (block.type === 'text') return { type: 'text', text: block.text };
+      const { native } = normalizeImage(block, maxImageBytes);
+      return { type: 'image', data: native.source.data, mimeType: native.source.media_type };
+    });
+  return { content, ...(message.is_error ? { isError: true } : {}) };
+}

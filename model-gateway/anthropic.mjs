@@ -1,3 +1,4 @@
+import {recordBashPhase} from './tool-boundary-trace.mjs';
 import { gatewayError } from './gateway-error.mjs';
 
 const fail = message => { throw Object.assign(new Error(message), { status: 400, code: 'UNSUPPORTED_PARAMETER' }); };
@@ -38,16 +39,17 @@ export function fromAnthropic(body, { defaultMaxTokens = 128000 } = {}) {
       else if (block?.type === 'image') { hasImage = true; pendingBlocks.push(block); }
       else if (block?.type === 'tool_use' && message.role === 'assistant') {
         if (typeof block.id !== 'string' || typeof block.name !== 'string' || !block.input || typeof block.input !== 'object' || Array.isArray(block.input)) fail('tool_use 无效');
+        recordBashPhase('desktop',block.id,block.name,block.input);
         calls.push({ id: block.id, type: 'function', function: { name: block.name, arguments: JSON.stringify(block.input) } });
       } else if (block?.type === 'tool_result' && message.role === 'user') {
         if (typeof block.tool_use_id !== 'string') fail('tool_result 缺少 tool_use_id');
         flush();
-        // 工具截图与读图结果保留图片块及调用 ID，图片不能被序列化进普通文本。
-        const hasImages = Array.isArray(block.content) && block.content.some(item => item?.type === 'image');
-        const content = hasImages ? block.content : text(block.content ?? '');
+        // 原正文及块边界保持不变；错误状态单独携带，MCP与原生历史都能直接表达。
+        // 不能把错误正文再包JSON，也不能为多个文本块凭空插入换行。
+        const content = Array.isArray(block.content) ? block.content : text(block.content ?? '');
         messages.push({ role: 'tool', tool_call_id: block.tool_use_id,
-          content: block.is_error && !hasImages ? JSON.stringify({ is_error: true, content }) : content,
-          ...(hasImages && block.is_error ? { is_error: true } : {}) });
+          content,
+          ...(block.is_error ? { is_error: true } : {}) });
       } else fail(`暂不支持 Anthropic 内容块 ${block?.type || 'unknown'}`);
     }
     flush();
@@ -64,8 +66,18 @@ export function fromAnthropic(body, { defaultMaxTokens = 128000 } = {}) {
     });
   }
   if (body.tool_choice != null) {
-    if (!['auto', 'none'].includes(body.tool_choice.type) || body.tool_choice.disable_parallel_tool_use) fail('仅支持自动或禁用工具选择');
-    request.tool_choice = body.tool_choice.type;
+    const choice = body.tool_choice;
+    if (!choice || typeof choice !== 'object' || Array.isArray(choice)
+      || !['auto', 'none', 'any', 'tool'].includes(choice.type)
+      || Object.keys(choice).some(key => !['type', 'name', 'disable_parallel_tool_use'].includes(key))
+      || choice.type === 'tool' && (typeof choice.name !== 'string' || !choice.name)
+      || choice.type !== 'tool' && choice.name != null
+      || choice.disable_parallel_tool_use != null && typeof choice.disable_parallel_tool_use !== 'boolean') fail('tool_choice 格式无效');
+    request.tool_choice = choice.type === 'tool' ? { type: 'function', function: { name: choice.name } }
+      : choice.type === 'any' ? 'required' : choice.type;
+    if (choice.disable_parallel_tool_use != null) request.parallel_tool_calls = !choice.disable_parallel_tool_use;
+    if (choice.type === 'any' && !request.tools?.length || choice.type === 'tool'
+      && !request.tools?.some(tool => tool.function.name === choice.name)) fail('强制工具选择需要存在的工具定义');
   }
   if (body.output_config != null) {
     if (typeof body.output_config !== 'object' || Array.isArray(body.output_config)) fail('output_config 无效');
@@ -98,6 +110,7 @@ export function anthropicUsage(execution) {
 }
 
 export function anthropicContent(execution) {
+  for(const call of execution.tool_calls||[])recordBashPhase('wire',call.id,call.function.name,JSON.parse(call.function.arguments));
   return [...(execution.content ? [{ type: 'text', text: execution.content }] : []),
     ...(execution.tool_calls || []).map(call => ({ type: 'tool_use', id: call.id, name: call.function.name, input: JSON.parse(call.function.arguments) }))];
 }

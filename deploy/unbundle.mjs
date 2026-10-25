@@ -14,9 +14,9 @@ const emit = value => console.log(JSON.stringify(value));
 // 参数只影响独立部署配置；SSH 密码、账号令牌和私钥不接受为命令行参数。
 export function parseOptions(args) {
   const options = { command: args[0] || 'help', profile: 'default' };
-  if (!['help', 'install', 'start', 'stop', 'login', 'doctor', 'export-client', 'tunnel-worker'].includes(options.command)) throw new Error('未知命令：' + options.command);
+  if (!['help', 'install', 'start', 'stop', 'login', 'doctor', 'export-client', 'tunnel-worker','sessions','session-recover','session-handoff'].includes(options.command)) throw new Error('未知命令：' + options.command);
   const flags = new Set(['live', 'no-autostart']);
-  const values = new Set(['profile', 'host', 'identity', 'ssh-port', 'local-port', 'proxy-jump']);
+  const values = new Set(['profile', 'host', 'identity', 'ssh-port', 'local-port', 'proxy-jump','session','output']);
   for (let index = 1; index < args.length; index++) {
     const name = args[index].replace(/^--/, '');
     if (!args[index].startsWith('--')) throw new Error('无效参数');
@@ -266,7 +266,9 @@ async function exportClient(name) {
   await jsonFile(path.join(folder, 'desktop-config.json'), {
     inferenceProvider: 'gateway', inferenceGatewayBaseUrl: base,
     inferenceGatewayApiKey: await tokenOf(name), inferenceGatewayAuthScheme: 'bearer',
-    inferenceModels: ['claude-code-sonnet', 'claude-code-opus', 'claude-code-haiku'].map(model => ({ name: model })),
+    inferenceModels: ['sonnet', 'opus', 'haiku'].map(tier => ({ name: `claude-${tier}-5-5`,
+      labelOverride: `${tier[0].toUpperCase()}${tier.slice(1)} 5.5`, anthropicFamilyTier: tier, isFamilyDefault: true })),
+    modelCatalogEnabled: true, defaultModelEffort: 'medium',
   });
   await fs.writeFile(path.join(folder, 'desktop-setup.md'), `# Claude Desktop 接入\n\n先运行 doctor，确认隧道和登录。\n\n打开 Help → Troubleshooting → Enable Developer Mode，重启后进入 Developer → Configure Third-Party Inference。创建独立配置，优先导入同目录 desktop-config.json；没有导入入口时手动填写：\n\n- Gateway URL：${base}\n- 认证：Bearer Token（或 x-api-key）\n- 令牌：读取同目录 gateway-token，勿提交到 Git 或粘贴到公开聊天\n- 模型：claude-code-sonnet / claude-code-opus / claude-code-haiku\n\n保存后按客户端要求完全退出并重开。不会自动覆盖已有 Desktop 配置；CLI 的 settings 文件不控制 Desktop 路由。\n`, { mode: 0o600 });
   emit({ clientFiles: folder, desktopConfigured: false });
@@ -297,9 +299,23 @@ async function doctor(name, live) {
   await jsonFile(path.join(profileDir(name), 'doctor-result.json'), result);
 }
 
+async function sessionAction(options) {
+ const profile=await profileOf(options.profile),id=options.session;
+ if(options.command!=='sessions'&&!/^(?:[a-f0-9]{24}|[a-f0-9-]{36})$/i.test(id||''))throw new Error('需要 --session 会话标识');
+ const action=options.command==='session-recover'?'recover':'handoff';
+ const route=options.command==='sessions'?'/sessions':`/sessions/${id}/${action}`;
+ const response=await fetch(`http://127.0.0.1:${profile.localPort}${route}`,{method:options.command==='session-recover'?'POST':'GET',headers:{authorization:`Bearer ${await tokenOf(options.profile)}`},signal:AbortSignal.timeout(20000)});
+ const body=await response.json();if(!response.ok)throw new Error(`${body.error?.code||response.status}：${body.error?.message||'会话操作失败'}`);
+ if(options.command==='session-handoff'){
+  const output=options.output?path.resolve(options.output):path.join(profileDir(options.profile),`handoff-${id}.md`);
+  await fs.writeFile(output,body.markdown,{mode:0o600,flag:'wx'});emit({handoffFile:output,modelRequests:0});
+ }else emit(body);
+}
+
 export async function main(args = process.argv.slice(2)) {
   const options = parseOptions(args);
   switch (options.command) {
+    case 'sessions': case 'session-recover': case 'session-handoff': await sessionAction(options);break;
     case 'install': await install(options); break;
     case 'start': await start(options.profile); break;
     case 'tunnel-worker': await worker(options.profile); break;
@@ -311,7 +327,7 @@ export async function main(args = process.argv.slice(2)) {
     }
     case 'doctor': await doctor(options.profile, options.live); break;
     case 'export-client': await exportClient(options.profile); break;
-    default: console.log('Unbundle：install --host root@VPS [--profile 名称] [--local-port 18796]；login / start / stop / doctor [--live] / export-client --profile 名称');
+    default: console.log('Unbundle：install --host root@VPS [--profile 名称] [--local-port 18796]；sessions / session-recover --session ID / session-handoff --session ID；login / start / stop / doctor [--live] / export-client --profile 名称');
   }
 }
 

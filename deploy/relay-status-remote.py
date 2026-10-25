@@ -50,16 +50,17 @@ def activity_lines(status, records, now):
         elapsed = item.get('elapsedMs', 0) / 1000 + age
         progress = item.get('progress') or {}
         event = progress.get('event') or item.get('stage')
-        phases = {'thinking': '思考', 'first_thinking': '思考', 'text': '输出正文', 'tool_delta': '生成工具参数',
+        phases = {'thinking': '思考事件（不能证明任务进展）', 'first_thinking': '思考事件（不能证明任务进展）', 'text': '输出正文', 'tool_delta': '生成工具参数',
                   'tool_start': '开始工具调用', 'first_tool': '开始工具调用', 'tool_stop': '工具调用生成完毕',
                   'mcp_call': '工具交接', 'api_retry': '上游重试', 'request_received': '接收请求体',
                   'queue_started': '等待调度', 'auth_started': '检查登录', 'cli_spawned': '等待上游',
+                  'cli_session_created': '新建 CLI 会话', 'cli_session_reused': '续接 CLI 会话',
                   'upstream_message_start': '上游已响应'}
         phase = phases.get(event, '等待后续事件')
         # 实际进展可能早于本条日志写入时间，按事件时间补足间隔，不把统计采集视为模型进展。
         last_ms = progress.get('lastEventMs', item.get('elapsedMs', 0))
         age += max(0, (item.get('elapsedMs', 0) - last_ms) / 1000)
-        recent_progress = event in ['thinking', 'first_thinking', 'text', 'tool_delta', 'tool_start', 'first_tool', 'tool_stop', 'mcp_call']
+        recent_progress = event in ['text', 'tool_delta', 'tool_start', 'first_tool', 'tool_stop', 'mcp_call']
         state = '仍在继续' if recent_progress and age <= 60 else '运行中，尚不能确认有新进展'
         lines.append(f"  {str(item.get('requestId', '?'))[:8]}：{state}；阶段：{phase}；已运行 {elapsed:.0f} 秒；最近事件距今 {age:.0f} 秒。")
     if not unfinished:
@@ -71,6 +72,7 @@ def activity_lines(status, records, now):
 def failure_lines(item):
     # 只依据明确阶段区分上传失败与推理中断，不能把断线等同于用户主动取消。
     stages = item.get('stages', {})
+    entered_cli = any(stage in stages for stage in ['cli_spawned', 'cli_session_created', 'cli_session_reused', 'upstream_message_start'])
     lines = []
     upload = item.get('upload')
     if upload:
@@ -79,12 +81,12 @@ def failure_lines(item):
         return []
     if 'request_body_idle_timeout' in stages or 'request_body_timeout' in stages:
         lines.append('  原因：请求上传超时；未启动模型推理。请检查本地代理及隧道。')
-    elif 'cli_spawned' not in stages and item.get('stage') == 'finished':
+    elif not entered_cli and item.get('stage') == 'finished':
         lines.append('  本轮未启动模型推理；中断发生在上传、校验或等待阶段。')
     if 'downstream_disconnected' in stages:
         lines.append('  检测到下游连接断开（本地代理、隧道或客户端取消）；无法仅凭云端区分来源。')
-    if 'cli_spawned' in stages and item.get('outcome') in ['cancelled', 'timeout', 'error']:
-        lines.append('  本轮已启动 Claude；即使本地显示零用量，也可能已消耗额度。')
+    if entered_cli and item.get('outcome') in ['cancelled', 'timeout', 'error']:
+        lines.append('  本轮已进入 Claude 执行路径；即使本地显示零用量，也可能已消耗额度。')
     return lines
 
 

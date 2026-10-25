@@ -1,9 +1,13 @@
+import { toolSearchConfig } from './tool-search-config.mjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { gateway } from './server.mjs';
 import { infer } from './engine.mjs';
 import { checkCliVersion, readCliRelease } from './cli-compat.mjs';
+import { cloudModels, modelAliases, upstreamModels } from './cloud-models.mjs';
+import { withGatewayRules } from './gateway-rules.mjs';
+import { sessionRelay } from './session-relay.mjs';
 
 // 云端专用入口：官方 CLI 持有认证；网关仅检查登录布尔状态。
 if (process.platform !== 'linux') throw new Error('此入口只在 Linux 云服务器运行');
@@ -17,6 +21,14 @@ const port = Number(process.env.GATEWAY_PORT || 18796);
 const maxOutputTokens = Number(process.env.GATEWAY_MAX_OUTPUT_TOKENS || 128000);
 const timeoutMs = Number(process.env.GATEWAY_TIMEOUT_MS || 0);
 const idleTimeoutMs = Number(process.env.GATEWAY_IDLE_TIMEOUT_MS || 180000);
+// 长时间调用方工具不占用模型推理；独立于推理空闲时限与会话闲置回收。
+const toolWaitTimeoutMs=Number(process.env.GATEWAY_TOOL_WAIT_TIMEOUT_MS||1800000);
+if(!Number.isSafeInteger(toolWaitTimeoutMs)||toolWaitTimeoutMs<1000||toolWaitTimeoutMs>2147483647)throw new Error('工具总等待必须为 1000..2147483647 毫秒');
+// 仅开放官方 ToolSearch 元数据发现，文件和命令工具仍由 Desktop 执行。
+if (process.env.GATEWAY_TOOL_SEARCH != null && !['0', '1'].includes(process.env.GATEWAY_TOOL_SEARCH)) throw new Error('GATEWAY_TOOL_SEARCH 必须为 0 或 1');
+const toolSearch = process.env.GATEWAY_TOOL_SEARCH === '1';
+const maxToolSearchCalls = Number(process.env.GATEWAY_MAX_TOOL_SEARCH_CALLS || 8);
+toolSearchConfig({ toolSearch, maxToolSearchCalls });
 const maxConcurrent = Number(process.env.GATEWAY_MAX_CONCURRENT || 3);
 // 入站体在排队前已完整驻留内存，队列容量按 32MB 请求的峰值占用收窄。
 const maxQueued = Number(process.env.GATEWAY_MAX_QUEUED || 8);
@@ -43,9 +55,24 @@ if (!Number.isSafeInteger(maxMcpRequestBytes) || maxMcpRequestBytes < 1024 || ma
 const startupCliVersion = await checkCliVersion(cli);
 await fs.mkdir(home, { recursive: true, mode: 0o700 });
 const token = (await fs.readFile(path.join(base, 'token'), 'utf8')).trim();
-const models = ['sonnet', 'opus', 'haiku'].map(name => ({ id: `claude-code-${name}`, object: 'model', owned_by: 'velella-cloud', context_window: contextWindow }));
-// 固定各档上游版本；窗口后缀避免旧 CLI 对未知型号默认压缩到 200k。
-const upstreamModels = { 'claude-code-sonnet': 'claude-sonnet-5-5[1m]', 'claude-code-opus': 'claude-opus-5-5[1m]', 'claude-code-haiku': 'claude-haiku-5-5' };
+const models = cloudModels(contextWindow);
+const rulesFile = process.env.GATEWAY_RULES_FILE;
+// 候选默认关闭；开启后仅追加的真实指令可经原生MCP控制通道续接。
+const liveInstructionUpdates = process.env.GATEWAY_LIVE_INSTRUCTION_UPDATES === '1';
+// 保存真实原生会话以便完成轮次后恢复；须显式启用，不改变现有部署。
+const persistentSessions = process.env.GATEWAY_NATIVE_SESSION_PERSISTENCE === '1';
+const nativeSessionTtlMs = Number(process.env.GATEWAY_SESSION_TTL_MS || 1800000);
+// 显式启用原生会话；关闭后恢复逐轮 CLI 路径，不在失败时自动双发。
+const nativeRelay = process.env.GATEWAY_SESSION_RELAY === '1' ? sessionRelay({
+  cli, home, configDir, modelFor: model => upstreamModels[model], maxSessions: Number(process.env.GATEWAY_MAX_SESSIONS || 2),
+  sessionTtlMs: nativeSessionTtlMs,toolWaitTimeoutMs,
+  maxTools, maxCliOutputBytes, maxMcpRequestBytes, cacheBreakpoint: process.env.GATEWAY_CACHE_BREAKPOINT || '5m',
+  maxImageBytes, maxOutputTokens, timeoutMs, idleTimeoutMs, toolSearch, maxToolSearchCalls, liveInstructionUpdates,
+  persistentSessions, cliVersion: startupCliVersion,
+  requireLiveToolContinuation: true,
+  onCliAudit: record => console.error(JSON.stringify(record)),
+  onSessionEvent: record => console.error(JSON.stringify(record)),
+}) : undefined;
 function authStatus() {
   return new Promise(resolve => {
     execFile(cli, ['auth', 'status', '--json'], {
@@ -57,18 +84,28 @@ function authStatus() {
     });
   });
 }
-const server = await gateway({ token, port, models, status: async () => ({ ...await authStatus(), cliVersion: (await readCliRelease())?.version || startupCliVersion, busy: server.busy,
+const server = await gateway({ token, port, models, modelAliases, status: async () => ({ ...await authStatus(), cliVersion: (await readCliRelease())?.version || startupCliVersion, busy: server.busy || (nativeRelay?.frozenSize || 0)>0,
   activeRequests: server.activeRequests, queuedRequests: server.queuedRequests, receivingRequests: server.receivingRequests, maxConcurrent, maxQueued, contextWindow, upstreamModels,
   relayHost: process.env.GATEWAY_FRP_RELAY_HOST || null,
-  inputModalities: ['text', 'image'], timeoutMs, idleTimeoutMs, maxTools, maxCliOutputBytes, maxMcpRequestBytes, maxRequestBytes, maxImageBytes, maxInflightBytes, inflightBytes: server.inflightBytes }), maxOutputTokens, maxTools, maxConcurrent, maxQueued, queueTimeoutMs, bodyIdleTimeoutMs, bodyTimeoutMs, maxRequestBytes, maxImageBytes, maxInflightBytes,
+  nativeSessionRelay: Boolean(nativeRelay), nativeSessions: (nativeRelay?.size || 0)+(nativeRelay?.frozenSize || 0), nativeFrozenSessions:nativeRelay?.frozenSize || 0, liveInstructionUpdates: Boolean(nativeRelay) && liveInstructionUpdates,
+  nativeSessionPersistence: Boolean(nativeRelay) && persistentSessions,
+  nativeCompactionProtocol:nativeRelay&&persistentSessions?'cli_command_boundary_v1':null,
+  sessionRecoveryAvailable:Boolean(nativeRelay), nativeHistoryImportAllowed:false, nativeFreezePreservesProcess:true, nativeHistoryFallback: false, stickySessions: Boolean(nativeRelay), sessionErrorQuarantine: Boolean(nativeRelay),
+  nativeSessionTtlMs,nativeToolWaitTimeoutMs:toolWaitTimeoutMs,strictNativeToolContinuation: Boolean(nativeRelay),
+  inputModalities: ['text', 'image'], timeoutMs, idleTimeoutMs, toolSearch, maxToolSearchCalls, maxTools, maxCliOutputBytes, maxMcpRequestBytes, maxRequestBytes, maxImageBytes, maxInflightBytes, inflightBytes: server.inflightBytes }), maxOutputTokens, maxTools, maxConcurrent, maxQueued, queueTimeoutMs, bodyIdleTimeoutMs, bodyTimeoutMs, maxRequestBytes, maxImageBytes, maxInflightBytes,
   onTiming: process.env.GATEWAY_TIMING_DIAGNOSTICS === '0' ? undefined : record => console.error(JSON.stringify(record)),
   async beforeExecute(request) {
     const auth = await authStatus();
     if (!auth.loggedIn) throw Object.assign(new Error(auth.checked ? 'AUTH_REQUIRED：请在云服务器登录 Claude Code' : 'AUTH_CHECK_FAILED：云端认证状态检查失败'), { status: auth.checked ? 401 : 503, code: auth.checked ? 'AUTH_REQUIRED' : 'AUTH_CHECK_FAILED' });
   },
-  execute: async (request, signal, onText, timing) => infer(request, { cli, home, configDir, model: upstreamModels[request.model], signal, onText, timing,
+  sessionControl:nativeRelay,
+  execute: async (request, signal, onText, timing, affinity) => {
+    const prepared = await withGatewayRules(request, rulesFile);
+    if (nativeRelay) return nativeRelay.infer(prepared, { signal, onText, timing, affinity });
+    return infer(prepared, { cli, home, configDir, model: upstreamModels[request.model], signal, onText, timing,
     anomalyDir, cliVersion: (await readCliRelease())?.version || startupCliVersion,
-    maxTools, maxCliOutputBytes, maxMcpRequestBytes, cacheBreakpoint: process.env.GATEWAY_CACHE_BREAKPOINT || '5m', maxImageBytes, maxOutputTokens, timeoutMs, idleTimeoutMs }),
+    maxTools, maxCliOutputBytes, maxMcpRequestBytes, cacheBreakpoint: process.env.GATEWAY_CACHE_BREAKPOINT || '5m', maxImageBytes, maxOutputTokens, timeoutMs, idleTimeoutMs, toolSearch, maxToolSearchCalls });
+  },
 });
 console.log(`云端模型入口监听 127.0.0.1:${port}；工具由客户端执行`);
-for (const event of ['SIGINT', 'SIGTERM']) process.once(event, async () => { await server.close(); process.exit(0); });
+for (const event of ['SIGINT', 'SIGTERM']) process.on(event, async () => { if(nativeRelay?.frozenSize){console.error(JSON.stringify({type:'shutdown_blocked',code:'FROZEN_SESSION_RETAINED',sessions:nativeRelay.frozenSize}));return;} await server.close(); await nativeRelay?.close(); process.exit(0); });

@@ -16,7 +16,7 @@ async function ready() {
   try {
     const response = await fetch(`${base}/v1/models`, { headers, signal: AbortSignal.timeout(1500) });
     const value = await response.json();
-    return response.ok && value.data?.some(model => model.id === 'claude-code-sonnet' && model.owned_by === 'velella-cloud');
+    return response.ok && value.data?.some(model => ['claude-code-sonnet', 'claude-sonnet-5-5'].includes(model.id) && model.owned_by === 'velella-cloud');
   } catch { return false; }
 }
 function stop() { if (stopping) return; stopping = true; omp?.kill(); tunnel?.kill(); }

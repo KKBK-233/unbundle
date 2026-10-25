@@ -1,8 +1,9 @@
+import {recordBashPhase} from './tool-boundary-trace.mjs';
 import { stableJson } from './context.mjs';
 
 // 汇总官方 CLI 的事件：工具等待整条消息结束，用量按 message.id 去重。
 export class CliEvents {
-  constructor(available, onText, stops = []) {
+  constructor(available, onText, stops = [], { allowToolSearch = false, maxToolSearchCalls = 8 } = {}) {
     this.tools = new Map(available.map(tool => [`mcp__omp__${tool.name}`, tool.original]));
     this.onText = onText;
     this.calls = new Map();
@@ -17,6 +18,11 @@ export class CliEvents {
     this.pendingText = '';
     this.receivedText = false;
     this.stopSequence = undefined;
+    // 只允许官方元数据搜索在 CLI 内部完成；其余内置工具仍不允许执行。
+    this.allowToolSearch = allowToolSearch;
+    this.maxToolSearchCalls = maxToolSearchCalls;
+    this.searchCalls = new Map();
+    this.messageSearchCalls = new Set();
   }
 
   count(id, usage) {
@@ -68,8 +74,19 @@ export class CliEvents {
 
   // 流式块与聚合事件共用校验，避免重复调用或同 ID 覆盖。
   addCall(block) {
+    if (this.allowToolSearch && block.name === 'ToolSearch') {
+      if (typeof block.id !== 'string' || !block.id || !block.input || typeof block.input !== 'object' || Array.isArray(block.input)) throw new Error('CLI 返回了无效的工具搜索');
+      const input = stableJson(block.input);
+      if (this.searchCalls.has(block.id) && this.searchCalls.get(block.id) !== input) throw new Error('CLI 工具搜索 ID 冲突');
+      this.searchCalls.set(block.id, input); this.messageSearchCalls.add(block.id);
+      if (this.searchCalls.size > this.maxToolSearchCalls) throw Object.assign(new Error('本轮内部工具搜索次数达到配置上限，已停止以避免重复消耗。请缩小任务后手动继续。'), {
+        code: 'TOOL_SEARCH_LIMIT', status: 422, retryable: false, statistics: { ...this.usage(), usage_complete: false },
+      });
+      return;
+    }
     const name = this.tools.get(block.name);
     if (!name || typeof block.id !== 'string' || !block.id || !block.input || typeof block.input !== 'object' || Array.isArray(block.input)) throw new Error('CLI 返回了无效的工具调用');
+    recordBashPhase('cli',block.id,name,block.input);
     const call = { id: block.id, type: 'function', function: { name, arguments: stableJson(block.input) } };
     if (this.calls.has(block.id) && stableJson(this.calls.get(block.id)) !== stableJson(call)) throw new Error('CLI 工具调用 ID 冲突');
     this.calls.set(block.id, call);
@@ -86,10 +103,10 @@ export class CliEvents {
     });
     // 复用正常收尾的工具白名单、对象参数及同 ID 冲突校验，失败不交付部分调用。
     for (const block of pending) this.addCall(block);
-    if (!this.calls.size) throw new Error('CLI 工具消息不完整');
+    if (!this.calls.size && !this.messageSearchCalls.size) throw new Error('CLI 工具消息不完整');
     this.recoveredToolStops += pending.length;
     this.blocks.clear();
-    this.toolEnd = true;
+    this.toolEnd = this.calls.size > 0;
   }
 
   accept(event) {
@@ -113,6 +130,7 @@ export class CliEvents {
     if (inner.type === 'message_start') {
       if (this.blocks.size) throw new Error('CLI 工具消息不完整');
       this.currentId = inner.message?.id;
+      this.messageSearchCalls.clear();
       this.count(this.currentId, inner.message?.usage);
     }
     if (inner.type === 'content_block_start' && inner.content_block?.type === 'tool_use') {
