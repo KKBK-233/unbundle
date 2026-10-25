@@ -1,5 +1,5 @@
 import {automaticRecoveryRequest,automaticRecoveryIdentity} from './automatic-recovery.mjs';
-import {settleFrozenTools} from './native-recovery.mjs';
+import {settleFrozenTools,recoveryInputMessages} from './native-recovery.mjs';
 import {SessionLifecycle} from './session-lifecycle.mjs';
 import {compactionIntent,compactionBoundary,compactionRecord,compactedDelta} from './compaction-boundary.mjs';
 import {hydrateCompactionSource} from './native-compaction.mjs';
@@ -143,7 +143,7 @@ export function sessionRelay(options, retained) {
           if(!await recovering.verifySuspended())throw recoveryError('NATIVE_PROCESS_GONE','原 CLI 已退出或暂停状态不可确认，未重建历史');
           const delta=recoveryDelta(recovering,recoveryRequest,{hashKey:store?.key,allowInstructionUpdates:options.liveInstructionUpdates===true});
           let forward=[...delta,...tail],resumeFrozen=true;
-          if(tail.some(m=>m.role==='user')&&recovering.pendingIds.size){await settleFrozenTools(recovering,delta,{signal});forward=forward.filter(m=>m.role!=='tool');resumeFrozen=false;}
+          if(tail.some(m=>m.role==='user')&&recovering.pendingIds.size){await settleFrozenTools(recovering,delta,{signal});forward=recoveryInputMessages(forward);resumeFrozen=false;}
           recovering.recoveryArmed=false;
           const result=await recovering.run(request,forward,{signal,onText,timing,resumeFrozen});
           // 成功交接后才清除原封存记录；失败不能留下已解封却未恢复的状态。
