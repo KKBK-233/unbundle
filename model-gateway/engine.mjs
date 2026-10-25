@@ -1,3 +1,4 @@
+import {cacheEnvironment} from './cache-policy.mjs';
 import { sessionEntry } from './session-entry.mjs';
 import { nativeResumeSeed } from './native-history.mjs';
 import { toolSearchConfig } from './tool-search-config.mjs';
@@ -17,7 +18,7 @@ import { createAnomalyCapture } from './anomaly-capture.mjs';
 import { sessionQuotaFailure } from './session-quota-guard.mjs';
 
 // 每轮独立进程、逐消息输入；工作目录固定，凭据继续由官方 CLI 管理。
-export async function infer(request, { cli, home, configDir = path.join(home, '.claude'), model, signal, onText, timing, anomalyDir, cliVersion, toolSearch = false, maxToolSearchCalls = 8, timeoutMs = 0, idleTimeoutMs = 180000, spawnProcess = spawn, testUpstream, cacheBreakpoint = '5m', maxImageBytes = 5 * 1024 * 1024, maxOutputTokens = 8192, killGraceMs = 2000, maxCliOutputBytes = 0, maxMcpRequestBytes = 32 * 1024 * 1024, maxTools = 0 }) {
+export async function infer(request, { cli, home, configDir = path.join(home, '.claude'), model, signal, onText, timing, anomalyDir, cliVersion, toolSearch = false, maxToolSearchCalls = 8, timeoutMs = 0, idleTimeoutMs = 180000, spawnProcess = spawn, testUpstream, cacheBreakpoint = 'auto', maxImageBytes = 5 * 1024 * 1024, maxOutputTokens = 8192, killGraceMs = 2000, maxCliOutputBytes = 0, maxMcpRequestBytes = 32 * 1024 * 1024, maxTools = 0 }) {
   const discovery = toolSearchConfig({ toolSearch, maxToolSearchCalls });
   for (const value of [timeoutMs, idleTimeoutMs]) if (!Number.isSafeInteger(value) || value < 0 || value > 2147483647) throw new Error('推理超时配置必须为 0..2147483647 毫秒；0 表示关闭');
   if (!Number.isInteger(maxOutputTokens) || maxOutputTokens < 256 || maxOutputTokens > 128000) throw new Error('输出 token 上限无效');
@@ -103,9 +104,7 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: configDir,
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1', DISABLE_AUTOUPDATER: '1',
       ENABLE_TOOL_SEARCH: discovery.environment, MCP_TOOL_TIMEOUT: String(timeoutMs || 2147483647), CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(maxOutputTokens) });
-    // 订阅 CLI 默认可能追加 1h 断点；统一 TTL，避免出现 5m 后接 1h 的非法顺序。
-    if (cacheBreakpoint === '5m') env.FORCE_PROMPT_CACHING_5M = '1';
-    if (cacheBreakpoint === '1h') env.CLAUDE_CODE_PROMPT_CACHE_TTL = '1h';
+    Object.assign(env, cacheEnvironment(cacheBreakpoint));
     // 测试上游只经显式参数注入，正式订阅入口不会传入此参数。
     if (testUpstream) {
       Object.assign(env, { ANTHROPIC_BASE_URL: testUpstream.baseUrl, ANTHROPIC_AUTH_TOKEN: testUpstream.token });

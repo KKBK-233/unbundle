@@ -132,7 +132,7 @@ test('启动只接受已验收 CLI 版本', () => {
 
 test('探针精确拒绝额外工具，并将提示词变化与元数据变化分开', () => {
   const input = { ...request, tools: [{ type: 'function', function: { name: 'read', parameters: { type: 'object' } } }] };
-  const compiled = compileContext(input);
+  const compiled = compileContext(input, {cacheBreakpoint:'5m'});
   const body = { tools: [{ name: 'mcp__omp__read' }], system: compiled.systemPrompt, messages: [JSON.parse(compiled.input).message], metadata: { session: 'one' } };
   const { snapshot } = inspectUpstream(body, input);
   assert.doesNotThrow(() => inspectUpstream({ ...body, metadata: { session: 'two' } }, input, snapshot));

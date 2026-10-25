@@ -1,3 +1,4 @@
+import {cacheEnvironment} from './cache-policy.mjs';
 import { createHash } from 'node:crypto';
 import { callerRuntimeStatus } from './runtime-status.mjs';
 import { toolChoice, toolChoicePrompt } from './tool-choice.mjs';
@@ -64,8 +65,8 @@ export function stableJson(value) {
 }
 
 // 提取调用方真实指令角色，保留动态指令的位置，不按相似文本删改规则。
-export function compileContext(request, { cacheBreakpoint = '5m', maxImageBytes = 5 * 1024 * 1024, maxTools = 0 } = {}) {
-  if (!['5m', '1h', 'off'].includes(cacheBreakpoint)) throw new Error('缓存断点必须为 5m、1h 或 off');
+export function compileContext(request, { cacheBreakpoint = 'auto', maxImageBytes = 5 * 1024 * 1024, maxTools = 0 } = {}) {
+  cacheEnvironment(cacheBreakpoint);
   if (!Number.isSafeInteger(maxImageBytes) || maxImageBytes < 1) throw new Error('单张图片字节上限无效');
   if (!Number.isSafeInteger(maxTools) || maxTools < 0) throw new Error('工具数量上限无效');
   if (!Array.isArray(request.messages) || !request.messages.length) throw new Error('messages 不能为空');
@@ -139,7 +140,7 @@ export function compileContext(request, { cacheBreakpoint = '5m', maxImageBytes 
   });
   if (!blocks.length) throw new Error('至少需要一条非开头指令消息');
   // 末尾图片已附固定文本结束块，覆盖完整图片前缀并兼容 CLI 的断点处理。
-  if (cacheBreakpoint !== 'off') blocks.at(-1).cache_control = { type: 'ephemeral', ttl: cacheBreakpoint };
+  if (['5m','1h'].includes(cacheBreakpoint)) blocks.at(-1).cache_control = { type: 'ephemeral', ttl: cacheBreakpoint };
   // 旧诊断接口仅保留结构化快照；执行器禁止将此快照作为用户消息提交。
   const input = JSON.stringify({ type: 'user', message: { role: 'user', content: blocks } }) + '\n';
   const tools = request.tools || [];

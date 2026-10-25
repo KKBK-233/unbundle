@@ -26,7 +26,7 @@ const toolWaitTimeoutMs=Number(process.env.GATEWAY_TOOL_WAIT_TIMEOUT_MS||1800000
 if(!Number.isSafeInteger(toolWaitTimeoutMs)||toolWaitTimeoutMs<1000||toolWaitTimeoutMs>2147483647)throw new Error('工具总等待必须为 1000..2147483647 毫秒');
 // 仅开放官方 ToolSearch 元数据发现，文件和命令工具仍由 Desktop 执行。
 if (process.env.GATEWAY_TOOL_SEARCH != null && !['0', '1'].includes(process.env.GATEWAY_TOOL_SEARCH)) throw new Error('GATEWAY_TOOL_SEARCH 必须为 0 或 1');
-const toolSearch = process.env.GATEWAY_TOOL_SEARCH === '1';
+const toolSearch = process.env.GATEWAY_TOOL_SEARCH !== '0';
 const maxToolSearchCalls = Number(process.env.GATEWAY_MAX_TOOL_SEARCH_CALLS || 8);
 toolSearchConfig({ toolSearch, maxToolSearchCalls });
 const maxConcurrent = Number(process.env.GATEWAY_MAX_CONCURRENT || 3);
@@ -66,7 +66,7 @@ const nativeSessionTtlMs = Number(process.env.GATEWAY_SESSION_TTL_MS || 1800000)
 const nativeRelay = process.env.GATEWAY_SESSION_RELAY === '1' ? sessionRelay({
   cli, home, configDir, modelFor: model => upstreamModels[model], maxSessions: Number(process.env.GATEWAY_MAX_SESSIONS || 2),
   sessionTtlMs: nativeSessionTtlMs,toolWaitTimeoutMs,
-  maxTools, maxCliOutputBytes, maxMcpRequestBytes, cacheBreakpoint: process.env.GATEWAY_CACHE_BREAKPOINT || '5m',
+  maxTools, maxCliOutputBytes, maxMcpRequestBytes, cacheBreakpoint: process.env.GATEWAY_CACHE_BREAKPOINT || 'auto',
   maxImageBytes, maxOutputTokens, timeoutMs, idleTimeoutMs, toolSearch, maxToolSearchCalls, liveInstructionUpdates,
   persistentSessions, cliVersion: startupCliVersion,
   requireLiveToolContinuation: true,
@@ -104,7 +104,7 @@ const server = await gateway({ token, port, models, modelAliases, status: async 
     if (nativeRelay) return nativeRelay.infer(prepared, { signal, onText, timing, affinity });
     return infer(prepared, { cli, home, configDir, model: upstreamModels[request.model], signal, onText, timing,
     anomalyDir, cliVersion: (await readCliRelease())?.version || startupCliVersion,
-    maxTools, maxCliOutputBytes, maxMcpRequestBytes, cacheBreakpoint: process.env.GATEWAY_CACHE_BREAKPOINT || '5m', maxImageBytes, maxOutputTokens, timeoutMs, idleTimeoutMs, toolSearch, maxToolSearchCalls });
+    maxTools, maxCliOutputBytes, maxMcpRequestBytes, cacheBreakpoint: process.env.GATEWAY_CACHE_BREAKPOINT || 'auto', maxImageBytes, maxOutputTokens, timeoutMs, idleTimeoutMs, toolSearch, maxToolSearchCalls });
   },
 });
 console.log(`云端模型入口监听 127.0.0.1:${port}；工具由客户端执行`);
