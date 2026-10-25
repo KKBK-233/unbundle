@@ -1,4 +1,5 @@
 import {nativeCompact} from './native-compaction.mjs';
+import {statelessQuotaFailure} from './stateless-quota.mjs';
 import {suspendCli,resumeCli,verifySuspended} from './process-freeze.mjs';
 const DEFAULT_TOOL_WAIT_MS=1800000;
 import { toolSearchConfig } from './tool-search-config.mjs';
@@ -419,6 +420,12 @@ export class NativeCliSession {
     turn.audit.finish(); clearTimeout(turn.timer); clearTimeout(turn.idle); clearTimeout(turn.handoff); turn.signal?.removeEventListener('abort', turn.abort);
   }
   fail(error) {
+    if(statelessQuotaFailure(this,error)){
+      const turn=this.turn;this.turn=undefined;this.clearTurn(turn);
+      this.report('quota_rejected','STATELESS_QUOTA_REJECTION');
+      // 结束本次空白 CLI；原生落盘文件保留，错误仍交给账户冷却保护处理。
+      void this.close('quota_rejected').then(()=>turn.reject(error),()=>turn.reject(error));return;
+    }
     const protocolCodes = new Map([
       ['CLI 工具调用 ID 冲突', 'CLI_TOOL_ID_CONFLICT'], ['CLI 返回了无效的工具调用', 'CLI_TOOL_INVALID'],
       ['CLI 工具消息不完整', 'CLI_TOOL_INCOMPLETE'], ['CLI 工具消息不完整：缺少完整参数', 'CLI_TOOL_ARGUMENTS_MISSING'],
