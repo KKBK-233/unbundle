@@ -40,3 +40,15 @@ test('普通检查点不会自动接受工具尾部，人工检查点没有新�
   assert.equal((await f.store.take({...request,messages:[...request.messages,{role:'user',content:'继续'}]},f.signature,true))?.id,undefined);
  }finally{await f.close();}
 });
+
+test('持久检查点按已保存的较小输出上限恢复，其他配置签名仍严格校验',async()=>{
+ const f=await fixture();try{
+  f.row.compactSource={outputTokens:64000};await f.store.persist();
+  const request={messages:[f.prefix,f.assistant,f.receipt,{role:'user',content:'继续'}]},signature='b'.repeat(64);
+  const result=await f.store.take(request,signature,true,undefined,{consume:false,outputTokens:128000,signatureForOutput:cap=>cap===64000?f.signature:signature});
+  assert.equal(result.id,f.id);assert.equal(result.outputTokens,64000);assert.equal(result.signature,f.signature);
+  assert.equal(await f.store.take(request,signature,true,undefined,{consume:false,outputTokens:32000,signatureForOutput:()=>f.signature}),undefined);
+  assert.equal(await f.store.take(request,signature,true,undefined,{consume:false,outputTokens:128000,signatureForOutput:()=>signature}),undefined);
+  assert(f.store.records.has(f.id));
+ }finally{await f.close();}
+});
