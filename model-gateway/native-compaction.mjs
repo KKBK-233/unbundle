@@ -7,6 +7,7 @@ import {cliFailure} from './cli-failure.mjs';
 import {cliOutputAudit} from './cli-output-audit.mjs';
 import {assistantFingerprint} from './assistant-diff.mjs';
 import {sessionHistory,historyKey,assistantMessage} from './session-history.mjs';
+import {requestProbes} from './request-probes.mjs';
 
 const failure=(code,message,status=502)=>Object.assign(new Error(message),{code,status,retryable:false});
 const fields={input_tokens:'inputTokens',output_tokens:'outputTokens',cache_read_input_tokens:'cacheReadInputTokens',cache_creation_input_tokens:'cacheCreationInputTokens'};
@@ -90,6 +91,9 @@ export async function nativeCompact(session,request,boundary,{signal,timing}={})
  if(session.state==='frozen'||session.turn)throw failure('NATIVE_COMPACT_BOUNDARY_UNSAFE','当前会话不能安全执行原生压缩',409);
  const base=session.request,originalLine=session.line,descriptor=Object.getOwnPropertyDescriptor(session,'line');
  const audit=cliOutputAudit({requestId:timing?.requestId,sink:session.options.onCliAudit});
+ const probes=requestProbes({requestId:timing?.requestId,anomalyDir:session.options.anomalyDir,log:session.options.onAnomaly,
+  context:{...session.compiled?.metrics,model:request.model,cliVersion:session.options.cliVersion}});
+ let probeOutcome='completed';
  let phase='prepare',terminal,resolveTerminal,rejectTerminal,compactBoundary,bytes=0,timer,abort,resolveBuffered,rejectBuffered,rejectRun;
  const bufferedIds=new Set();
  const nextTerminal=()=>{terminal=new Promise((resolve,reject)=>{resolveTerminal=resolve;rejectTerminal=reject;});return terminal;};
@@ -103,6 +107,7 @@ export async function nativeCompact(session,request,boundary,{signal,timing}={})
  session.compactionAbort=error=>rejectRun(error);
  session.line=function(value){
   const event=audit.line(value);if(!event)return;
+  probes.accept(event);
   if(event.type==='control_response'||event.type==='system'&&event.subtype==='init')return originalLine.call(this,value);
   if(event.type==='system'&&event.subtype==='compact_boundary'){
    if(phase!=='command')return rejectTerminal?.(failure('NATIVE_COMPACT_UNEXPECTED_BOUNDARY','原生压缩边界出现位置异常'));
@@ -161,6 +166,7 @@ export async function nativeCompact(session,request,boundary,{signal,timing}={})
   const content='<analysis></analysis><summary>\n'+saved.body+'\n</summary>'+retainedText(boundary);
   const prompt=usage.input_tokens+usage.cache_read_input_tokens+usage.cache_creation_input_tokens;
   const answer={content,upstream_usage:usage,usage_complete:true,usage:{prompt_tokens:prompt,completion_tokens:usage.output_tokens,total_tokens:prompt+usage.output_tokens,prompt_tokens_details:{cached_tokens:usage.cache_read_input_tokens,cache_write_tokens:usage.cache_creation_input_tokens}}};
+  probes.output(content);
   session.nativeCompactionCommit={...session.nativeCompactionCommit,summaryFile:saved.file,answer};
   session.lastAssistant=assistantMessage(answer);session.expected=historyKey(session.lastAssistant,{hashKey:session.options.historyHashKey,toolSchemas:base.tools});
   session.expectedFingerprint=assistantFingerprint(session.lastAssistant,{hashKey:session.options.historyHashKey});
@@ -170,10 +176,12 @@ export async function nativeCompact(session,request,boundary,{signal,timing}={})
   try{session.options.onCliAudit?.({type:'session_restore_usage',requestId:timing?.requestId,sessionId:session.sessionId,strategy:'native_compact',restore_attempts:0,model_requests:null,usage_complete:true,upstream_usage:usage,native_pre_tokens:compactBoundary.compact_metadata?.pre_tokens,native_post_tokens:compactBoundary.compact_metadata?.post_tokens});}catch{}
   return answer;
  }catch(error){
+  probeOutcome=signal?.aborted?'cancelled':error.code==='NATIVE_COMPACT_TIMEOUT'?'timeout':'error';
   await session.freeze(error.code||'NATIVE_COMPACT_FAILED',{request});throw error;
  }finally{
   clearTimeout(timer);signal?.removeEventListener('abort',abort);session.child.stdout.off('data',onBytes);session.child.off('close',onClose);
   if(descriptor)Object.defineProperty(session,'line',descriptor);else delete session.line;
   session.compactionAbort=undefined;audit.finish();
+  await probes.finish(probeOutcome);
  }
 }

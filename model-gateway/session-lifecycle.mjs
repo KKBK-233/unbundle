@@ -88,6 +88,21 @@ export class SessionLifecycle {
  async restore(id){
   await this.load();this.guard(id,{retained:false});const entry=this.catalog.sessions[id];
   if(entry?.state==='restoring')return this.finishRestore(id,entry);
+  if(entry?.state==='recoverable'&&this.store.records.has(id)){
+   // 兼容旧版本先提交 recoverable 再删归档留下的现场；必须仍有有效的新原件与检查点。
+   const folder=path.join(this.root,id);let stat;
+   try{stat=await fs.lstat(folder);}catch(e){if(e.code!=='ENOENT')throw e;}
+   if(stat){
+    if(!stat.isDirectory()||stat.isSymbolicLink())throw fail('LIFECYCLE_UNSAFE_PATH','恢复归档目录类型无效');
+    const source=await this.transcript(id),row=this.store.records.get(id);
+    if(source.stat.size!==row.snapshot.size||source.stat.mtimeMs!==row.snapshot.mtimeMs)throw fail('LIFECYCLE_CHECKPOINT_CHANGED','恢复后的原件已改变，请先核验');
+    let manifest;
+    try{manifest=await readJson(path.join(folder,'manifest.json'));}catch(e){if(e.code!=='ENOENT'||(await fs.readdir(folder)).length)throw e;}
+    if(manifest&&(manifest.id!==id||manifest.row?.id!==id))throw fail('LIFECYCLE_MANIFEST_INVALID','恢复归档身份不一致');
+    this.catalog.sessions[id]={...entry,state:'restoring',cleanup:{evidence:manifest?.evidence||[]}};await this.save();
+    return this.finishRestore(id,this.catalog.sessions[id]);
+   }
+  }
   if(!['retired','retiring'].includes(entry?.state))throw fail('LIFECYCLE_NOT_RETIRED','会话没有可恢复的退役归档');
   const folder=path.join(this.root,id);await directory(folder);const m=await readJson(path.join(folder,'manifest.json'));
   if(m.id!==id||m.row?.id!==id||path.basename(m.project)!==m.project||['.','..'].includes(m.project)||!m.project||/[\\/:]/.test(m.project))throw fail('LIFECYCLE_MANIFEST_INVALID','归档路径或身份无效');

@@ -99,7 +99,7 @@ export function sessionRelay(options, retained) {
             const session=new NativeCliSession(sourceRequest,compileContext(sourceRequest,options),{...options,model,outputTokens:row.compactSource.outputTokens,historyHashKey:store.key,resumeNativeId:row.id,resumeDelta:[],resumeForCompaction:true,
               onIdleSessionClosed:s=>store.refreshClosed(s),onInvalidateCheckpoint:async()=>{await store.forget(row.id);await store.quarantineHistory(row.signature,row.history,row.affinityHash,row.historyNormalization,row.id);await store.quarantineAffinity(row.affinityHash);}});
             session.signature=row.signature;session.affinityHash=affinityHash;session.creationReserved=true;sessions.add(session);
-            try{await session.start();return {session,boundary};}catch(error){await session.close();sessions.delete(session);throw error;}
+            try{await session.start();await store.forget(row.id);return {session,boundary};}catch(error){await session.close();sessions.delete(session);throw error;}
           });
           if(restored){
             candidates.push(restored);
@@ -279,6 +279,8 @@ export function sessionRelay(options, retained) {
         try {
           await created.start();
           await store?.bindAffinity(affinityHash, created.nativeSessionId);
+          // 消费仍处于池级分配锁内，避免并发恢复同一 UUID 启动两个进程。
+          if(restored?.id)await store.forget(restored.id);
         } catch (error) { await created.close(); sessions.delete(created); throw error; }
         try { options.onSessionEvent?.({ type: 'session_restore', requestId: timing?.requestId,
           reason: restored?.id ? 'cli_process_closed' : restored?.missing ? 'native_transcript_missing' : 'no_safe_native_checkpoint',
