@@ -32,6 +32,9 @@ export class NativeSessionStore {
       if (!Array.isArray(rows)) throw new Error('原生会话索引格式无效');
       for (const row of rows) if ((row.affinityHash===undefined || hash.test(row.affinityHash)) && uuid.test(row.id) && hash.test(row.signature) && hash.test(row.expected)
         && Array.isArray(row.history) && row.history.every(value => hash.test(value))
+        && (row.verifiedToolResults===undefined || Array.isArray(row.verifiedToolResults)&&row.verifiedToolResults.length>0&&row.verifiedToolResults.length<=32
+          &&row.verifiedToolResults.every(v=>v&&typeof v.id==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(v.id)&&hash.test(v.hash))
+          &&new Set(row.verifiedToolResults.map(v=>v.id)).size===row.verifiedToolResults.length)
         && Number.isFinite(row.snapshot?.size) && Number.isFinite(row.snapshot?.mtimeMs)
         && Number.isFinite(row.savedAt)) this.records.set(row.id, row);
     } catch (error) { if (error.code !== 'ENOENT') throw error; }
@@ -174,9 +177,18 @@ export class NativeSessionStore {
       if (row.affinityHash !== affinityHash) continue;
       if (row.signature !== signature) { if (affinityHash) return this.rejectRestore(row,request,{mismatch:true},'CHECKPOINT_HISTORY_MISMATCH'); continue; }
       if(row.compaction?.nativeCommitted)await hydrateCompactionSource({nativeSessionId:row.id,compaction:row.compaction,options:{home:this.home,configDir:this.configDir,historyHashKey:this.key}});
-      const delta = compactedDelta({...row,pendingIds:new Set()},request,{hashKey:this.key}) || continuationDelta({ ...row, pendingIds: new Set() }, request,
+      let delta = compactedDelta({...row,pendingIds:new Set()},request,{hashKey:this.key}) || continuationDelta({ ...row, pendingIds: new Set(row.verifiedToolResults?.map(v=>v.id)||[]) }, request,
         { allowInstructionUpdates, hashKey: this.key });
       if (!delta) { if (affinityHash) return this.rejectRestore(row,request,{mismatch:true},'CHECKPOINT_HISTORY_MISMATCH'); continue; }
+      if(row.verifiedToolResults){
+        // 仅管理员在原生副本离线核验、真实结果已写入后建立此检查点；普通请求不创建它。
+        // 已持久化的结果只核对 HMAC，不再交给 CLI，也不自动重跑对应工具。
+        const results=delta.filter(m=>m.role==='tool');
+        if(row.verifiedToolResults.some(v=>!results.some(m=>m.tool_call_id===v.id&&historyKey(m,{hashKey:this.key,exact:true})===v.hash)))
+          return this.rejectRestore(row,request,{unsafe:true},'VERIFIED_TOOL_RESULT_CHANGED');
+        delta=delta.filter(m=>m.role!=='tool');
+        if(!delta.some(m=>m.role==='user'))return {unsafe:true};
+      }
       const snapshot = await this.transcriptSnapshot(row.id);
       if (!snapshot) return this.rejectRestore(row,request,{missing:true},'NATIVE_TRANSCRIPT_MISSING');
       if (snapshot.size !== row.snapshot.size || snapshot.mtimeMs !== row.snapshot.mtimeMs) return this.rejectRestore(row,request,{unsafe:true},'NATIVE_TRANSCRIPT_UNCERTAIN');

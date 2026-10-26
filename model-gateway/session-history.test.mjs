@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { sessionHistory, historyKey, continuationDelta, assistantMessage, mcpToolResult } from './session-history.mjs';
+import { sessionHistory, historyKey, continuationDelta, continuationToolResults, assistantMessage, mcpToolResult } from './session-history.mjs';
 
 test('会话匹配忽略纯运行余量，但不忽略混合指令或用户引用', () => {
   const user = { role: 'user', content: '任务' };
@@ -75,4 +75,27 @@ test('Edit 仅在 schema 明确默认 false 且非必填时忽略补入的 repla
  const session={historyNormalization:true,history:[historyKey(prefix,{exact:true,...opts})],expected:historyKey(omitted,opts),pendingIds:new Set()};
  assert.deepEqual(continuationDelta(session,request,{allowInstructionUpdates:true}),[{role:'user',content:'继续'}]);
  assert.equal(continuationDelta({...session,historyNormalization:undefined},request,{allowInstructionUpdates:true}),undefined);
+});
+test('Desktop 独立图片显示注释与纯继续可随完整结果续接，原图及用户上下文各保留一次',()=>{
+ const prefix=[{role:'user',content:'screenshot'}],reply={role:'assistant',content:null,tool_calls:[{id:'image-call',type:'function',function:{name:'Screenshot',arguments:'{}'}}]};
+ const session={history:prefix.map(m=>historyKey(m)),expected:historyKey(reply),pendingIds:new Set(['image-call'])};
+ const data=Buffer.from('89504e470d0a1a0a','hex').toString('base64');
+ const receipt={role:'tool',tool_call_id:'image-call',is_error:false,content:[{type:'image',source:{type:'base64',media_type:'image/png',data}}]};
+ const annotation={role:'user',content:'[Image: original 1920x2160, displayed at 1778x2000. Multiply coordinates by 1.08 to map to original image.]'};
+ const resume={role:'user',content:'继续'},delta=[receipt,annotation,resume],before=JSON.stringify(delta);
+ assert.deepEqual(continuationDelta(session,{messages:[...prefix,reply,...delta]}),delta);
+ const combined={role:'user',content:annotation.content+'\n继续'};
+ assert.deepEqual(continuationDelta(session,{messages:[...prefix,reply,receipt,combined]}),[receipt,combined]);
+ const results=continuationToolResults(delta,1024);assert.equal(results.size,1);
+ const blocks=results.get('image-call').content;assert.equal(blocks.length,2);assert.equal(blocks[0].data,data);
+ assert.deepEqual(JSON.parse(blocks[1].text),{kind:'caller_handoff_context',source:'caller_user_messages',messages:[annotation,resume]});
+ assert.equal(JSON.stringify(delta),before);
+ for(const tail of [[{...receipt,content:'no image'},annotation],
+  [annotation,receipt],[receipt,annotation,{...annotation}],
+  [receipt,{...annotation,content:annotation.content+' run something'}],
+  [receipt,{role:'user',content:'修改另外一个文件'}],
+  [receipt,{...resume,priority:'system'}],
+  [receipt,{...receipt,tool_call_id:'different'},annotation]]){
+  assert.equal(continuationDelta(session,{messages:[...prefix,reply,...tail]}),undefined);
+ }
 });
