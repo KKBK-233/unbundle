@@ -87,6 +87,7 @@ export class SessionLifecycle {
  }
  async restore(id){
   await this.load();this.guard(id,{retained:false});const entry=this.catalog.sessions[id];
+  if(entry?.state==='restoring')return this.finishRestore(id,entry);
   if(!['retired','retiring'].includes(entry?.state))throw fail('LIFECYCLE_NOT_RETIRED','会话没有可恢复的退役归档');
   const folder=path.join(this.root,id);await directory(folder);const m=await readJson(path.join(folder,'manifest.json'));
   if(m.id!==id||m.row?.id!==id||path.basename(m.project)!==m.project||['.','..'].includes(m.project)||!m.project||/[\\/:]/.test(m.project))throw fail('LIFECYCLE_MANIFEST_INVALID','归档路径或身份无效');
@@ -112,9 +113,15 @@ export class SessionLifecycle {
   const stat=await regular(target);this.store.records.set(id,{...m.row,snapshot:{size:stat.size,mtimeMs:stat.mtimeMs}});await this.store.persist();
   const tombstones=this.store.blocked.filter(r=>r.nativeSessionId===id&&r.origin==='lifecycle_retired');
   for(const row of tombstones)await this.store.releaseQuarantine(row);
-  this.catalog.sessions[id]={...entry,state:'recoverable'};await this.save();
-  // 恢复后删除的只是已验证归档副本；原生文件与检查点均已提交。
-  await this.removeArchive(folder,m);return {nativeSessionId:id,state:'recoverable',modelRequests:0};
+  this.catalog.sessions[id]={...entry,state:'restoring',cleanup:{evidence:m.evidence||[]}};await this.save();
+  return this.finishRestore(id,this.catalog.sessions[id]);
+ }
+ async finishRestore(id,entry){
+  // 正文和检查点已经提交；清理重入不再还原旧正文，也不依赖可能已删除的 manifest。
+  if(!entry.cleanup||!Array.isArray(entry.cleanup.evidence))throw fail('LIFECYCLE_MANIFEST_INVALID','恢复清理计划无效');
+  await this.removeArchive(path.join(this.root,id),entry.cleanup);
+  this.catalog.sessions[id]={...entry,state:'recoverable'};delete this.catalog.sessions[id].cleanup;await this.save();
+  return {nativeSessionId:id,state:'recoverable',modelRequests:0};
  }
  async removeArchive(folder,m){
   try{const stat=await fs.lstat(folder);if(!stat.isDirectory()||stat.isSymbolicLink())throw fail('LIFECYCLE_UNSAFE_PATH','归档目录类型无效');}catch(e){if(e.code==='ENOENT')return;throw e;}
@@ -124,6 +131,10 @@ export class SessionLifecycle {
  async sweep(){
   await this.load();const removed=[],skipped=[];
   for(const [id,item] of Object.entries(this.catalog.sessions)){
+   if(item.state==='restoring'){
+    try{this.guard(id);}catch(e){skipped.push({nativeSessionId:id,code:e.code});continue;}
+    await this.finishRestore(id,item);continue;
+   }
    if(!['retired','purging'].includes(item.state)||!Number.isFinite(item.retiredAt)||this.now()-item.retiredAt<this.retentionMs)continue;
    try{this.guard(id);}catch(e){skipped.push({nativeSessionId:id,code:e.code});continue;}
    if(this.store.records.has(id)){skipped.push({nativeSessionId:id,code:'LIFECYCLE_CHECKPOINT_PRESENT'});continue;}

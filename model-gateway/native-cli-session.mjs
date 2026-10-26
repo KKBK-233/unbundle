@@ -475,6 +475,11 @@ export class NativeCliSession {
   }
   suspend() {return suspendCli(this.child);}
   verifySuspended() {return verifySuspended(this.child);}
+  processAlive() {
+    if(!this.child?.pid||this.child.exitCode!=null||this.child.signalCode!=null)return false;
+    try {process.kill(this.child.pid,0);return true;}
+    catch(error){if(error.code==='ESRCH')return false;throw error;}
+  }
   async close(reason = 'closed',{immediateKill=false,discardFrozen=false}={}) {
     if(['expired','capacity'].includes(reason)&&this.state==='waiting-tool'&&this.pendingIds.size){
       if(reason==='capacity')throw Object.assign(new Error('长工具正在执行，禁止容量回收'),{code:'SESSION_CAPACITY',status:429,retryable:false});

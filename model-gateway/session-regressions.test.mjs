@@ -114,3 +114,37 @@ test('默认逐轮执行器接受已完成的普通历史，并在第二轮成�
  }finally{await f.close();}
 });
 
+test('只允许显式释放已死亡的冻结进程，保留现场与墓碑并恢复其他会话容量',async()=>{
+ const f=await poolFixture();try{
+  const relay=f.make();f.setMode('failure');await assert.rejects(relay.infer(base),{code:'UPSTREAM_HTTP_400'});
+  const row=(await relay.listSessions()).sessions[0];
+  await assert.rejects(relay.dispose(row.sessionId),{code:'NATIVE_PROCESS_ALIVE'});assert.equal(relay.frozenSize,1);
+  const child=f.children[0],done=new Promise(r=>child.once('close',r));child.kill('SIGKILL');await done;
+  const before=await fs.readFile(path.join(f.home,'native-session-index/quarantined-history.json'),'utf8');
+  assert.equal((await relay.dispose(row.sessionId)).state,'archived');assert.equal(relay.frozenSize,0);
+  assert.equal(await fs.readFile(path.join(f.home,'native-session-index/quarantined-history.json'),'utf8'),before);
+  const archived=(await relay.listSessions()).sessions.find(s=>s.sessionId===row.sessionId);assert.equal(archived.state,'archived');
+  await assert.rejects(relay.infer(base),{code:'SESSION_QUARANTINED'});
+  f.setMode('normal');assert.equal((await relay.infer({...base,messages:[{role:'user',content:'another conversation'}]})).content,'READY');
+ }finally{await f.close();}
+});
+
+test('restore清理中断可在重建后续办，manifest删除后也不覆盖新的正文与检查点',async()=>{
+ for(const sweep of [false,true]){
+  const f=await lifecycleFixture();try{
+   await f.lifecycle.retire(f.id);
+   f.lifecycle.removeArchive=async folder=>{await fs.unlink(path.join(folder,'manifest.json'));throw Error('synthetic interrupted cleanup');};
+   await assert.rejects(f.lifecycle.restore(f.id),/synthetic interrupted cleanup/);
+   assert.equal(f.lifecycle.catalog.sessions[f.id].state,'restoring');assert(f.store.records.has(f.id));
+   await fs.appendFile(f.file,'NEW_VALID_DATA');const stat=await fs.stat(f.file);
+   f.store.records.set(f.id,{...f.store.records.get(f.id),snapshot:{size:stat.size,mtimeMs:stat.mtimeMs},savedAt:Date.now()+1});await f.store.persist();
+   const before=await fs.readFile(f.file,'utf8'),checkpoint=structuredClone(f.store.records.get(f.id));
+   const lifecycle=new SessionLifecycle(f.store);
+   if(sweep)await lifecycle.sweep();else await lifecycle.restore(f.id);
+   assert.equal(lifecycle.catalog.sessions[f.id].state,'recoverable');assert.equal(await fs.readFile(f.file,'utf8'),before);
+   assert.deepEqual(f.store.records.get(f.id),checkpoint);
+   await lifecycle.retire(f.id);assert.equal(lifecycle.catalog.sessions[f.id].state,'retired');
+  }finally{await f.close();}
+ }
+});
+

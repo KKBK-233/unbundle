@@ -6,6 +6,7 @@
 node deploy/unbundle.mjs sessions --profile default
 node deploy/unbundle.mjs session-recover --profile default --session 会话ID
 node deploy/unbundle.mjs session-handoff --profile default --session 会话ID --output ./handoff.md
+node deploy/unbundle.mjs session-dispose --profile default --session 已死亡的冻结会话ID
 ```
 
 默认在原冻结对话发送新用户消息即可触发一次自动恢复，不需要先执行 session-recover。必须唯一关联同一封存请求，模型、工具配置、已有历史及真实工具结果不能被替换；安全校验通过后才恢复同一 CLI。纯“继续”可作为重试控制；有实际内容的新消息会作为原生用户输入保留，不混入工具输出。
@@ -17,6 +18,8 @@ node deploy/unbundle.mjs session-handoff --profile default --session 会话ID --
 sessions 列出存活/冻结及历史归档，包含进程是否真实存活、是否可恢复以及拒绝原因。session-recover 仍作为可选管理员预检入口，只核验并准备，不发送 SIGCONT、不调用模型；之后可重试原失败请求或直接发送新消息。
 
 原进程已丢失返回 NATIVE_PROCESS_GONE，不把文件存在冒称为可安全恢复。推理中途冻结、真实历史分叉、结果缺失或 MCP 连接不可恢复仍然拒绝，并返回具体原因；不支持任意推理位置恢复或自动长历史重建。
+
+`session-dispose` 只释放已经确认死亡的冻结进程对应的运行槽位，不调用模型、不恢复旧历史。释放前重新保存诊断并确认防重放记录落盘；任一步失败都保留槽位。仍存活的冻结进程返回 `NATIVE_PROCESS_ALIVE`。HTTP 对应 `POST /sessions/ID/dispose`，鉴权及空请求体要求与 recover 一致。释放后仍可导出交接，原对话不会自动解封。
 
 session-handoff 导出精简任务交接，不导出整段历史，不调用模型。先核验文件、进程和备份现状，再由使用者在新会话继续；不自动重放命令。导出文件含任务信息，请勿当作普通诊断日志公开。
 
@@ -44,6 +47,8 @@ ToolSearch 在云端入口默认启用，`GATEWAY_TOOL_SEARCH=0` 可关闭。工
 
 恢复索引不再按七天过期，也不再只写入最新 128 条。有效完成检查点一直保留；索引达到 64 MiB 时明确报错并保留旧索引，不静默淘汰。需要释放空间时，管理员先列出数据，再显式退役已完成会话。
 
+单条历史不再额外设置 20,000 项的加载限制；读写使用相同的 64 MiB 整体边界。新建会话与压缩恢复共用池级容量预留；容量不足或启动失败不会提前消耗检查点。只有进程及容量准备就绪、即将提交下一轮输入时才撤销旧检查点。
+
 以下接口复用网关 Bearer 鉴权。所有 POST 均为空请求体，只接受完整原生 UUID，不接受文件路径或替换历史，不调用模型。
 
 | 操作 | 接口 | 效果 |
@@ -62,3 +67,5 @@ ToolSearch 在云端入口默认启用，`GATEWAY_TOOL_SEARCH=0` 可关闭。工
 归档原件大小、mtime、SHA256 与检查点必须一致。归档用流式 gzip，诊断文件逐份校验；恢复不覆盖不同的现有文件。失败时保留原件或已验证归档，归档完成后的退役中断标记为 retiring，应先 restore；压缩或复制阶段失败不删除原件，未完成的副本保留供管理员检查，不自动覆盖或当作有效恢复档案；清理中断记录 purging，下一次 sweep 继续既定文件清理，不重试模型。purged 状态保留元数据和防重放墓碑，但原生正文已删除，不能再 restore。
 
 退役防重放记录只保留历史长度、整个历史哈希列表的 HMAC 摘要及末条回复 HMAC，不保留长哈希数组；匹配完整完成轮次，不会因同一句开场白封禁新对话。
+
+恢复正文和检查点后先持久化 `restoring` 清理计划，删除归档成功才变为 `recoverable`。清理中断后再次 restore 或 sweep 可继续，包含 manifest 已被删除的情况；此时只清理重复归档，不再次覆盖正文或回滚新检查点。默认关闭原生会话时，逐轮 CLI 路线仍接受调用方普通历史和真实工具结果；原生模式禁止长历史重建的约束不影响该默认路线。
