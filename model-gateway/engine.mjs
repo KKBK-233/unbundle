@@ -1,4 +1,4 @@
-import {cacheEnvironment} from './cache-policy.mjs';
+import {cacheEnvironment, DEFAULT_CACHE_BREAKPOINT} from './cache-policy.mjs';
 import { toolSearchConfig } from './tool-search-config.mjs';
 import { toolChoice, enforceToolChoice } from './tool-choice.mjs';
 import fs from 'node:fs/promises';
@@ -15,7 +15,7 @@ import { requestProbes } from './request-probes.mjs';
 import { sessionQuotaFailure } from './session-quota-guard.mjs';
 
 // 每轮独立进程、逐消息输入；工作目录固定，凭据继续由官方 CLI 管理。
-export async function infer(request, { cli, home, configDir = path.join(home, '.claude'), model, signal, onText, timing, anomalyDir, cliVersion, toolSearch = false, maxToolSearchCalls = 8, timeoutMs = 0, idleTimeoutMs = 180000, spawnProcess = spawn, testUpstream, cacheBreakpoint = 'auto', maxImageBytes = 5 * 1024 * 1024, maxOutputTokens = 8192, killGraceMs = 2000, maxCliOutputBytes = 0, maxMcpRequestBytes = 32 * 1024 * 1024, maxTools = 0 }) {
+export async function infer(request, { cli, home, configDir = path.join(home, '.claude'), model, signal, onText, timing, anomalyDir, cliVersion, toolSearch = false, maxToolSearchCalls = 8, timeoutMs = 0, idleTimeoutMs = 180000, spawnProcess = spawn, testUpstream, cacheBreakpoint = DEFAULT_CACHE_BREAKPOINT, maxImageBytes = 5 * 1024 * 1024, maxOutputTokens = 8192, killGraceMs = 2000, maxCliOutputBytes = 0, maxMcpRequestBytes = 32 * 1024 * 1024, maxTools = 0 }) {
   const discovery = toolSearchConfig({ toolSearch, maxToolSearchCalls });
   for (const value of [timeoutMs, idleTimeoutMs]) if (!Number.isSafeInteger(value) || value < 0 || value > 2147483647) throw new Error('推理超时配置必须为 0..2147483647 毫秒；0 表示关闭');
   if (!Number.isInteger(maxOutputTokens) || maxOutputTokens < 256 || maxOutputTokens > 128000) throw new Error('输出 token 上限无效');

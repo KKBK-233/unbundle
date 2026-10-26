@@ -1,4 +1,4 @@
-import {cacheEnvironment} from './cache-policy.mjs';
+import {cacheEnvironment, DEFAULT_CACHE_BREAKPOINT} from './cache-policy.mjs';
 import { createHash } from 'node:crypto';
 import { callerRuntimeStatus } from './runtime-status.mjs';
 import { toolChoice, toolChoicePrompt } from './tool-choice.mjs';
@@ -65,7 +65,7 @@ export function stableJson(value) {
 }
 
 // 提取调用方真实指令角色，保留动态指令的位置，不按相似文本删改规则。
-export function compileContext(request, { cacheBreakpoint = 'auto', maxImageBytes = 5 * 1024 * 1024, maxTools = 0 } = {}) {
+export function compileContext(request, { cacheBreakpoint = DEFAULT_CACHE_BREAKPOINT, maxImageBytes = 5 * 1024 * 1024, maxTools = 0 } = {}) {
   cacheEnvironment(cacheBreakpoint);
   if (!Number.isSafeInteger(maxImageBytes) || maxImageBytes < 1) throw new Error('单张图片字节上限无效');
   if (!Number.isSafeInteger(maxTools) || maxTools < 0) throw new Error('工具数量上限无效');

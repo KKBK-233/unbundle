@@ -11,7 +11,7 @@ GATEWAY_SESSION_RELAY=1
 GATEWAY_NATIVE_SESSION_PERSISTENCE=1
 GATEWAY_LIVE_INSTRUCTION_UPDATES=1
 GATEWAY_TOOL_SEARCH=1
-GATEWAY_CACHE_BREAKPOINT=auto
+GATEWAY_CACHE_BREAKPOINT=1h
 GATEWAY_SESSION_TTL_MS=1800000
 GATEWAY_TOOL_WAIT_TIMEOUT_MS=1800000
 GATEWAY_MAX_SESSIONS=2
@@ -54,7 +54,7 @@ sudo env CLAUDE_TEST_BIN=/absolute/path/to/claude unshare --net -- \
 
 真实 Desktop 与真实模型的完整联调及实际额度、缓存命中表现仍需验收。原生压缩的单轮 `usage` 可能为零，因此使用累计 `modelUsage` 前后差额计账。缓存过期或前缀变化时，一次压缩仍可能有较高用量；本候选不保证压缩免费或额度不会突增。压缩失败的内部摘要尝试由 CLI 控制，网关不会在冻结后自动重新提交该请求。
 
-缓存默认由官方 CLI 选择，不再强制五分钟；ToolSearch 在云端入口默认开启。`--resume` 保留原生系统提示词快照，新增指令通过已校验的 MCP 通道交付，避免恢复时改写缓存前缀。缓存过期、模型改变和原生压缩仍可能产生正常缓存创建。
+缓存默认一小时；显式设置 `GATEWAY_CACHE_BREAKPOINT=auto` 时交给官方 CLI 选择，也可设置 `5m` 或 `off`。已有部署的显式配置仍优先，需要修改后在安全维护窗口生效。ToolSearch 在云端入口默认开启。`--resume` 保留原生系统提示词快照，新增指令通过已校验的 MCP 通道交付，避免恢复时改写缓存前缀。缓存过期、模型改变和原生压缩仍可能产生正常缓存创建。
 
 ## 数据保留与退役
 
