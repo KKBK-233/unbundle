@@ -37,7 +37,7 @@ test('上传停顿明确返回 408，归还容量且不启动执行；恢复后�
     assert(!JSON.stringify(records).includes('synthetic'));
     const next = open(server, Buffer.byteLength(body)); next.req.end(body);
     assert.equal((await next.response).status, 200); assert.equal(calls, 1);
-  } finally { await server.close(); }
+  } finally { await server.close({discardFrozen:true}); }
 });
 
 test('持续上传超过空闲阈值可完成，上传计时器不误杀后续慢推理', async () => {
@@ -48,7 +48,7 @@ test('持续上传超过空闲阈值可完成，上传计时器不误杀后续�
     for (let offset = 0; offset < body.length; offset += 15) { call.req.write(body.slice(offset, offset + 15)); await delay(90); }
     call.req.end(); assert.equal((await call.response).status, 200);
     assert.equal(server.inflightBytes, 0); assert.equal(server.receivingRequests, 0);
-  } finally { await server.close(); }
+  } finally { await server.close({discardFrozen:true}); }
 });
 
 test('持续滴流仍受总上传时限约束，空正文和主动断开不会泄漏容量', async () => {
@@ -67,7 +67,7 @@ test('持续滴流仍受总上传时限约束，空正文和主动断开不会�
     for (let n = 0; n < 40 && server.busy; n++) await delay(10);
     assert.equal(calls, 0); assert.equal(server.inflightBytes, 0); assert.equal(server.receivingRequests, 0);
     assert(records.some(r => r.stage === 'downstream_disconnected'));
-  } finally { clearInterval(timer); await server.close(); }
+  } finally { clearInterval(timer); await server.close({discardFrozen:true}); }
 });
 
 // 请求尚未上传完时也应收到完整错误正文；关闭连接不能把可读的 413 变成网络故障。
@@ -85,5 +85,5 @@ test('持续超限上传先返回完整 413 正文再关闭连接，不等待上
     const failure = JSON.parse(result.raw).error;
     assert.equal(failure.code, 'REQUEST_TOO_LARGE'); assert.equal(failure.type, 'request_too_large');
     assert.equal(executions, 0); assert.equal(server.inflightBytes, 0); assert.equal(server.receivingRequests, 0);
-  } finally { clearInterval(timer); call.req.destroy(); await server.close(); }
+  } finally { clearInterval(timer); call.req.destroy(); await server.close({discardFrozen:true}); }
 });

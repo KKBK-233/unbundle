@@ -1,0 +1,78 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { sessionHistory, historyKey, continuationDelta, assistantMessage, mcpToolResult } from './session-history.mjs';
+
+test('会话匹配忽略纯运行余量，但不忽略混合指令或用户引用', () => {
+  const user = { role: 'user', content: '任务' };
+  const status = { role: 'system', content: '<total_tokens>100 tokens left</total_tokens>' };
+  const mixed = { role: 'system', content: '新规则\n<total_tokens>100 tokens left</total_tokens>' };
+  assert.deepEqual(sessionHistory([user, status, mixed, { ...status, role: 'user' }]), [user, mixed, { ...status, role: 'user' }]);
+  assert.equal(historyKey({ ...user, content: '\n任务\r\n' }), historyKey(user));
+  assert.notEqual(historyKey(user), historyKey({ ...user, content: '另一任务' }));
+});
+
+test('并行工具结果按原生 ID 续接，缺失、重复、分支和未执行的指令不能误复用', () => {
+  const request = [{ role: 'user', content: '开始' }];
+  const reply = assistantMessage({ content: null, tool_calls: ['a', 'b'].map(id => ({ id, type: 'function', function: { name: 'Read', arguments: '{}' } })) });
+  const session = { history: request.map(historyKey), expected: historyKey(reply), pendingIds: new Set(['a', 'b']) };
+  const results = ['b', 'a'].map(tool_call_id => ({ role: 'tool', tool_call_id, content: tool_call_id }));
+  assert.deepEqual(continuationDelta(session, { messages: [...request, reply, ...results] }), results);
+  for (const delta of [results.slice(0, 1), [results[0], results[0]], [{ ...results[0], tool_call_id: 'unknown' }, results[1]],
+    [...results, { role: 'user', content: '新要求' }]]) assert.equal(continuationDelta(session, { messages: [...request, reply, ...delta] }), undefined);
+  assert.equal(continuationDelta(session, { messages: [{ role: 'user', content: '分支' }, reply, ...results] }), undefined);
+  assert.equal(continuationDelta(session, { messages: [...request, { ...reply, content: '不同回复' }, ...results] }), undefined);
+  const final = { history: request.map(historyKey), expected: historyKey({ role: 'assistant', content: '完成' }), pendingIds: new Set() };
+  assert.equal(continuationDelta(final, { messages: [...request, { role: 'assistant', content: '完成' }, { role: 'user', content: '继续' }] }).length, 1);
+});
+
+test('MCP 结果保留错误状态及图片原始字节，图片 MIME 按内容校正', () => {
+  const data = Buffer.from('ffd8ffe000104a46494600', 'hex').toString('base64');
+  const result = mcpToolResult({ is_error: true, content: [{ type: 'text', text: '说明' },
+    { type: 'image', source: { type: 'base64', media_type: 'image/png', data } }] }, 1024);
+  assert.deepEqual(result, { isError: true, content: [{ type: 'text', text: '说明' }, { type: 'image', data, mimeType: 'image/jpeg' }] });
+  assert.throws(() => mcpToolResult({ content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data } }] }, 1), /超过上限/);
+});
+
+test('工具 JSON 键顺序不改变历史身份，参数值、数组顺序、ID 与名字仍严格匹配', () => {
+  const original = { role: 'assistant', content: null, tool_calls: [{ id: 'a', type: 'function', function: {
+    name: 'Edit', arguments: '{"file_path":"a","options":{"limit":5,"offset":0},"items":[1,2]}' } }] };
+  const change = args => ({ ...original, tool_calls: [{ ...original.tool_calls[0], function: { name: 'Edit', arguments: args } }] });
+  for (const exact of [false,true]) {
+    assert.equal(historyKey(original,{exact}),historyKey(change('{ "items": [1,2], "options":{"offset":0,"limit":5}, "file_path":"a" }'),{exact}));
+    for (const args of ['{"file_path":"b","options":{"limit":5,"offset":0},"items":[1,2]}',
+      '{"file_path":"a","options":{"limit":5,"offset":0},"items":[2,1]}','invalid']) {
+      assert.notEqual(historyKey(original,{exact}),historyKey(change(args),{exact}));
+    }
+    const otherId=structuredClone(original);otherId.tool_calls[0].id='b';
+    const otherName=structuredClone(original);otherName.tool_calls[0].function.name='Write';
+    assert.notEqual(historyKey(original,{exact}),historyKey(otherId,{exact}));
+    assert.notEqual(historyKey(original,{exact}),historyKey(otherName,{exact}));
+  }
+});
+
+test('续接拒绝原因只输出固定类别，不输出历史或工具参数', () => {
+  const user = { role: 'user', content: '私密任务' }, reasons = [];
+  const session = { history: [historyKey(user)], expected: historyKey({role:'assistant',content:'答复'}), pendingIds:new Set() };
+  assert.equal(continuationDelta(session,{messages:[{...user,content:'另一分支'},{role:'user',content:'继续'}]},
+    {onReject:reason=>reasons.push(reason)}),undefined);
+  assert.deepEqual(reasons,['history_prefix_mismatch']);
+});
+
+
+test('Edit 仅在 schema 明确默认 false 且非必填时忽略补入的 replace_all=false',()=>{
+ const schema={type:'function',function:{name:'Edit',parameters:{type:'object',properties:{replace_all:{type:'boolean',default:false}}}}};
+ const msg=args=>({role:'assistant',content:null,tool_calls:[{id:'same',type:'function',function:{name:'Edit',arguments:JSON.stringify(args)}}]});
+ const omitted=msg({file_path:'p',old_string:'a',new_string:'b'}),filled=msg({file_path:'p',old_string:'a',new_string:'b',replace_all:false});
+ const opts={toolSchemas:[schema]};
+ assert.equal(historyKey(omitted,opts),historyKey(filled,opts));
+ assert.notEqual(historyKey(omitted),historyKey(filled));
+ assert.notEqual(historyKey(omitted,opts),historyKey(msg({file_path:'p',old_string:'a',new_string:'b',replace_all:true}),opts));
+ assert.notEqual(historyKey(omitted,opts),historyKey(msg({file_path:'p',old_string:'a',new_string:'CHANGED',replace_all:false}),opts));
+ for(const parameters of [{type:'object',properties:{replace_all:{type:'boolean',default:true}}},{type:'object',properties:{replace_all:{type:'boolean',default:false}},required:['replace_all']}]) {
+  const strict={toolSchemas:[{...schema,function:{...schema.function,parameters}}]};assert.notEqual(historyKey(omitted,strict),historyKey(filled,strict));
+ }
+ const prefix={role:'user',content:'任务'},request={tools:[schema],messages:[prefix,filled,{role:'user',content:'继续'}]};
+ const session={historyNormalization:true,history:[historyKey(prefix,{exact:true,...opts})],expected:historyKey(omitted,opts),pendingIds:new Set()};
+ assert.deepEqual(continuationDelta(session,request,{allowInstructionUpdates:true}),[{role:'user',content:'继续'}]);
+ assert.equal(continuationDelta({...session,historyNormalization:undefined},request,{allowInstructionUpdates:true}),undefined);
+});

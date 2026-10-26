@@ -96,7 +96,7 @@ for (const native of [false, true]) for (const phase of ['before-text', 'partial
       assert.deepEqual(await fs.readdir(home), ['workspace']);
     } finally {
       oldRequest?.destroy();
-      await app.close();
+      await app.close({discardFrozen:true});
       for (const child of spawned) if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
       await fs.rm(home, { recursive: true, force: true });
     }

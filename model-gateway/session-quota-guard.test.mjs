@@ -16,7 +16,7 @@ const invoke = (app, native, body) => fetch(`http://127.0.0.1:${app.port}/v1/${n
 });
 
 // 复现实际 CLI 的失败结果，验证两种协议的 JSON/SSE 均正常终止，换会话和模型也不重复启动 CLI。
-test('账户额度失败不再变成 502 或 SSE error，新会话请求在认证之前被拦截', async () => {
+test('账户额度失败返回协议错误而非成功正文，新会话请求在认证之前被拦截', async () => {
   for (const native of [false, true]) for (const stream of [false, true]) {
     const home = await fs.mkdtemp(path.join(os.tmpdir(), 'session-quota-cli-'));
     let spawns = 0, authChecks = 0;
@@ -34,17 +34,19 @@ test('账户额度失败不再变成 502 或 SSE error，新会话请求在认�
           `], options);
         } }) });
     const read = async response => {
-      assert.equal(response.status, 200);
-      if (!stream) {
+      if (response.headers.get('content-type').includes('application/json')) {
+        assert.equal(response.status, 429);
+        assert.equal(response.headers.get('x-should-retry'), 'false');
         const value = await response.json();
-        assert.equal(native ? value.stop_reason : value.choices[0].finish_reason, native ? 'end_turn' : 'stop');
-        return native ? value.content[0].text : value.choices[0].message.content;
+        assert.equal(value.error.code, 'SESSION_LIMIT');assert.equal(value.error.retryable,false);
+        assert.equal(value.choices,undefined);assert.equal(value.content,undefined);
+        return value.error.message;
       }
+      assert.equal(response.status,200);
       const wire = await response.text();
-      assert(!wire.includes('event: error')); assert(!wire.includes('"type":"api_error"'));
-      assert(wire.includes(native ? '"stop_reason":"end_turn"' : '"finish_reason":"stop"'));
-      if (native) assert(wire.includes('event: message_stop'));
-      else assert(wire.endsWith('data: [DONE]\n\n'));
+      assert(wire.includes('"type":"rate_limit_error"'));
+      assert(!wire.includes('"stop_reason":"end_turn"'));assert(!wire.includes('"finish_reason":"stop"'));
+      assert(!wire.includes('event: message_stop'));assert(!wire.includes('data: [DONE]'));
       return wire;
     };
     try {
@@ -58,7 +60,7 @@ test('账户额度失败不再变成 502 或 SSE error，新会话请求在认�
       assert(!JSON.stringify(logs).includes(message));
       assert.equal(app.activeRequests, 0); assert.equal(app.inflightBytes, 0);
       assert.deepEqual(await fs.readdir(home), ['workspace']);
-    } finally { await app.close(); await fs.rm(home, { recursive: true, force: true }); }
+    } finally { await app.close({discardFrozen:true}); await fs.rm(home, { recursive: true, force: true }); }
   }
 });
 
@@ -73,9 +75,9 @@ test('排队的新会话在上一请求确认额度耗尽后不再启动推理',
     const queued = invoke(app, false, { ...request, messages: [{ role: 'user', content: '新会话' }] });
     for (let i = 0; i < 100 && app.queuedRequests === 0; i++) await new Promise(resolve => setTimeout(resolve, 5));
     assert.equal(app.queuedRequests, 1); finish();
-    for (const response of await Promise.all([first, queued])) assert((await response.json()).choices[0].message.content.includes('SESSION_LIMIT'));
+    for (const response of await Promise.all([first, queued])) {assert.equal(response.status,429);assert.equal((await response.json()).error.code,'SESSION_LIMIT');}
     assert.equal(executions, 1); assert.equal(app.activeRequests, 0); assert.equal(app.queuedRequests, 0);
-  } finally { finish(); await app.close(); }
+  } finally { finish(); await app.close({discardFrozen:true}); }
 });
 
 // 时钟跨午夜、夏令时重复时刻及未知提示的冷却必须可释放，不能把账户永久封锁。
@@ -112,5 +114,5 @@ test('正常正文中的额度引用不触发冷却，未知错误仍返回原�
     const response = await invoke(app, false, { ...request, messages: [{ role: 'user', content: '网络' }] });
     assert.equal(response.status, 502); assert.equal((await response.json()).error.message, 'Connection reset');
     assert.equal(executions, 3);
-  } finally { await app.close(); }
+  } finally { await app.close({discardFrozen:true}); }
 });

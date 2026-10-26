@@ -75,14 +75,22 @@ class ActivityTests(unittest.TestCase):
         self.assertIn('云端当前空闲', lines[0])
         self.assertIn('本地工具可能仍在执行', lines[0])
 
-    def test_thinking_progress_confirms_continuation(self):
+    def test_thinking_events_do_not_prove_task_progress(self):
         record = {'requestId': 'abcdef1234', 'stage': 'progress', 'loggedAt': 980, 'elapsedMs': 200000,
                   'progress': {'event': 'thinking', 'lastEventMs': 200000}}
         lines = activity_lines({'activeRequests': 1, 'queuedRequests': 0}, [record], 1000)
-        self.assertIn('仍在继续', lines[1])
+        self.assertIn('尚不能确认有新进展', lines[1])
+        self.assertNotIn('仍在继续', lines[1])
         self.assertIn('阶段：思考', lines[1])
         self.assertIn('已运行 220 秒', lines[1])
         self.assertIn('距今 20 秒', lines[1])
+
+    def test_native_session_stages_are_not_reported_as_no_inference(self):
+        fn = namespace['failure_lines']
+        for stage in ['cli_session_created', 'cli_session_reused', 'upstream_message_start']:
+            lines = fn({'stage': 'finished', 'outcome': 'cancelled', 'stages': {stage: 1000}})
+            self.assertIn('可能已消耗额度', '\n'.join(lines))
+            self.assertNotIn('未启动模型推理', '\n'.join(lines))
 
     def test_stale_progress_is_not_healthy(self):
         record = {'stage': 'progress', 'loggedAt': 800, 'elapsedMs': 200000, 'progress': {'event': 'thinking', 'lastEventMs': 180000}}

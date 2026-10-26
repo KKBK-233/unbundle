@@ -13,7 +13,7 @@ assert.equal((await fetch(base + '/v1/models')).status, 401);
 assert.equal((await fetch(base + '/v1/models', { headers: { Authorization: 'Bearer wrong-token' } })).status, 401);
 assert.equal((await fetch(base + '/v1/models', { headers: { ...headers, Origin: 'https://untrusted.invalid' } })).status, 403);
 const models = await (await fetch(base + '/v1/models', { headers })).json();
-assert.deepEqual(models.data.map(item => item.id), ['claude-code-sonnet', 'claude-code-opus', 'claude-code-haiku']);
+assert.deepEqual(models.data.map(item => item.id.replace(/^claude-code-(sonnet|opus|haiku)$/, 'claude-$1-5-5')), ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-haiku-5-5']);
 const status = await (await fetch(base + '/status', { headers })).json();
 assert.equal(status.checked, true);
 if (!status.loggedIn) {

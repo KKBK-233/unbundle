@@ -35,8 +35,9 @@ test('Anthropic 保留指令和并行工具结果，拒绝无法兑现的参数'
   assert.equal(request.reasoning_effort, 'high');
   assert.deepEqual(request.messages.map(message => message.role), ['system', 'user', 'assistant', 'tool', 'tool', 'system']);
   assert.equal(request.messages[2].tool_calls.length, 2);
-  assert.equal(request.messages[3].content, 'A');
-  assert.deepEqual(JSON.parse(request.messages[4].content), { is_error: true, content: 'B' });
+  assert.deepEqual(request.messages[3].content, [{ type: 'text', text: 'A' }]);
+  assert.equal(request.messages[4].content, 'B');
+  assert.equal(request.messages[4].is_error, true);
   for (const extra of [{ thinking: { type: 'disabled' } }, { thinking: { type: 'enabled', budget_tokens: 1000 } },
     { output_config: { format: {} } }, { temperature: 0.3 }, { tools: [null] }, { tool_choice: { type: 'any' } },
     { messages: [{ role: 'user', content: [{ type: 'video' }] }] }]) assert.throws(() => fromAnthropic({ ...body, ...extra }), error => error.status === 400);
@@ -78,7 +79,7 @@ test('原生工具结果支持图片，保留调用 ID、错误状态与并行�
     assert.equal((await invoke(bad)).status, 400);
     assert.equal(executions, 1);
     assert.equal(server.inflightBytes, 0);
-  } finally { await server.close(); }
+  } finally { await server.close({discardFrozen:true}); }
 });
 
 test('原生接口流式文本、并行工具和缓存三桶保持一致，阶段日志不泄露内容', async () => {
@@ -113,7 +114,7 @@ test('原生接口流式文本、并行工具和缓存三桶保持一致，阶�
     }
     assert(!JSON.stringify(logs).includes('CALLER_RULE'));
     assert(!JSON.stringify(logs).includes('VISIBLE'));
-  } finally { await app.close(); }
+  } finally { await app.close({discardFrozen:true}); }
 });
 
 test('原生流心跳经过 SDK 的 ping 过滤后仍有事件，空正文不影响后续工具和用量', { timeout: 18000 }, async () => {
@@ -163,7 +164,7 @@ test('原生流心跳经过 SDK 的 ping 过滤后仍有事件，空正文不影
     complete({ role: 'assistant', content: 'cleanup' });
     controller.abort();
     reader?.releaseLock();
-    await app.close();
+    await app.close({discardFrozen:true});
   }
 });
 
@@ -211,5 +212,5 @@ test('Anthropic 各思考档位经过 HTTP 到达 CLI，取消和超时仍清理
     const cancelled = assert.rejects(pending, /取消/);
     await cancelled;
     assert.deepEqual(await fs.readdir(home), ['workspace']);
-  } finally { await app.close(); await fs.rm(home, { recursive: true, force: true }); }
+  } finally { await app.close({discardFrozen:true}); await fs.rm(home, { recursive: true, force: true }); }
 });

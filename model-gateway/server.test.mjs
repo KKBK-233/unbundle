@@ -29,7 +29,7 @@ test('输出预算对齐 Sub2API 路径默认值，优先新字段且尊重部�
    await check('/v1/chat/completions',{max_tokens:16,max_completion_tokens:0},400);
    assert.deepEqual(received,[Math.min(8192,ceiling),ceiling,16,1]);
    assert.equal(server.activeRequests,0);assert.equal(server.queuedRequests,0);assert.equal(server.inflightBytes,0);
-  } finally {await server.close();}
+  } finally {await server.close({discardFrozen:true});}
  }
 });
 
@@ -48,7 +48,7 @@ test('原生入口接受大 MCP 工具集合，超限错误显示实际数量', 
   const duplicate=make(2);duplicate[1].name=duplicate[0].name;assert.equal((await invoke(duplicate)).status,400);
   assert.deepEqual(received,[129,161,MAX_TOOLS]);
   assert.equal(server.activeRequests,0);assert.equal(server.queuedRequests,0);assert.equal(server.inflightBytes,0);
- } finally {await server.close();}
+ } finally {await server.close({discardFrozen:true});}
 });
 
 // 默认不再以工具数量拦截连接器；体积限制及名称冲突检查仍生效。
@@ -64,7 +64,7 @@ test('默认接受超过旧工具数量上限，显式限额仍可配置', async
    body:JSON.stringify({model:'claude-code-sonnet',tools,messages:[{role:'user',content:'合成工具集合'}]})});
   assert.equal(response.status,200);await response.json();assert.deepEqual(received,[1025]);
   assert.equal(server.inflightBytes,0);
- } finally {await server.close();}
+ } finally {await server.close({discardFrozen:true});}
 });
 
 // 验证桌面客户端小输出探针可通过 HTTP 入口，同时无效额度不进入推理进程。
@@ -84,7 +84,7 @@ test('小输出上限原样传递，非法额度仍返回 400', async () => {
    for (const limit of [0, -1, 1.5, '1', 8193]) assert.equal((await invoke({ [field]: limit })).status, 400);
   }
   assert.deepEqual(limits, [1, 16, 255, 8192, 1, 16, 255, 8192]);
- } finally { await server.close(); }
+ } finally { await server.close({discardFrozen:true}); }
 });
 test('模型入口认证、显式关闭队列与断线取消',async()=>{
  let started,aborted,calls=0;const began=new Promise(r=>started=r),stopped=new Promise(r=>aborted=r);
@@ -106,7 +106,7 @@ test('模型入口认证、显式关闭队列与断线取消',async()=>{
   for (let i = 0; i < 100 && server.activeRequests; i++) await new Promise(resolve => setTimeout(resolve, 5));
   assert.equal(server.activeRequests, 0);
   assert.equal((await fetch(base+'/v1/chat/completions',{method:'POST',headers,body})).status, 200);
- }finally{await server.close();}
+ }finally{await server.close({discardFrozen:true});}
 });
 
 // 入站体在排队前已完整驻留，因此按字节准入；记账泄漏会让网关永久拒绝后续请求。
@@ -143,7 +143,7 @@ test('超限请求体返回 413，在场字节总量超额返回 429，且额度
     await until(() => server.inflightBytes === 0);
     assert.equal((await call(1024)).status, 200);
     assert.equal(server.inflightBytes, 0);
-  } finally { release(); await server.close(); }
+  } finally { release(); await server.close({discardFrozen:true}); }
 });
 
 test('体积上限配置互相约束，非法取值在监听前拒绝', async () => {
@@ -154,7 +154,7 @@ test('体积上限配置互相约束，非法取值在监听前拒绝', async ()
     await assert.rejects(gateway({ ...base, ...extra }), /上限/);
   }
   const large=await gateway({...base,maxRequestBytes:256*1024*1024,maxInflightBytes:256*1024*1024});
-  await large.close();
+  await large.close({discardFrozen:true});
 });
 
 test('登录错误先返回状态码，流式片段在执行完成前到达且不重复',async()=>{
@@ -170,5 +170,5 @@ test('登录错误先返回状态码，流式片段在执行完成前到达且�
   while(!output.includes('FIRST')){const part=await reader.read();assert(!part.done);output+=new TextDecoder().decode(part.value);}
   release();while(true){const part=await reader.read();if(part.done)break;output+=new TextDecoder().decode(part.value);}
   assert.equal(output.split('FIRST').length-1,1);assert(output.includes('[DONE]'));
- }finally{release();await server.close();}
+ }finally{release();await server.close({discardFrozen:true});}
 });

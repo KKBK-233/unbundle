@@ -127,7 +127,7 @@ test('缺失块结束事件仍可通过两种 HTTP 协议交付完整工具，�
       assert.equal(record.progress.completedTools, 1);
     }
     assert(!JSON.stringify(records).includes('example.txt'));
-  } finally { await app.close(); await fs.rm(home, { recursive: true, force: true }); }
+  } finally { await app.close({discardFrozen:true}); await fs.rm(home, { recursive: true, force: true }); }
 });
 
 test('CLI 退出前没有工具消息结束信号时，不把未完成工具当成文本成功返回', async () => {

@@ -1,7 +1,7 @@
 // 与已验收 CLI 版本配套：只开放已验证的模型档位，不把 off/minimal 偷换成 low。
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 export function modelEfforts(model) {
-  return ['claude-code-sonnet', 'claude-code-opus', 'claude-code-haiku'].includes(model) ? [...EFFORTS] : [];
+  return ['claude-code-sonnet', 'claude-code-opus', 'claude-code-haiku', 'claude-sonnet-5-5', 'claude-opus-5-5', 'claude-haiku-5-5'].includes(model) ? [...EFFORTS] : [];
 }
 export function resolveEffort(request) {
   const effort = request.reasoning_effort;
