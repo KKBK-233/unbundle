@@ -39,6 +39,24 @@ export function sessionRelay(options, retained) {
   const maxSessions = options.maxSessions || 2;
   if (!Number.isInteger(maxSessions) || maxSessions < 1 || maxSessions > 8) throw new Error('原生会话数量必须为 1..8');
   let closed = false, maintenance = false, activeTurns = 0;
+  let allocations = Promise.resolve();
+  // 池级串行分配：检查容量、回收和登记必须是同一次预留，不能依靠会话键锁。
+  async function allocate(create) {
+    const previous = allocations; let release;
+    allocations = new Promise(resolve => { release = resolve; });
+    await previous;
+    try {
+      if (closed) throw new Error('原生会话池已关闭');
+      return await create();
+    } finally { release(); }
+  }
+  async function makeRoom() {
+    if (sessions.size < maxSessions) return;
+    const oldest = [...sessions].filter(s => s.state === 'idle' && !s.creationReserved && !s.compacting && !s.recoveryInProgress)
+      .sort((a,b) => (a.lastUsed || 0) - (b.lastUsed || 0))[0];
+    if (!oldest) throw Object.assign(new Error('原生会话容量已满'), {code:'SESSION_CAPACITY',status:429,retryable:false});
+    await oldest.close('capacity'); sessions.delete(oldest);
+  }
   const lifecycle = store ? new SessionLifecycle(store,{protectedIds:()=>new Set([...sessions].filter(s=>s.state!=='closed').map(s=>s.nativeSessionId)),retentionMs:options.archiveRetentionMs}) : undefined;
   async function inferTurn(request, { signal, onText, timing, affinity } = {}) {
       if (closed) throw new Error('原生会话池已关闭');
@@ -72,14 +90,18 @@ export function sessionRelay(options, retained) {
           if(!boundary)rejected.push(diagnostic);return {session,boundary};
         }).filter(row=>row.boundary);
         if(!candidates.length&&store){
-          const restored=await store.takeForCompaction(request,compiled,affinityHash);
-          if(restored){
-            const {row,sourceRequest,boundary}=restored;
-            if(sessions.size>=maxSessions){const oldest=[...sessions].filter(s=>s.state==='idle').sort((a,b)=>(a.lastUsed||0)-(b.lastUsed||0))[0];if(!oldest)throw Object.assign(new Error('原生会话容量已满'),{code:'SESSION_CAPACITY',status:429});await oldest.close('capacity');sessions.delete(oldest);}
+          const restored=await allocate(async()=>{
+            const saved=await store.takeForCompaction(request,compiled,affinityHash,{consume:false});
+            if(!saved)return;
+            await makeRoom();
+            const {row,sourceRequest,boundary}=saved;
             const session=new NativeCliSession(sourceRequest,compileContext(sourceRequest,options),{...options,model,outputTokens:row.compactSource.outputTokens,historyHashKey:store.key,resumeNativeId:row.id,resumeDelta:[],resumeForCompaction:true,
               onIdleSessionClosed:s=>store.refreshClosed(s),onInvalidateCheckpoint:async()=>{await store.forget(row.id);await store.quarantineHistory(row.signature,row.history,row.affinityHash,row.historyNormalization,row.id);await store.quarantineAffinity(row.affinityHash);}});
-            session.signature=row.signature;session.affinityHash=affinityHash;sessions.add(session);
-            try{await session.start();candidates.push({session,boundary});}catch(error){await session.close();sessions.delete(session);throw error;}
+            session.signature=row.signature;session.affinityHash=affinityHash;session.creationReserved=true;sessions.add(session);
+            try{await session.start();return {session,boundary};}catch(error){await session.close();sessions.delete(session);throw error;}
+          });
+          if(restored){
+            candidates.push(restored);
             try{options.onSessionEvent?.({type:'session_restore',reason:'cli_process_closed',strategy:'native_resume_for_compaction',restore_attempts:1});}catch{}
           }
         }
@@ -105,7 +127,7 @@ export function sessionRelay(options, retained) {
           return result;
         } catch(error){
           throw error;
-        } finally {session.compacting=false;}
+        } finally {session.compacting=false;session.creationReserved=false;}
       }
       const replay=[...sessions].find(s=>['idle','waiting-tool'].includes(s.state)&&s.signature===signature&&s.affinityHash===affinityHash
         &&s.automaticRecoveryResult?.identity===automaticRecoveryIdentity(request)&&s.automaticRecoveryResult.history===s.history&&s.automaticRecoveryResult.expected===s.expected);
@@ -191,6 +213,7 @@ export function sessionRelay(options, retained) {
       const rejectedBoundarySessions=new Set(), mismatchedSessions=new Set();
       for (const session of sessions) {
         if (session.affinityHash !== affinityHash) continue;
+        if (session.creationReserved) continue;
         if(session.state==='idle'&&session.compaction?.nativeCommitted)await hydrateCompactionSource(session);
         if (session.state === 'closed' && !session.freezing) { sessions.delete(session); continue; }
         if (affinityHash && session.freezing) {
@@ -236,52 +259,56 @@ export function sessionRelay(options, retained) {
           throw Object.assign(new Error('工具结果缺少可验证的原生等待会话；执行状态不确定，禁止自动重建或重试'),
             { code: 'TOOL_CONTINUATION_UNCERTAIN', status: 409, retryable: false });
         }
-        const restored = await store?.take(request, signature, options.liveInstructionUpdates === true, affinityHash);
+        selected = await allocate(async () => {
+        const restored = await store?.take(request, signature, options.liveInstructionUpdates === true, affinityHash, {consume:false});
         if (restored?.mismatch) throw Object.assign(new Error('固定会话的持久检查点不匹配'), {code:'SESSION_HISTORY_MISMATCH',status:409,retryable:false});
         if (restored?.missing) throw Object.assign(new Error('已绑定的原生历史文件缺失；禁止自动重建长历史'), {code:'NATIVE_TRANSCRIPT_MISSING',status:409,retryable:false});
         if (restored?.unsafe) throw Object.assign(new Error('原生会话文件在完成检查点后发生变化；不自动恢复或重新提交历史'),
           { code: 'NATIVE_TRANSCRIPT_UNCERTAIN', status: 409, retryable: false });
         if (!restored?.id) sessionEntry(request, compiled, options);
-        if (sessions.size >= maxSessions) {
-          const oldest = [...sessions].filter(s => s.state==='idle').sort((a, b) => (a.lastUsed || 0) - (b.lastUsed || 0))[0];
-          if (!oldest) throw Object.assign(new Error('原生会话容量已满'), { status: 429, code: 'SESSION_CAPACITY' });
-          await oldest.close('capacity'); sessions.delete(oldest);
-        }
-        selected = new NativeCliSession(request, compiled, { ...options, model, outputTokens, historyHashKey: store?.key,
+        await makeRoom();
+        const created = new NativeCliSession(request, compiled, { ...options, model, outputTokens, historyHashKey: store?.key,
           onIdleSessionClosed:session=>store?.refreshClosed(session),
           onInvalidateCheckpoint: async id=>{ await store?.forget(id); await store?.quarantineAffinity(affinityHash);
-            const row={signature,history:[...selected.history],affinityHash,historyNormalization:selected.historyNormalization,nativeSessionId:selected.nativeSessionId};quarantined.push(row);selected.quarantineRecord=row;
+            const row={signature,history:[...created.history],affinityHash,historyNormalization:created.historyNormalization,nativeSessionId:created.nativeSessionId};quarantined.push(row);created.quarantineRecord=row;
             await store?.quarantineHistory(signature,row.history,affinityHash,row.historyNormalization,row.nativeSessionId); },
           resumeNativeId: restored?.id, resumeDelta: restored?.delta });
-        selected.signature = signature; selected.affinityHash = affinityHash;
-        await store?.bindAffinity(affinityHash, selected.nativeSessionId);
-        sessions.add(selected);
-        try { await selected.start(); } catch (error) { await selected.close(); sessions.delete(selected); throw error; }
+        created.signature = signature; created.affinityHash = affinityHash; created.creationReserved = true;
+        sessions.add(created);
+        try {
+          await created.start();
+          await store?.bindAffinity(affinityHash, created.nativeSessionId);
+        } catch (error) { await created.close(); sessions.delete(created); throw error; }
         try { options.onSessionEvent?.({ type: 'session_restore', requestId: timing?.requestId,
           reason: restored?.id ? 'cli_process_closed' : restored?.missing ? 'native_transcript_missing' : 'no_safe_native_checkpoint',
-          strategy: selected.entryMode || 'native_new', restore_attempts: selected.entryMode === 'native_new' ? 0 : 1,
+          strategy: created.entryMode || 'native_new', restore_attempts: created.entryMode === 'native_new' ? 0 : 1,
           history_bytes: compiled.metrics.historyBytes, history_tokens: null }); } catch {}
         timing?.mark('cli_session_created');
+        return created;
+        });
       } else timing?.mark('cli_session_reused');
       try { options.onSessionEvent?.({ type: 'native_session_selection', requestId: timing?.requestId,
         reused: delta !== undefined, sessionId: selected.sessionId, sessions: sessions.size, signatureMatches, historyRejected, rejectionReasons }); } catch {}
       timing?.mark('context_ready');
       // 先撤销旧检查点再启动下一轮；崩溃或工具执行中断不能留下可重放的旧边界。
-      await store?.forget(selected.nativeSessionId);
-      if(compactedDelta(selected,request,{hashKey:store?.key}))selected.compaction=undefined;
       try {
-        const result = await selected.run(request, delta, { signal, onText, timing });
+        await store?.forget(selected.nativeSessionId);
+        if(compactedDelta(selected,request,{hashKey:store?.key}))selected.compaction=undefined;
+        const running = selected.run(request, delta, { signal, onText, timing });
+        selected.creationReserved = false;
+        const result = await running;
         try { await store?.checkpoint(selected); }
         catch { try { options.onSessionEvent?.({ type: 'native_checkpoint_failed', code: 'CHECKPOINT_WRITE_FAILED' }); } catch {} }
         return result;
       } catch (error) {
+        if(selected.creationReserved){await selected.close();sessions.delete(selected);}
         if (delta === undefined && compiled.metrics.historyMessages > 1) {
           failedRestores.set(restoreKey, Date.now()+60000);
           if (failedRestores.size > 128) failedRestores.delete(failedRestores.keys().next().value);
           error.retryable = false;
         }
         throw error;
-      }
+      } finally { selected.creationReserved = false; }
   }
   return {
     async infer(request, context={}) {

@@ -87,7 +87,7 @@ test('进程桥保留延迟到达的第二个工具，拒绝不完整消息并�
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'gateway-state-'));
   const fake = `
     let input='';for await(const c of process.stdin)input+=c;
-    const text=JSON.parse(input).message.content[0].text;
+    const text=JSON.parse(JSON.parse(input).message.content[0].text).content;
     if(text==='hang'){setInterval(()=>{},1000);} else {
       const emit=v=>console.log(JSON.stringify(v));
       emit(${JSON.stringify(assistant('first'))});
