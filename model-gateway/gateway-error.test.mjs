@@ -24,7 +24,7 @@ test('无效中继令牌与跨域请求返回可读诊断，两种协议均不�
       assert.equal(origin.status, 403); assert.equal((await origin.json()).error.code, 'ORIGIN_REJECTED');
     }
     assert.equal(executions, 0); assert.equal(authChecks, 0);
-  } finally { await app.close(); }
+  } finally { await app.close({discardFrozen:true}); }
 });
 
 test('已确认未登录返回 401，认证检查失败保留 503；恢复后新请求可以正常执行', async () => {
@@ -47,7 +47,7 @@ test('已确认未登录返回 401，认证检查失败保留 503；恢复后新
     mode = undefined;
     assert.equal((await (await invoke(app, false)).json()).choices[0].message.content, 'OK');
     assert.equal(executions, 1);
-  } finally { await app.close(); }
+  } finally { await app.close({discardFrozen:true}); }
 });
 
 // 已开启 SSE 后不能更改 HTTP 状态，但仍须保留实际错误类型与诊断码，不能假报成功。
@@ -77,7 +77,7 @@ test('执行中错误的 JSON 与 SSE 保留认证、限流及未知故障分类
         }
         assert.equal(app.activeRequests, 0); assert.equal(app.inflightBytes, 0);
       }
-    } finally { await app.close(); }
+    } finally { await app.close({discardFrozen:true}); }
   }
 });
 
@@ -94,5 +94,5 @@ test('无效请求明确返回 400 与错误码，拒绝发生在认证和执行
       assert.equal(unknown.status, 400); assert.equal((await unknown.json()).error.code, 'UNKNOWN_MODEL');
     }
     assert.equal(authChecks, 0); assert.equal(executions, 0); assert.equal(app.inflightBytes, 0);
-  } finally { await app.close(); }
+  } finally { await app.close({discardFrozen:true}); }
 });

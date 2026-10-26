@@ -43,13 +43,13 @@ test('文本截断返回 length，停止续写且不暴露 CLI 错误消息', as
   const broken = new CliEvents([{name:'read',original:'read'}]); broken.accept(assistant('first'));
   assert.throws(()=>broken.accept({type:'stream_event',event:{type:'message_delta',delta:{stop_reason:'max_tokens'}}}), /工具消息不完整/);
   assert.deepEqual(await fs.readdir(home), ['workspace']);
- } finally { await app.close(); await fs.rm(home, {recursive:true,force:true}); }
+ } finally { await app.close({discardFrozen:true}); await fs.rm(home, {recursive:true,force:true}); }
 });
 
 test('追加历史保留旧消息块，工具重排不会改变工具定义', () => {
   const base = { ...request, tools: [tool('write'), tool('read')] };
-  const before = compileContext(base);
-  const after = compileContext({ ...base, tools: [...base.tools].reverse(), messages: [...base.messages, { role: 'assistant', content: '已读' }] });
+  const before = compileContext(base, {cacheBreakpoint:'5m'});
+  const after = compileContext({ ...base, tools: [...base.tools].reverse(), messages: [...base.messages, { role: 'assistant', content: '已读' }] }, {cacheBreakpoint:'5m'});
   const blocks = input => JSON.parse(input).message.content;
   assert.equal(blocks(before.input)[0].text, blocks(after.input)[0].text);
   assert.deepEqual(before.exposedTools, after.exposedTools);
@@ -156,5 +156,5 @@ test('UTF-8 字符跨 HTTP 分块仍完整，用量位于响应顶层且支持 S
     const chunks=(await res.text()).split('\n').filter(line=>line.startsWith('data: {')).map(line=>JSON.parse(line.slice(6)));
     assert.equal(chunks.filter(c=>c.usage).length,1);
     assert.deepEqual(chunks.at(-1).choices,[]);
-  } finally { await app.close(); }
+  } finally { await app.close({discardFrozen:true}); }
 });

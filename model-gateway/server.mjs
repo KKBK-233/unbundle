@@ -1,3 +1,4 @@
+import { sessionAffinity } from './session-affinity.mjs';
 import http from 'node:http';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { validateRequest } from './request.mjs';
@@ -5,7 +6,7 @@ import { fromAnthropic, anthropicContent, anthropicUsage, anthropicWriter } from
 import { createTiming } from './timing.mjs';
 import { scheduler } from './scheduler.mjs';
 import { readRequestBody } from './request-body.mjs';
-import { emptyOutputGuard, terminalNotice } from './empty-output-guard.mjs';
+import { emptyOutputGuard, AUTO_RESUME_NOTICE } from './empty-output-guard.mjs';
 import { sessionQuotaGuard } from './session-quota-guard.mjs';
 import { gatewayError } from './gateway-error.mjs';
 
@@ -13,10 +14,15 @@ const DEFAULT_MODELS = [
   { id: 'claude-code-sonnet', object: 'model', owned_by: 'velella-cloud' },
 ];
 
+// 网关失败不是模型正文；否则摘要请求会把额度提示保存为新的任务摘要。
+const guardFailure = (message, code, statistics) => Object.assign(new Error(message), {
+  code, status: code === 'SESSION_LIMIT' ? 429 : 422, retryable: false, statistics,
+});
+
 // 模型请求独立执行；支持子智能体并发，超过进程容量时排队。
 // 入站体在排队之前就已完整解析驻留，因此队列容量必须与请求体上限一起评估：
 // 单个 32MB 请求的峰值驻留约 124MB（分片、拼接缓冲、UTF-8 字符串与解析结果同时在场）。
-export async function gateway({ token, port = 18796, execute, models = DEFAULT_MODELS, beforeExecute, status, maxOutputTokens = 8192, onTiming, maxConcurrent = 3, maxQueued = 8, queueTimeoutMs = 600000, bodyIdleTimeoutMs = 30000, bodyTimeoutMs = 600000, maxRequestBytes = 32 * 1024 * 1024, maxImageBytes = 5 * 1024 * 1024, maxTools = 0, maxInflightBytes = 64 * 1024 * 1024 } = {}) {
+export async function gateway({ token, port = 18796, execute, models = DEFAULT_MODELS, modelAliases = {}, beforeExecute, status, sessionControl, maxOutputTokens = 8192, onTiming, maxConcurrent = 3, maxQueued = 8, queueTimeoutMs = 600000, bodyIdleTimeoutMs = 30000, bodyTimeoutMs = 600000, maxRequestBytes = 32 * 1024 * 1024, maxImageBytes = 5 * 1024 * 1024, maxTools = 0, maxInflightBytes = 64 * 1024 * 1024 } = {}) {
   if (!token) throw new Error('Missing gateway token');
   if (typeof execute !== 'function') throw new Error('Missing gateway executor');
   for (const value of [bodyIdleTimeoutMs, bodyTimeoutMs]) if (!Number.isSafeInteger(value) || value < 1 || value > 1800000) throw new Error('上传超时配置必须为 1..1800000 毫秒');
@@ -65,6 +71,26 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
       return;
     }
 
+    if(sessionControl && (pathname==='/sessions'||pathname.startsWith('/sessions/'))){
+      try {
+        if(req.method==='GET'&&pathname==='/sessions'){json(200,await sessionControl.listSessions());return;}
+        if(req.method==='GET'&&pathname==='/sessions/lifecycle'){json(200,await sessionControl.lifecycle('list'));return;}
+        const lifecycleMatch=/^\/sessions\/([a-f0-9-]{36})\/(retain|release-retention|retire|restore)$/i.exec(pathname);
+        if(req.method==='POST'&&(lifecycleMatch||pathname==='/sessions/lifecycle/sweep')){
+          if(req.headers['transfer-encoding']||Number(req.headers['content-length']||0)!==0){req.resume();json(400,{error:{code:'LIFECYCLE_BODY_REJECTED',message:'生命周期操作不接受替换历史或文件路径'}});return;}
+          json(200,await sessionControl.lifecycle(lifecycleMatch?.[2]||'sweep',lifecycleMatch?.[1]));return;
+        }
+        const match=/^\/sessions\/([a-f0-9-]{24,36})\/(recover|handoff|dispose)$/i.exec(pathname);
+        if(!match){json(404,{error:{code:'SESSION_ROUTE_NOT_FOUND',message:'会话操作不存在'}});return;}
+        if(req.method==='POST'&&['recover','dispose'].includes(match[2])){
+          if(req.headers['transfer-encoding']||Number(req.headers['content-length']||0)!==0){req.resume();json(400,{error:{code:'RECOVERY_BODY_REJECTED',message:'恢复操作不接受替换历史或工具结果'}});return;}
+          json(200,await sessionControl[match[2]](match[1]));return;
+        }
+        if(req.method==='GET'&&match[2]==='handoff'){json(200,await sessionControl.exportHandoff(match[1]));return;}
+        json(405,{error:{code:'METHOD_NOT_ALLOWED',message:'请求方法不支持'}});
+      }catch(error){json(error.status||500,{error:{code:error.code||'SESSION_CONTROL_ERROR',message:error.status?error.message:'会话操作失败',retryable:false}});}
+      return;
+    }
     if (req.method === 'GET' && pathname === '/v1/models') {
       json(200, { object: 'list', data: models });
       return;
@@ -126,6 +152,9 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
         raw = '';
       } catch { buffer = undefined; json(400, { error: { message: 'Invalid JSON', code: 'INVALID_JSON' } }); return; }
       if (anthropic) body = fromAnthropic(body, { defaultMaxTokens: Math.min(128000, maxOutputTokens) });
+      // 在参数验证与执行前统一官方 ID，旧会话仍可沿用原入口。
+      if (body && Object.hasOwn(modelAliases, body.model)) body = { ...body, model: modelAliases[body.model] };
+      const affinity = sessionAffinity(req.headers);
       const outputTokens = validateRequest(body, { maxOutputTokens, maxImageBytes, maxTools });
       if (!models.some(model => model.id === body.model)) {
         json(400, { error: { message: 'Unknown model', code: 'UNKNOWN_MODEL' } });
@@ -160,6 +189,10 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
         }
       }
       if (controller.signal.aborted) return;
+      if (blocked) {
+        timing.mark(quotaBlocked ? 'session_quota_retry_blocked' : 'empty_output_retry_blocked');
+        throw guardFailure(blocked, quotaBlocked ? 'SESSION_LIMIT' : blocked === AUTO_RESUME_NOTICE ? 'AUTO_RESUME_BLOCKED' : 'EMPTY_OUTPUT_LIMIT');
+      }
 
       let streamed = false, visibleText = false;
       if (body.stream) {
@@ -174,7 +207,6 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
           else res.write(': heartbeat\n\n');
         }, 10000);
       }
-      let quotaStopped = false;
       const emitText = text => {
         if (text?.trim()) visibleText = true;
         if (text) timing.mark('first_text');
@@ -186,24 +218,21 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
       };
       let execution;
       try {
-        execution = blocked ? terminalNotice(blocked) : await execute(body, controller.signal, emitText, timing);
+        execution = await execute(body, controller.signal, emitText, timing, affinity);
       } catch (error) {
         const notice = quotaGuard.record(error);
-        // 已输出正文时保留原错误，不把部分任务伪装成完整的额度提示；后续请求仍受冷却保护。
-        if (!notice || visibleText) throw error;
-        quotaStopped = true; execution = notice;
+        // 已有部分正文也必须明确失败，不能把额度提示作为正文补到任务或摘要中。
+        if (!notice) throw error;
+        timing.mark('session_quota_stopped');
+        throw guardFailure(notice.content, 'SESSION_LIMIT', error.statistics);
       }
       if (!blocked) timing.mark('execution_complete');
       const original = execution;
-      execution = outputGuard.finish(requestFingerprint, execution, visibleText);
+      execution = outputGuard.finish(requestFingerprint, execution, visibleText, body);
       const stoppedEmpty = execution !== original;
-      if (blocked || stoppedEmpty || quotaStopped) {
-        timing.mark(quotaBlocked ? 'session_quota_retry_blocked' : quotaStopped ? 'session_quota_stopped' : blocked ? 'empty_output_retry_blocked' : 'empty_output_limit_stopped');
-        // 上游只发空白时流已打开，仍需显式补上网关提示；不能因 streamed=true 丢失提示。
-        if (body.stream && streamed) {
-          if (nativeWriter) nativeWriter.text(execution.content);
-          else chunk({ content: execution.content });
-        }
+      if (stoppedEmpty) {
+        timing.mark('empty_output_limit_stopped');
+        throw guardFailure(execution.content, 'EMPTY_OUTPUT_LIMIT', original);
       } else if (execution.content) timing.mark('first_text');
       if (execution.tool_calls?.length) timing.mark('first_tool');
       if (controller.signal.aborted) return;
@@ -225,7 +254,7 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
       } else {
         json(200, { id, object: 'chat.completion', created, model: body.model, choices: [{ index: 0, message, finish_reason: finish }], ...statistics });
       }
-      outcome = blocked ? 'blocked' : quotaStopped ? 'session_limit' : stoppedEmpty ? 'empty_output_limit' : 'success';
+      outcome = 'success';
       timing.mark('response_complete');
     } catch (error) {
       const bodyTimeout = ['REQUEST_BODY_IDLE_TIMEOUT', 'REQUEST_BODY_TIMEOUT'].includes(error.code);
@@ -240,6 +269,7 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
       }
       if (!controller.signal.aborted) {
         const failure = gatewayError(error);
+        if (!res.headersSent && error.retryable === false) res.setHeader('x-should-retry', 'false');
         if (res.headersSent) {
           if (nativeWriter) nativeWriter.error(error);
           else { res.write(`data: ${JSON.stringify({ error: failure.error })}\n\n`); res.end(); }

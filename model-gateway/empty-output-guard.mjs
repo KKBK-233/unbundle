@@ -5,6 +5,15 @@ export const AUTO_RESUME_PROMPT = 'Output token limit hit. Resume directly — n
 export const EMPTY_OUTPUT_NOTICE = '[claude-code-relay:EMPTY_OUTPUT_LIMIT] 网关已停止本轮：上游耗尽输出预算，但没有返回有效正文或工具调用。自动续接无法恢复被截断的思考，重复发送可能再次消耗额度。请手动缩小任务或降低思考强度后再试。';
 export const AUTO_RESUME_NOTICE = '[claude-code-relay:AUTO_RESUME_BLOCKED] 网关已拦截空回复后的自动续接，未启动上游推理。请手动缩小任务或降低思考强度后再试。';
 
+// Desktop 3.1623 的连接检测固定为单个句点、1 token、无历史或工具。
+// 该请求只探测HTTP可达性，真实max_tokens空响应应原样返回，不能改成任务失败。
+export function minimalConnectionProbe(body) {
+  return body?.max_tokens === 1 && body.max_completion_tokens == null && body.stream !== true
+    && !body.tools?.length && body.tool_choice == null && body.reasoning_effort == null && body.stop == null
+    && body.messages?.length === 1 && body.messages[0]?.role === 'user'
+    && body.messages[0].content === '.';
+}
+
 // 仅认完整的已观察到的自动提示及紧邻空回复；引用、真实正文和工具调用不触发。
 function plainText(message) {
   if (typeof message?.content === 'string') return message.content;
@@ -41,10 +50,12 @@ export function emptyOutputGuard({ ttlMs = 3600000, capacity = 256, now = Date.n
     check(body, id) {
       prune();
       if (emptyAutoResume(body.messages)) return AUTO_RESUME_NOTICE;
+      if (minimalConnectionProbe(body)) return undefined;
       return failures.has(id) ? EMPTY_OUTPUT_NOTICE : undefined;
     },
-    finish(id, execution, visibleText) {
+    finish(id, execution, visibleText, body) {
       if (execution.finish_reason !== 'length' || visibleText || execution.content?.trim() || execution.tool_calls?.length) return execution;
+      if (minimalConnectionProbe(body)) return execution;
       prune();
       // 有界保存失败请求；旧指纹被淘汰或重启后，自动续接仍由历史结构检测拦截。
       if (!failures.has(id) && failures.size >= capacity) failures.delete(failures.keys().next().value);

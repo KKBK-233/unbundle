@@ -6,7 +6,7 @@ import { createWireProbe } from './wire-probe.mjs';
 
 const queues = new Map();
 const managedFile = /^\d{13}-[a-f0-9-]{36}\.json$/;
-const models = new Set(['claude-code-opus', 'claude-code-sonnet', 'claude-code-haiku']);
+const models = new Set(['claude-code-opus', 'claude-code-sonnet', 'claude-code-haiku', 'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5']);
 const efforts = new Set(['low', 'medium', 'high', 'xhigh', 'max', 'auto']);
 const types = new Set(['thinking', 'redacted_thinking', 'text', 'tool_use']);
 const numericContext = ['requestedOutputTokens', 'systemPromptBytes', 'historyBytes', 'toolSchemaBytes', 'relayBytes',
