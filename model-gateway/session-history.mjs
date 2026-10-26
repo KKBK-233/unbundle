@@ -65,20 +65,34 @@ export function continuationDelta(session, request, { allowInstructionUpdates = 
   if (session.pendingIds.size) {
     const tools = delta.filter(message => message.role === 'tool');
     if (tools.length !== session.pendingIds.size) return reject('tool_result_count_mismatch');
-    if (delta.some(message => message.role !== 'tool' && !allowedUpdate(message))) return reject('unsafe_tool_delta');
+    // Desktop 会在图片工具结果后另附 user 角色的尺寸注释。只接受固定格式的
+    // 显示数据和纯“继续”控制，不能把新的任务文本混进等待中的工具交接。
+    const note=/^\[Image: original [1-9]\d{0,5}x[1-9]\d{0,5}, displayed at [1-9]\d{0,5}x[1-9]\d{0,5}\. Multiply coordinates by \d+(?:\.\d+)? to map to original image\.\]$/;
+    const resume=/^(?:继续\s*){1,8}$/;
+    const users=delta.filter(m=>m.role==='user'),lastTool=delta.findLastIndex(m=>m.role==='tool');
+    const parts=users.flatMap(m=>typeof m.content==='string'?m.content.trim().split(/\r?\n/).map(s=>s.trim()).filter(Boolean):[]);
+    const imageCount=tools.reduce((n,m)=>n+(Array.isArray(m.content)?m.content.filter(b=>['image','image_url'].includes(b?.type)).length:0),0);
+    if(parts.filter(s=>note.test(s)).length>imageCount
+      ||parts.filter(s=>resume.test(s)).length>8
+      ||delta.some((message,i)=>message.role!=='tool'&&!allowedUpdate(message)
+        &&!(message.role==='user'&&i>lastTool&&typeof message.content==='string'
+          &&!Object.keys(message).some(k=>!['role','content'].includes(k))
+          &&message.content.trim()&&message.content.trim().split(/\r?\n/).every(s=>!s.trim()||note.test(s.trim())||resume.test(s.trim())))))return reject('unsafe_tool_delta');
     const ids = new Set(tools.map(message => message.tool_call_id));
     if (ids.size !== tools.length || [...ids].some(id => !session.pendingIds.has(id))) return reject('tool_result_id_mismatch');
   } else if (!delta.some(message => message.role === 'user') || delta.some(message => message.role !== 'user' && !allowedUpdate(message))) return reject('unsafe_user_delta');
   return delta;
 }
 
-// 原结果各块保持原样，只在首个结果后追加明确分隔的调用方目录状态。
+// 原结果各块保持原样，附加的调用方状态明确标记来源，不冒称工具原始输出。
 export function continuationToolResults(delta, maxImageBytes) {
   const snapshots = delta.filter(message => callerRuntimeStatus(message)?.type === 'environment').map(message => ({
     ...callerRuntimeStatus(message), content: message.content,
   }));
   const results = delta.filter(message => message.role === 'tool').map(message => [message.tool_call_id, mcpToolResult(message, maxImageBytes)]);
   if (snapshots.length && results.length) results[0][1].content.push({ type: 'text', text: stableJson({ kind: 'caller_runtime_status', snapshots }) });
+  const annotations=delta.filter(m=>m.role==='user').map(m=>({role:'user',content:m.content}));
+  if(annotations.length&&results.length)results[0][1].content.push({type:'text',text:stableJson({kind:'caller_handoff_context',source:'caller_user_messages',messages:annotations})});
   return new Map(results);
 }
 
