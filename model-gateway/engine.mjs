@@ -1,13 +1,11 @@
 import {cacheEnvironment} from './cache-policy.mjs';
-import { sessionEntry } from './session-entry.mjs';
-import { nativeResumeSeed } from './native-history.mjs';
 import { toolSearchConfig } from './tool-search-config.mjs';
 import { toolChoice, enforceToolChoice } from './tool-choice.mjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import readline from 'node:readline';
 import { compileContext } from './context.mjs';
 import { CliEvents } from './cli-events.mjs';
@@ -27,16 +25,14 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
   if (!Number.isSafeInteger(maxMcpRequestBytes) || maxMcpRequestBytes < 1024 || maxMcpRequestBytes > 256 * 1024 * 1024) throw new Error('MCP 请求字节上限无效');
   const compiled = compileContext(request, { cacheBreakpoint, maxImageBytes, maxTools });
   const { available, exposedTools, metrics } = compiled;
-  const entry = sessionEntry(request, compiled, {maxImageBytes});
-  const {systemPrompt, input} = entry;
+  // 默认逐轮路线继续接受调用方历史；原生模式的检查点约束只在会话池中执行。
+  const {systemPrompt, input} = compiled;
   timing?.mark('context_ready');
   if (process.env.GATEWAY_CONTEXT_DIAGNOSTICS === '1') console.error(JSON.stringify({ type: 'gateway_context_bytes', requestId: timing?.requestId, ...metrics, requestedOutputTokens: maxOutputTokens, effort: resolveEffort(request) || 'auto' }));
   await fs.mkdir(home, { recursive: true, mode: 0o700 });
   const cwd = path.join(home, 'workspace');
   await fs.mkdir(cwd, { recursive: true, mode: 0o700 });
   const work = await fs.mkdtemp(path.join(home, 'request-'));
-  const resumeFile = entry.history.length ? path.join(work, 'resume.jsonl') : undefined;
-  if (resumeFile) await fs.writeFile(resumeFile, nativeResumeSeed(entry, {sessionId:randomUUID(),cwd,model}), {mode:0o600});
   const bearer = randomBytes(32).toString('hex');
   const stops = request.stop == null ? [] : typeof request.stop === 'string' ? [request.stop] : request.stop;
   const probes = [takeWireProbe(timing?.requestId), createAnomalyCapture({ directory: anomalyDir, requestId: timing?.requestId,
@@ -114,7 +110,6 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', discovery.builtin, '--strict-mcp-config', '--mcp-config', mcp,
       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',
       '--allowedTools', 'mcp__omp__*', '--no-session-persistence', '--max-turns', String(discovery.enabled ? discovery.maxCalls + 2 : 2), '--model', model, '--system-prompt-file', promptFile];
-    if (resumeFile) args.push('--resume', resumeFile);
     if (discovery.enabled) args.splice(args.indexOf('--allowedTools') + 1, 0, 'ToolSearch');
     const effort = resolveEffort(request);
     if (effort) args.push('--effort', effort);
@@ -208,7 +203,6 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     clearTimeout(timer); clearTimeout(idleTimer); clearTimeout(killTimer); signal?.removeEventListener('abort', stop); lines?.close();
     kill('SIGKILL'); server.closeAllConnections();
     if (server.listening) await new Promise(resolve => server.close(resolve));
-    if (resumeFile) await fs.rm(resumeFile,{force:true});
     await fs.rm(mcp, { force: true }); await fs.rm(promptFile, { force: true });
     await fs.rmdir(work).catch(() => {});
     timing?.mark('cleanup_complete');

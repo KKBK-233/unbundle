@@ -31,7 +31,7 @@ export class NativeSessionStore {
       const rows = JSON.parse(raw);
       if (!Array.isArray(rows)) throw new Error('原生会话索引格式无效');
       for (const row of rows) if ((row.affinityHash===undefined || hash.test(row.affinityHash)) && uuid.test(row.id) && hash.test(row.signature) && hash.test(row.expected)
-        && Array.isArray(row.history) && row.history.length <= 20000 && row.history.every(value => hash.test(value))
+        && Array.isArray(row.history) && row.history.every(value => hash.test(value))
         && Number.isFinite(row.snapshot?.size) && Number.isFinite(row.snapshot?.mtimeMs)
         && Number.isFinite(row.savedAt)) this.records.set(row.id, row);
     } catch (error) { if (error.code !== 'ENOENT') throw error; }
@@ -115,7 +115,7 @@ export class NativeSessionStore {
     // 正常空闲退出会冲刷 CLI 延迟写入；只刷新已经核验过的同一检查点。
     this.records.set(row.id,{...row,snapshot,savedAt:Date.now()});await this.persist();
   }
-  async takeForCompaction(request,compiled,affinityHash) {
+  async takeForCompaction(request,compiled,affinityHash,{consume=true}={}) {
     await this.ready;const intent=compactionIntent(request);if(!intent?.ordinary)return;
     const promptIndex=request.messages.findLastIndex(m=>m.role==='user'),sourceMessages=request.messages.slice(0,promptIndex);
     const instructions=sessionHistory(sourceMessages).filter(m=>['system','developer'].includes(m.role));
@@ -140,7 +140,7 @@ export class NativeSessionStore {
     if(matches.length!==1)return;
     const {row,length,extra}=matches[0],snapshot=await this.transcriptSnapshot(row.id);
     if(!snapshot||snapshot.size!==row.snapshot.size||snapshot.mtimeMs!==row.snapshot.mtimeMs)return;
-    await this.checkAffinity(affinityHash);await this.forget(row.id);
+    await this.checkAffinity(affinityHash);if(consume)await this.forget(row.id);
     return {row,boundary:{prompt:intent.prompt,receipts:[],sourceAssistantHash:row.expected,additionalUsers:[...intent.messages.slice(length),...(extra?[extra]:[])]},
       sourceRequest:{...request,max_tokens:row.compactSource.outputTokens,messages:sourceMessages}};
   }
@@ -168,7 +168,7 @@ export class NativeSessionStore {
     }catch { /* 已封存索引；磁盘错误不允许恢复推理。 */ }
     return result;
   }
-  async take(request, signature, allowInstructionUpdates, affinityHash) {
+  async take(request, signature, allowInstructionUpdates, affinityHash, {consume=true}={}) {
     await this.ready;
     for (const row of this.records.values()) {
       if (row.affinityHash !== affinityHash) continue;
@@ -180,8 +180,8 @@ export class NativeSessionStore {
       const snapshot = await this.transcriptSnapshot(row.id);
       if (!snapshot) return this.rejectRestore(row,request,{missing:true},'NATIVE_TRANSCRIPT_MISSING');
       if (snapshot.size !== row.snapshot.size || snapshot.mtimeMs !== row.snapshot.mtimeMs) return this.rejectRestore(row,request,{unsafe:true},'NATIVE_TRANSCRIPT_UNCERTAIN');
-      // 在启动任何推理前消费检查点；失败后不能自动回到旧检查点重复执行。
-      await this.forget(row.id);
+      // 池分配时只读核验，容量与进程准备成功后由执行入口消费；直接调用仍默认消费。
+      if(consume)await this.forget(row.id);
       return { id: row.id, delta };
     }
     if(affinityHash) {
