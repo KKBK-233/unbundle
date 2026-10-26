@@ -4,6 +4,8 @@ import {recordBashPhase} from './tool-boundary-trace.mjs';
 import {mappedBashAssistant} from './bash-roundtrip.mjs';
 import {continuationDelta,historyKey} from './session-history.mjs';
 import {recoveryDelta} from './session-recovery.mjs';
+import {callerRuntimeStatus} from './runtime-status.mjs';
+import {compileContext} from './context.mjs';
 const env=cwd=>({role:'system',content:`# Environment update\n - Primary working directory: ${cwd} (was E:\\)\n`});
 function fixture(id,original='cd /e/sr/Poem && python promo/build.py',returned='python promo/build.py',wire=original){
  for(const [phase,command] of [['cli',original],['wire',wire],['desktop',returned]])recordBashPhase(phase,id,'Bash',{command});
@@ -43,4 +45,32 @@ test('目录不符、缺少目录、出站不同、主体变化、shell展开均
   ['body','cd /e/sr/Poem && python promo/build.py','python other.py',undefined,[env('E:\\sr\\Poem')]],
   ['expand','cd /e/$(pwd) && python promo/build.py','python promo/build.py',undefined,[env('E:\\sr\\Poem')]],
  ]){const {actual}=fixture(id,original,returned,wire);assert.strictEqual(mappedBashAssistant(actual,prefix),actual);}
+});
+
+test('混合目录更新与进展提醒只提供调用前目录事实，原行为指令完整保留',()=>{
+ const {expected,actual}=fixture('mixed','cd /e/mad_ilwm && python build.py','python build.py');
+ const update={role:'system',content:'# Environment update\n - Primary working directory: E:\\mad_ilwm (was E:\\)\n\nThe user has not heard from you in a while. Keep them updated.\n\n<total_tokens>12345 tokens left</total_tokens>'};
+ const prefix=[{role:'user',content:'build'},update],before=JSON.stringify(prefix);
+ assert.equal(historyKey(mappedBashAssistant(actual,prefix)),historyKey(expected));
+ assert.equal(callerRuntimeStatus(update),undefined);
+ const compiled=compileContext({messages:prefix});
+ assert.equal(compiled.metrics.instructionUpdates,1);
+ assert(compiled.systemPrompt.includes('Keep them updated.'));
+ assert.equal(JSON.stringify(prefix),before);
+ assert.equal(JSON.parse(actual.tool_calls[0].function.arguments).command,'python build.py');
+ const receipt={role:'tool',tool_call_id:'mixed',content:'ORIGINAL_RESULT'};
+ const session={request:{messages:prefix},freezePreviousState:'waiting-tool',pendingControls:new Map(),pendingHttp:new Map(),history:prefix.map(m=>historyKey(m)),expected:historyKey(expected),pendingIds:new Set(['mixed'])};
+ assert.deepEqual(recoveryDelta(session,{messages:[...prefix,actual,receipt]}),[receipt]);
+});
+
+test('混合消息仍只信任调用前 system 固定开头，冲突或不匹配的新目录不能沿用旧目录',()=>{
+ const {actual}=fixture('mixed-negative');
+ const mixed={...env('E:\\sr\\Poem'),content:env('E:\\sr\\Poem').content+'\nKeep them updated.'};
+ for(const item of [{...mixed,role:'user'},{...mixed,role:'tool'},
+  {...mixed,content:'quoted:\n'+mixed.content},
+  {...mixed,content:mixed.content+'\n# Environment update\n - Primary working directory: E:\\other (was E:\\)\n'},
+  {...mixed,content:mixed.content.replace('E:\\sr\\Poem','E:\\other')},
+  {...mixed,content:mixed.content.replace('E:\\sr\\Poem','relative')},
+ ])assert.strictEqual(mappedBashAssistant(actual,[item]),actual);
+ assert.strictEqual(mappedBashAssistant(actual,[env('E:\\sr\\Poem'),{...mixed,content:mixed.content+'\n# Environment update\n'}]),actual);
 });
