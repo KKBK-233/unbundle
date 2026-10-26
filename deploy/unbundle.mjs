@@ -14,7 +14,7 @@ const emit = value => console.log(JSON.stringify(value));
 // 参数只影响独立部署配置；SSH 密码、账号令牌和私钥不接受为命令行参数。
 export function parseOptions(args) {
   const options = { command: args[0] || 'help', profile: 'default' };
-  if (!['help', 'install', 'start', 'stop', 'login', 'doctor', 'export-client', 'tunnel-worker','sessions','session-recover','session-handoff'].includes(options.command)) throw new Error('未知命令：' + options.command);
+  if (!['help', 'install', 'start', 'stop', 'login', 'doctor', 'export-client', 'tunnel-worker','sessions','session-recover','session-handoff','session-dispose'].includes(options.command)) throw new Error('未知命令：' + options.command);
   const flags = new Set(['live', 'no-autostart']);
   const values = new Set(['profile', 'host', 'identity', 'ssh-port', 'local-port', 'proxy-jump','session','output']);
   for (let index = 1; index < args.length; index++) {
@@ -302,9 +302,9 @@ async function doctor(name, live) {
 async function sessionAction(options) {
  const profile=await profileOf(options.profile),id=options.session;
  if(options.command!=='sessions'&&!/^(?:[a-f0-9]{24}|[a-f0-9-]{36})$/i.test(id||''))throw new Error('需要 --session 会话标识');
- const action=options.command==='session-recover'?'recover':'handoff';
+ const action=options.command==='session-recover'?'recover':options.command==='session-dispose'?'dispose':'handoff';
  const route=options.command==='sessions'?'/sessions':`/sessions/${id}/${action}`;
- const response=await fetch(`http://127.0.0.1:${profile.localPort}${route}`,{method:options.command==='session-recover'?'POST':'GET',headers:{authorization:`Bearer ${await tokenOf(options.profile)}`},signal:AbortSignal.timeout(20000)});
+ const response=await fetch(`http://127.0.0.1:${profile.localPort}${route}`,{method:['session-recover','session-dispose'].includes(options.command)?'POST':'GET',headers:{authorization:`Bearer ${await tokenOf(options.profile)}`},signal:AbortSignal.timeout(20000)});
  const body=await response.json();if(!response.ok)throw new Error(`${body.error?.code||response.status}：${body.error?.message||'会话操作失败'}`);
  if(options.command==='session-handoff'){
   const output=options.output?path.resolve(options.output):path.join(profileDir(options.profile),`handoff-${id}.md`);
@@ -315,7 +315,7 @@ async function sessionAction(options) {
 export async function main(args = process.argv.slice(2)) {
   const options = parseOptions(args);
   switch (options.command) {
-    case 'sessions': case 'session-recover': case 'session-handoff': await sessionAction(options);break;
+    case 'sessions': case 'session-recover': case 'session-handoff': case 'session-dispose': await sessionAction(options);break;
     case 'install': await install(options); break;
     case 'start': await start(options.profile); break;
     case 'tunnel-worker': await worker(options.profile); break;
@@ -327,7 +327,7 @@ export async function main(args = process.argv.slice(2)) {
     }
     case 'doctor': await doctor(options.profile, options.live); break;
     case 'export-client': await exportClient(options.profile); break;
-    default: console.log('Unbundle：install --host root@VPS [--profile 名称] [--local-port 18796]；sessions / session-recover --session ID / session-handoff --session ID；login / start / stop / doctor [--live] / export-client --profile 名称');
+    default: console.log('Unbundle：install --host root@VPS [--profile 名称] [--local-port 18796]；sessions / session-recover --session ID / session-handoff --session ID / session-dispose --session ID；login / start / stop / doctor [--live] / export-client --profile 名称');
   }
 }
 

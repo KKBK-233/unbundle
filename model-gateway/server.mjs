@@ -80,11 +80,11 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
           if(req.headers['transfer-encoding']||Number(req.headers['content-length']||0)!==0){req.resume();json(400,{error:{code:'LIFECYCLE_BODY_REJECTED',message:'生命周期操作不接受替换历史或文件路径'}});return;}
           json(200,await sessionControl.lifecycle(lifecycleMatch?.[2]||'sweep',lifecycleMatch?.[1]));return;
         }
-        const match=/^\/sessions\/([a-f0-9-]{24,36})\/(recover|handoff)$/i.exec(pathname);
+        const match=/^\/sessions\/([a-f0-9-]{24,36})\/(recover|handoff|dispose)$/i.exec(pathname);
         if(!match){json(404,{error:{code:'SESSION_ROUTE_NOT_FOUND',message:'会话操作不存在'}});return;}
-        if(req.method==='POST'&&match[2]==='recover'){
+        if(req.method==='POST'&&['recover','dispose'].includes(match[2])){
           if(req.headers['transfer-encoding']||Number(req.headers['content-length']||0)!==0){req.resume();json(400,{error:{code:'RECOVERY_BODY_REJECTED',message:'恢复操作不接受替换历史或工具结果'}});return;}
-          json(200,await sessionControl.recover(match[1]));return;
+          json(200,await sessionControl[match[2]](match[1]));return;
         }
         if(req.method==='GET'&&match[2]==='handoff'){json(200,await sessionControl.exportHandoff(match[1]));return;}
         json(405,{error:{code:'METHOD_NOT_ALLOWED',message:'请求方法不支持'}});

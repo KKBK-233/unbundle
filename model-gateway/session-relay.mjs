@@ -14,6 +14,7 @@ import { NativeCliSession } from './native-cli-session.mjs';
 import { continuationDelta, historyKey, sessionHistory } from './session-history.mjs';
 import path from 'node:path';
 import { NativeSessionStore } from './native-session-store.mjs';
+import { archiveSession } from './session-quarantine.mjs';
 
 async function awaitCancellation(promise, signal) {
   signal?.throwIfAborted(); let abort;
@@ -346,6 +347,28 @@ export function sessionRelay(options, retained) {
         if(action==='restore')return await lifecycle.restore(id);
         if(action==='sweep')return await lifecycle.sweep();
         throw recoveryError('LIFECYCLE_ACTION_INVALID','不支持的生命周期操作');
+      }finally{maintenance=false;}
+    },
+    async dispose(id){
+      if(closed||maintenance||activeTurns)throw recoveryError('SESSION_BUSY','会话仍在执行，暂不能释放');
+      maintenance=true;
+      try{
+        const session=[...sessions].find(s=>s.sessionId===id||s.nativeSessionId===id);
+        if(!session||session.state!=='frozen')throw recoveryError('SESSION_NOT_FROZEN','只能释放原进程已经退出的冻结会话');
+        await session.freezing;
+        if(session.processAlive())throw recoveryError('NATIVE_PROCESS_ALIVE','原进程仍存活，不能释放冻结现场');
+        // 再保存一次死亡现场并补齐防重放记录；任何落盘失败均不释放运行槽位。
+        session.frozenProcess={...session.frozenProcess,verified:false};
+        await archiveSession(session,{request:session.frozenRequest,reason:session.freezeReason||'NATIVE_PROCESS_GONE'});
+        const row=session.quarantineRecord||{signature:session.signature,history:[...session.history],affinityHash:session.affinityHash,
+          historyNormalization:session.historyNormalization,nativeSessionId:session.nativeSessionId};
+        await store?.forget(session.nativeSessionId);
+        if(store&&!store.blocked.some(r=>r.nativeSessionId===session.nativeSessionId))
+          await store.quarantineHistory(row.signature,row.history,row.affinityHash,row.historyNormalization,row.nativeSessionId);
+        await store?.quarantineAffinity(row.affinityHash);
+        if(!quarantined.includes(row))quarantined.push(row);
+        await session.close('disposed',{discardFrozen:true});sessions.delete(session);
+        return {sessionId:session.sessionId,nativeSessionId:session.nativeSessionId,state:'archived',modelRequests:0};
       }finally{maintenance=false;}
     },
     async recover(id){
