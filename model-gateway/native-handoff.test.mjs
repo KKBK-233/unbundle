@@ -37,10 +37,10 @@ readline.createInterface({input:process.stdin}).on('line',()=>{
 });`;
 const request = { model: 'claude-opus-5-5', max_tokens: 1024, messages: [{ role: 'user', content: 'synthetic' }],
   tools: ['Read', 'Write'].map(name => ({ type: 'function', function: { name, parameters: { type: 'object' } } })) };
-async function setup(mode) {
+async function setup(mode, overrides={}) {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'native-handoff-')), records = []; let spawns = 0;
   const relay = sessionRelay({ home, model: request.model, maxOutputTokens: 1024, timeoutMs: 3000, handoffTimeoutMs: 150,
-    requireLiveToolContinuation: true, maxSessions: 1,
+    requireLiveToolContinuation: true, maxSessions: 1, ...overrides,
     onSessionEvent: value => records.push(value),
     spawnProcess: (_cli, args, options) => { spawns++; return spawn(process.execPath,
       ['--input-type=module', '-e', script, args[args.indexOf('--mcp-config') + 1], mode], options); } });
@@ -175,4 +175,21 @@ test('真实参数变化不能通过解冻入口放行，已丢失进程也不�
   await assert.rejects(state.relay.recover(frozen.sessionId),{code:'RECOVERY_ARGUMENTS_CHANGED'});
   await assert.rejects(state.relay.recover('0'.repeat(24)),{code:'NATIVE_PROCESS_GONE'});assert.equal(state.spawns(),1);
  }finally{await state.close();}
+});
+
+
+test('工具续接提高输出上限后仍复用原进程，并能切回原上限',async()=>{
+ const state=await setup('reordered',{maxOutputTokens:2048});
+ try{
+  const first=await state.relay.infer(request);
+  const next={...request,max_tokens:2048,messages:[...request.messages,assistantMessage(first),...first.tool_calls.map(c=>({role:'tool',tool_call_id:c.id,content:'REAL_RESULT'}))]};
+  const second=await state.relay.infer(next);assert.equal(second.content,'DONE');assert.equal(state.spawns(),1);
+  const third=await state.relay.infer({...request,messages:[...next.messages,assistantMessage(second),{role:'user',content:'继续'}]});
+  assert.equal(third.tool_calls.length,1);assert.equal(state.spawns(),1);
+ }finally{await state.close();}
+});
+
+test('低于原 CLI 实际输出上限的续接仍然拒绝',async()=>{
+ const state=await setup('reordered',{maxOutputTokens:2048});
+ try{const first=await state.relay.infer(request);const next={...request,max_tokens:512,messages:[...request.messages,assistantMessage(first),...first.tool_calls.map(c=>({role:'tool',tool_call_id:c.id,content:'REAL_RESULT'}))]};await assert.rejects(state.relay.infer(next),{code:'TOOL_CONTINUATION_UNCERTAIN'});assert.equal(state.spawns(),1);}finally{await state.close();}
 });

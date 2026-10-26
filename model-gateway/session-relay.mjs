@@ -70,11 +70,15 @@ export function sessionRelay(options, retained) {
       const compiled = compileContext(request, options);
       const model = typeof options.modelFor === 'function' ? options.modelFor(request.model) : options.model;
       const matchKey = store?.key || key;
-      const signature = createHmac('sha256', matchKey).update(stableJson({ model, outputTokens,
+      const signatureForOutput = cap => createHmac('sha256', matchKey).update(stableJson({ model, outputTokens: cap,
         // 候选仅允许追加指令；旧前缀须逐字节匹配，旧规则修改仍不能复用。
         system: options.liveInstructionUpdates === true ? null : compiled.metrics.systemHash,
         tools: compiled.metrics.toolsHash, policy: compiled.policy, effort: request.reasoning_effort || 'auto', stop: request.stop,
         cliVersion: store ? options.cliVersion || null : null })).digest('hex');
+      const signature = signatureForOutput(outputTokens);
+      // 输出参数是上限；保留现有较小 CLI 上限，其他配置必须完全一致。
+      const matchesSession = session => session.signature === signature || Number.isSafeInteger(session.options.outputTokens)
+        && outputTokens >= session.options.outputTokens && session.signature === signatureForOutput(session.options.outputTokens);
       const affinityHash = affinity ? createHmac('sha256', matchKey).update('sticky:'+affinity.key).digest('hex') : undefined;
       if(compactionIntent(request)) {
         const replayKey=createHmac('sha256',matchKey).update(retryIdentity(request)).digest('hex');
@@ -161,7 +165,7 @@ export function sessionRelay(options, retained) {
         if(automatic)recovering.automaticRecoveryAttempt={identity:attemptIdentity};
         const quarantine=recovering.quarantineRecord;
         try {
-          if(recovering.signature!==signature||recovering.affinityHash!==affinityHash)throw recoveryError('RECOVERY_CONFIG_MISMATCH','模型、工具、规则或会话身份已经变化');
+          if(!matchesSession(recovering)||recovering.affinityHash!==affinityHash)throw recoveryError('RECOVERY_CONFIG_MISMATCH','模型、工具、规则或会话身份已经变化');
           if(!quarantine)throw recoveryError('RECOVERY_BOUNDARY_UNSAFE','缺少已保存的封存记录');
           if(!await recovering.verifySuspended())throw recoveryError('NATIVE_PROCESS_GONE','原 CLI 已退出或暂停状态不可确认，未重建历史');
           const delta=recoveryDelta(recovering,recoveryRequest,{hashKey:store?.key,allowInstructionUpdates:options.liveInstructionUpdates===true});
@@ -222,7 +226,7 @@ export function sessionRelay(options, retained) {
           throw Object.assign(new Error('固定会话已因异常封存；禁止自动重建'), {code:'SESSION_QUARANTINED',status:409,retryable:false});
         }
         if (affinityHash && !['idle','waiting-tool'].includes(session.state)) throw Object.assign(new Error('固定会话仍在处理上一轮'), {code:'SESSION_BUSY',status:409,retryable:false});
-        if (session.signature !== signature || !['idle', 'waiting-tool'].includes(session.state)) continue;
+        if (!matchesSession(session) || !['idle', 'waiting-tool'].includes(session.state)) continue;
         signatureMatches++;
         const compacted=compactedDelta(session,request,{hashKey:store?.key});
         const candidate = compacted || continuationDelta(session, request, { allowInstructionUpdates: options.liveInstructionUpdates === true,
@@ -261,20 +265,20 @@ export function sessionRelay(options, retained) {
             { code: 'TOOL_CONTINUATION_UNCERTAIN', status: 409, retryable: false });
         }
         selected = await allocate(async () => {
-        const restored = await store?.take(request, signature, options.liveInstructionUpdates === true, affinityHash, {consume:false});
+        const restored = await store?.take(request, signature, options.liveInstructionUpdates === true, affinityHash, {consume:false,outputTokens,signatureForOutput});
         if (restored?.mismatch) throw Object.assign(new Error('固定会话的持久检查点不匹配'), {code:'SESSION_HISTORY_MISMATCH',status:409,retryable:false});
         if (restored?.missing) throw Object.assign(new Error('已绑定的原生历史文件缺失；禁止自动重建长历史'), {code:'NATIVE_TRANSCRIPT_MISSING',status:409,retryable:false});
         if (restored?.unsafe) throw Object.assign(new Error('原生会话文件在完成检查点后发生变化；不自动恢复或重新提交历史'),
           { code: 'NATIVE_TRANSCRIPT_UNCERTAIN', status: 409, retryable: false });
         if (!restored?.id) sessionEntry(request, compiled, options);
         await makeRoom();
-        const created = new NativeCliSession(request, compiled, { ...options, model, outputTokens, historyHashKey: store?.key,
+        const created = new NativeCliSession(request, compiled, { ...options, model, outputTokens: restored?.outputTokens ?? outputTokens, historyHashKey: store?.key,
           onIdleSessionClosed:session=>store?.refreshClosed(session),
           onInvalidateCheckpoint: async id=>{ await store?.forget(id); await store?.quarantineAffinity(affinityHash);
-            const row={signature,history:[...created.history],affinityHash,historyNormalization:created.historyNormalization,nativeSessionId:created.nativeSessionId};quarantined.push(row);created.quarantineRecord=row;
-            await store?.quarantineHistory(signature,row.history,affinityHash,row.historyNormalization,row.nativeSessionId); },
+            const row={signature:created.signature,history:[...created.history],affinityHash,historyNormalization:created.historyNormalization,nativeSessionId:created.nativeSessionId};quarantined.push(row);created.quarantineRecord=row;
+            await store?.quarantineHistory(row.signature,row.history,affinityHash,row.historyNormalization,row.nativeSessionId); },
           resumeNativeId: restored?.id, resumeDelta: restored?.delta });
-        created.signature = signature; created.affinityHash = affinityHash; created.creationReserved = true;
+        created.signature = restored?.signature ?? signature; created.affinityHash = affinityHash; created.creationReserved = true;
         sessions.add(created);
         try {
           await created.start();

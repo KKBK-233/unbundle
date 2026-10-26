@@ -171,11 +171,14 @@ export class NativeSessionStore {
     }catch { /* 已封存索引；磁盘错误不允许恢复推理。 */ }
     return result;
   }
-  async take(request, signature, allowInstructionUpdates, affinityHash, {consume=true}={}) {
+  async take(request, signature, allowInstructionUpdates, affinityHash, {consume=true,outputTokens,signatureForOutput}={}) {
     await this.ready;
     for (const row of this.records.values()) {
       if (row.affinityHash !== affinityHash) continue;
-      if (row.signature !== signature) { if (affinityHash) return this.rejectRestore(row,request,{mismatch:true},'CHECKPOINT_HISTORY_MISMATCH'); continue; }
+      const cap=row.compactSource?.outputTokens;
+      const compatibleCap=Number.isSafeInteger(cap)&&cap>0&&Number.isSafeInteger(outputTokens)&&outputTokens>=cap
+        &&typeof signatureForOutput==='function'&&row.signature===signatureForOutput(cap);
+      if (row.signature !== signature&&!compatibleCap) { if (affinityHash) return this.rejectRestore(row,request,{mismatch:true},'CHECKPOINT_HISTORY_MISMATCH'); continue; }
       if(row.compaction?.nativeCommitted)await hydrateCompactionSource({nativeSessionId:row.id,compaction:row.compaction,options:{home:this.home,configDir:this.configDir,historyHashKey:this.key}});
       let delta = compactedDelta({...row,pendingIds:new Set()},request,{hashKey:this.key}) || continuationDelta({ ...row, pendingIds: new Set(row.verifiedToolResults?.map(v=>v.id)||[]) }, request,
         { allowInstructionUpdates, hashKey: this.key });
@@ -194,7 +197,7 @@ export class NativeSessionStore {
       if (snapshot.size !== row.snapshot.size || snapshot.mtimeMs !== row.snapshot.mtimeMs) return this.rejectRestore(row,request,{unsafe:true},'NATIVE_TRANSCRIPT_UNCERTAIN');
       // 池分配时只读核验，容量与进程准备成功后由执行入口消费；直接调用仍默认消费。
       if(consume)await this.forget(row.id);
-      return { id: row.id, delta };
+      return { id: row.id, delta, ...(compatibleCap?{signature:row.signature,outputTokens:cap}:{}) };
     }
     if(affinityHash) {
       try {await fs.access(path.join(this.folder,'binding-'+affinityHash)); return {unsafe:true};}
