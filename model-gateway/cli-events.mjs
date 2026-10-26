@@ -124,6 +124,7 @@ export class CliEvents {
         if (block.type !== 'tool_use') continue;
         this.addCall(block);
       }
+      if(message.stop_reason==='tool_use')this.finishToolMessage();
     }
     if (event.type !== 'stream_event') return;
     const inner = event.event || {};
