@@ -29,8 +29,8 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   const config=JSON.parse(fs.readFileSync(flag('--mcp-config'),'utf8')).mcpServers.omp;
   fetch(config.url,{method:'POST',headers:{...config.headers,'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:'rpc',method:'tools/call',params:{name:'Read',arguments:{},_meta:{'claudecode/toolUseId':'pending'}}})}).catch(()=>{});return;
  }
- const text=mode==='tag'?'<thinking>SYNTHETIC_ONLY</thinking>':'READY';
- emit({type:'stream_event',event:{type:'content_block_start',index:0,content_block:{type:'text',text:''}}});
+ const text=['tag','mismatch'].includes(mode)?'<thinking>SYNTHETIC_ONLY</thinking>':'READY';
+ emit({type:'stream_event',event:{type:'content_block_start',index:0,content_block:{type:mode==='mismatch'?'thinking':'text',text:''}}});
  emit({type:'stream_event',event:{type:'content_block_delta',index:0,delta:{type:'text_delta',text}}});
  emit({type:'stream_event',event:{type:'content_block_stop',index:0}});
  emit({type:'stream_event',event:{type:'message_delta',delta:{stop_reason:'end_turn'},usage:{output_tokens:3}}});
@@ -146,5 +146,44 @@ test('restore清理中断可在重建后续办，manifest删除后也不覆盖�
    await lifecycle.retire(f.id);assert.equal(lifecycle.catalog.sessions[f.id].state,'retired');
   }finally{await f.close();}
  }
+});
+
+test('原生普通续接每轮均检测正文标签和类型冲突，只保存元数据',async()=>{
+ for(const mode of ['tag','mismatch']){
+  const f=await poolFixture();try{
+   f.options.anomalyDir=path.join(f.home,'anomalies');f.options.onAnomaly=r=>f.events.push(r);f.setMode(mode);
+   const relay=f.make(),first=await relay.infer(base);
+   await relay.infer({...base,messages:[...base.messages,assistantMessage(first),{role:'user',content:'next'}]});
+   const files=await fs.readdir(f.options.anomalyDir);assert.equal(files.length,2);
+   for(const file of files){
+    const raw=await fs.readFile(path.join(f.options.anomalyDir,file),'utf8'),record=JSON.parse(raw);
+    assert.equal(record.state,'finished');assert.equal(record.summary.outcome,'completed');
+    assert(record.signals.some(s=>s.signal==='thinking_tag_in_text'));
+    if(mode==='mismatch')assert(record.signals.some(s=>s.signal==='block_delta_type_mismatch'));
+    assert(!raw.includes('SYNTHETIC_ONLY'));assert(!raw.includes('next'));assert(!raw.includes('Bearer'));
+   }
+  }finally{await f.close();}
+ }
+});
+
+test('旧版本recoverable残留归档可显式续办，原件和现有检查点保留',async()=>{
+ const f=await lifecycleFixture();try{
+  await f.lifecycle.retire(f.id);f.lifecycle.removeArchive=async()=>{throw Error('synthetic old interruption');};
+  await assert.rejects(f.lifecycle.restore(f.id),/synthetic old interruption/);
+  const entry=f.lifecycle.catalog.sessions[f.id];entry.state='recoverable';delete entry.cleanup;await f.lifecycle.save();
+  const lifecycle=new SessionLifecycle(f.store),before=await fs.readFile(f.file,'utf8');
+  assert.equal((await lifecycle.restore(f.id)).state,'recoverable');assert.equal(await fs.readFile(f.file,'utf8'),before);
+  assert(f.store.records.has(f.id));await assert.rejects(fs.access(path.join(f.home,'session-lifecycle',f.id)),{code:'ENOENT'});
+ }finally{await f.close();}
+});
+
+test('两个并发恢复请求不能消费同一检查点并启动两个相同UUID的进程',async()=>{
+ const f=await poolFixture({maxSessions:2});try{
+  const original=f.make(),first=await original.infer(base);await original.close();f.retained.sessions.clear();
+  const relay=f.make(),request={...base,messages:[...base.messages,assistantMessage(first),{role:'user',content:'next'}]};
+  const results=await Promise.allSettled([relay.infer(request),relay.infer(request)]);
+  assert.equal(results.filter(r=>r.status==='fulfilled').length,1);assert.equal(f.children.length,2);
+  assert.equal(results.find(r=>r.status==='rejected').reason.code,'NATIVE_RESUME_REQUIRED');
+ }finally{await f.close();}
 });
 
