@@ -32,9 +32,10 @@ emit({type:'result',is_error:false,result:'READY',usage:{input_tokens:10*turns,o
 const base = { model: 'claude-opus-5-5', reasoning_effort: 'low', max_tokens: 1024, messages: [{ role: 'user', content: '开始' }] };
 async function setup(overrides = {}) {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'native-relay-test-')); let spawns = 0, environment;
+  const sessions=new Set();
   const relay = sessionRelay({ cli: 'synthetic', home, modelFor: model => model, maxOutputTokens: 1024, timeoutMs: 5000,
-    spawnProcess: (_cli, _args, options) => { spawns++; environment=options.env; return spawn(process.execPath, ['--input-type=module', '-e', fake], options); }, ...overrides });
-  return { relay, home, spawns: () => spawns, environment:()=>environment, async close() { await relay.close({discardFrozen:true}); assert((await fs.readdir(home)).every(name=>['workspace','quarantined-sessions'].includes(name))); await fs.rm(home, { recursive: true, force: true }); } };
+    spawnProcess: (_cli, _args, options) => { spawns++; environment=options.env; return spawn(process.execPath, ['--input-type=module', '-e', fake], options); }, ...overrides },{sessions});
+  return { relay, home, sessions, spawns: () => spawns, environment:()=>environment, async close() { await relay.close({discardFrozen:true}); assert((await fs.readdir(home)).every(name=>['workspace','quarantined-sessions'].includes(name))); await fs.rm(home, { recursive: true, force: true }); } };
 }
 
 test('API适配关闭CLI自加任务预算提示，调用方输入和实际输出上限不变', async()=>{
@@ -180,7 +181,13 @@ test('CLI 心跳不能掩盖上游无进展，累计协议输出仍受预算限�
 
 test('CLI 已产生转换器不识别的正文时，独立管道检查仍可定位', async () => {
   const records = [], visible = [];
-  const state = await setup({ idleTimeoutMs: 150, onCliAudit: value => records.push(value) });
+  const state = await setup({ idleTimeoutMs: 5000, timeoutMs: 10000, onCliAudit: value => {
+    records.push(value);
+    if(value.event==='first_output'){
+      // 先确认合成正文已经产生，再测无进展超时；不能让 CI 进程启动时间抢先耗尽窗口。
+      const session=[...state.sessions][0];session.options.idleTimeoutMs=150;session.progress();
+    }
+  } });
   try {
     await assert.rejects(state.relay.infer({ ...base, messages: [{ role: 'user', content: 'RAWONLY' }] },
       { onText: text => visible.push(text) }), { code: 'INFERENCE_IDLE_TIMEOUT' });
