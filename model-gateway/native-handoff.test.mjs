@@ -15,11 +15,11 @@ const start=id=>emit({type:'stream_event',event:{type:'message_start',message:{i
 const call=(id,name,path)=>fetch(config.url,{method:'POST',headers:{...config.headers,'content-type':'application/json'},
  body:JSON.stringify({jsonrpc:'2.0',id,method:'tools/call',params:{name,arguments:mode==='reordered'?{path,options:{offset:0,limit:5}}:{path},_meta:{'claudecode/toolUseId':id}}})});
 readline.createInterface({input:process.stdin}).on('line',()=>{
- start('initial');
+ if(mode==='aggregate')emit({type:'system',subtype:'api_retry',attempt:1});else start('initial');
  const tools=[{type:'tool_use',id:'native_1',name:'mcp__omp__Read',input:mode==='reordered'?{options:{limit:5,offset:0},path:'first'}:{path:'first'}}];
  if(mode==='serial')tools.push({type:'tool_use',id:'native_2',name:'mcp__omp__Write',input:{path:'second'}});
- emit({type:'assistant',message:{content:tools}});
- emit({type:'stream_event',event:{type:'message_delta',delta:{stop_reason:'tool_use'},usage:{output_tokens:1}}});
+ emit({type:'assistant',message:{id:'initial',content:tools,...(mode==='aggregate'?{stop_reason:'tool_use',usage:{input_tokens:2,output_tokens:3}}:{})}});
+ if(mode!=='aggregate')emit({type:'stream_event',event:{type:'message_delta',delta:{stop_reason:'tool_use'},usage:{output_tokens:1}}});
  if(mode==='timeout')return;
  if(mode==='internal-error'){
   setTimeout(()=>emit({type:'user',message:{content:[{type:'tool_result',tool_use_id:'native_1',is_error:true,content:'Synthetic internal rejection'}]}}),20);return;
@@ -192,4 +192,13 @@ test('工具续接提高输出上限后仍复用原进程，并能切回原上�
 test('低于原 CLI 实际输出上限的续接仍然拒绝',async()=>{
  const state=await setup('reordered',{maxOutputTokens:2048});
  try{const first=await state.relay.infer(request);const next={...request,max_tokens:512,messages:[...request.messages,assistantMessage(first),...first.tool_calls.map(c=>({role:'tool',tool_call_id:c.id,content:'REAL_RESULT'}))]};await assert.rejects(state.relay.infer(next),{code:'TOOL_CONTINUATION_UNCERTAIN'});assert.equal(state.spawns(),1);}finally{await state.close();}
+});
+
+
+test('过载重试后仅有完整 assistant 时仍交付真实工具并续接原进程',async()=>{
+ const state=await setup('aggregate');try{
+  const first=await state.relay.infer(request);assert.equal(first.tool_calls.length,1);assert.equal(first.upstream_usage.input_tokens,2);
+  const next={...request,messages:[...request.messages,assistantMessage(first),{role:'tool',tool_call_id:first.tool_calls[0].id,content:'REAL_RESULT'}]};
+  assert.equal((await state.relay.infer(next)).content,'DONE');assert.equal(state.spawns(),1);
+ }finally{await state.close();}
 });
