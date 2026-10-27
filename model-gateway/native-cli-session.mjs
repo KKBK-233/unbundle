@@ -274,7 +274,7 @@ export class NativeCliSession {
         context:{...this.compiled.metrics,model:request.model,effort:resolveEffort(request)||'auto',requestedOutputTokens:this.options.outputTokens,cliVersion:this.options.cliVersion}});
       const events = new CliEvents(this.compiled.available, text => {
         if(!this.turn?.cancelling&&!policy.required&&!policy.single){probes.output(text);onText?.(text);}
-      }, request.stop == null ? [] : typeof request.stop === 'string' ? [request.stop] : request.stop, { allowToolSearch: this.options.toolSearch, maxToolSearchCalls: this.options.maxToolSearchCalls });
+      }, request.stop == null ? [] : typeof request.stop === 'string' ? [request.stop] : request.stop, { allowToolSearch: this.options.toolSearch, maxToolSearchCalls: this.options.maxToolSearchCalls, preferAggregateWithMcpValidation: true });
       const audit = cliOutputAudit({ requestId: timing?.requestId, sink: this.options.onCliAudit });
       const turn = { events, audit, probes, resolve, reject, signal, timing, policy, awaitingStart: true, outputBytes: 0,
         strategy: delta !== undefined ? 'native_increment' : this.entryMode || 'native_new' };

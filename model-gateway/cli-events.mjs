@@ -3,10 +3,12 @@ import { stableJson } from './context.mjs';
 
 // 汇总官方 CLI 的事件：工具等待整条消息结束，用量按 message.id 去重。
 export class CliEvents {
-  constructor(available, onText, stops = [], { allowToolSearch = false, maxToolSearchCalls = 8 } = {}) {
+  constructor(available, onText, stops = [], { allowToolSearch = false, maxToolSearchCalls = 8, preferAggregateWithMcpValidation = false } = {}) {
     this.tools = new Map(available.map(tool => [`mcp__omp__${tool.name}`, tool.original]));
     this.onText = onText;
     this.calls = new Map();
+    this.aggregateIds = new Set();
+    this.preferAggregateWithMcpValidation = preferAggregateWithMcpValidation;
     this.counts = new Map();
     this.text = '';
     this.sawDelta = false;
@@ -94,7 +96,13 @@ export class CliEvents {
 
   // 消息结束也是工具参数的边界；兼容 CLI 未透出逐块 stop，但不猜补残缺 JSON。
   finishToolMessage() {
-    const pending = [...this.blocks.values()].map(block => {
+    // 完整 assistant 已提供最终参数时，不再用尚未收尾的流片段覆盖它。
+    // 最终调用仍须和真实 MCP 的 ID、名称、参数逐项一致才能交付 Desktop。
+    const pending = [...this.blocks.values()].filter(block => {
+      if(!this.aggregateIds.has(block.id))return true;
+      if(this.calls.get(block.id)?.function.name!==this.tools.get(block.name))throw new Error('CLI 工具调用 ID 冲突');
+      return false;
+    }).map(block => {
       if (!block.fragments.trim()) throw new Error('CLI 工具消息不完整：缺少完整参数');
       let input;
       try { input = JSON.parse(block.fragments); }
@@ -123,6 +131,7 @@ export class CliEvents {
         if (this.stopSequence !== undefined) return;
         if (block.type !== 'tool_use') continue;
         this.addCall(block);
+        if(this.preferAggregateWithMcpValidation&&this.calls.has(block.id))this.aggregateIds.add(block.id);
       }
       if(message.stop_reason==='tool_use')this.finishToolMessage();
     }
@@ -145,7 +154,9 @@ export class CliEvents {
     }
     if (inner.type === 'content_block_stop' && this.blocks.has(inner.index)) {
       const block = this.blocks.get(inner.index);
-      this.addCall({ ...block, input: block.fragments ? JSON.parse(block.fragments) : block.input });
+      if(this.preferAggregateWithMcpValidation&&this.aggregateIds.has(block.id)){
+        if(this.calls.get(block.id)?.function.name!==this.tools.get(block.name))throw new Error('CLI 工具调用 ID 冲突');
+      }else this.addCall({ ...block, input: block.fragments ? JSON.parse(block.fragments) : block.input });
       this.blocks.delete(inner.index);
     }
     if (inner.type === 'content_block_delta' && inner.delta?.type === 'text_delta') {
