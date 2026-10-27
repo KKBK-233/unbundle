@@ -68,14 +68,17 @@ readline.createInterface({input:process.stdin}).on('line',async line=>{
 });`;
 for(const mode of ['normal','missing','conflict'])test('完整 assistant 的真实 MCP 往返：'+mode,async()=>{
  const home=await fs.mkdtemp(path.join(os.tmpdir(),'assistant-fallback-'));let spawns=0;
- const relay=sessionRelay({home,cli:'synthetic',modelFor:x=>x,maxOutputTokens:1024,timeoutMs:5000,handoffTimeoutMs:500,
+ const relay=sessionRelay({home,cli:'synthetic',modelFor:x=>x,maxOutputTokens:8192,timeoutMs:5000,handoffTimeoutMs:500,
   requireLiveToolContinuation:true,spawnProcess:(_c,args,options)=>{spawns++;return spawn(process.execPath,['--input-type=module','-e',fake,JSON.stringify(args),mode],options);}});
  const request={model:'synthetic',max_tokens:1024,messages:[{role:'user',content:'read'}],tools:[{type:'function',function:{name:'Read',parameters:{type:'object',properties:{path:{type:'string'}}}}}]};
  try{
   if(mode!=='normal')await assert.rejects(relay.infer(request),{code:mode==='missing'?'CLI_TOOL_HANDOFF_TIMEOUT':'NATIVE_TOOL_ID_MISMATCH'});
   else{
    const first=await relay.infer(request);assert.equal(first.tool_calls.length,1);assert.equal(first.tool_calls[0].id,'tool1');
-   const second=await relay.infer({...request,messages:[...request.messages,assistantMessage(first),{role:'tool',tool_call_id:'tool1',content:'ACTUAL_RESULT'}]});
+   const continuation={...request,messages:[...request.messages,assistantMessage(first),{role:'tool',tool_call_id:'tool1',content:'ACTUAL_RESULT'}]};
+   await assert.rejects(relay.infer({...continuation,max_tokens:512}),{code:'SESSION_OUTPUT_BUDGET_TOO_SMALL'});
+   assert.equal(relay.frozenSize,0);
+   const second=await relay.infer({...continuation,max_tokens:2048});
    assert.equal(second.content,'ACTUAL_RESULT');assert.equal(spawns,1);assert.equal(second.usage.completion_tokens,2);
   }
  }finally{await relay.close({discardFrozen:true});await fs.rm(home,{recursive:true,force:true});}

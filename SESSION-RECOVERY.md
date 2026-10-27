@@ -71,3 +71,9 @@ ToolSearch 在云端入口默认启用，`GATEWAY_TOOL_SEARCH=0` 可关闭。工
 恢复正文和检查点后先持久化 `restoring` 清理计划，删除归档成功才变为 `recoverable`。清理中断后再次 restore 或 sweep 可继续，包含 manifest 已被删除的情况；此时只清理重复归档，不再次覆盖正文或回滚新检查点。默认关闭原生会话时，逐轮 CLI 路线仍接受调用方普通历史和真实工具结果；原生模式禁止长历史重建的约束不影响该默认路线。
 
 旧版 `recoverable` 状态遗留的重复归档，可在确认当前正文及检查点仍有效后显式 restore 续办清理。默认逐轮、原生普通续接和原生压缩使用相同的有界异常取证；只记录标签、协议类型和请求内通道指纹等元数据，不保存思考正文或签名值，不主动发起模型请求。取证写入失败不改变推理结果，结束时最多等待 250 毫秒。
+
+## 原生会话输出预算
+
+会话沿用首次启动 CLI 的实际输出上限。后续请求提高 `max_tokens` / `max_completion_tokens` 时可以复用原 CLI，但不会提高该进程的实际上限；会话选择日志分别记录 `requestedOutputTokens` 与 `cliOutputTokens`。请求上限低于原 CLI 实际上限时返回 `SESSION_OUTPUT_BUDGET_TOO_SMALL`，保留会话和检查点，纠正上限后可重试，不按历史损坏封存。
+
+该规则适用于存活会话、工具结果交接、sticky 会话、冻结恢复和持久检查点恢复。检查点保存实际预算，并保持原签名格式；旧索引可使用 `compactSource.outputTokens`。若旧索引缺少预算且新参数无法验证原签名，返回 `SESSION_OUTPUT_BUDGET_UNKNOWN` 并保留索引，仍可尝试原参数。模型、工具、指令和历史校验不因预算兼容而放宽。

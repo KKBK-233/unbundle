@@ -59,3 +59,9 @@ sudo env CLAUDE_TEST_BIN=/absolute/path/to/claude unshare --net -- \
 ## 数据保留与退役
 
 七天及 128 条索引淘汰已移除。进程半小时空闲退出不会删除恢复检查点。数据管理通过受鉴权的 `/sessions/lifecycle` 与 `retain`、`retire`、`restore`、`sweep` 接口完成；显式退役前不删除有效原生历史。退役归档默认保留 30 天，过期后只在管理员调用 sweep 时清理。冻结现场、待工具会话、存活 CLI 及保留标记均受保护。具体接口和中断处理见 `SESSION-RECOVERY.md`。
+
+## 原生会话输出预算
+
+会话沿用首次启动 CLI 的实际输出上限。后续请求提高 `max_tokens` / `max_completion_tokens` 时可以复用原 CLI，但不会提高该进程的实际上限；会话选择日志分别记录 `requestedOutputTokens` 与 `cliOutputTokens`。请求上限低于原 CLI 实际上限时返回 `SESSION_OUTPUT_BUDGET_TOO_SMALL`，保留会话和检查点，纠正上限后可重试，不按历史损坏封存。
+
+该规则适用于存活会话、工具结果交接、sticky 会话、冻结恢复和持久检查点恢复。检查点保存实际预算，并保持原签名格式；旧索引可使用 `compactSource.outputTokens`。若旧索引缺少预算且新参数无法验证原签名，返回 `SESSION_OUTPUT_BUDGET_UNKNOWN` 并保留索引，仍可尝试原参数。模型、工具、指令和历史校验不因预算兼容而放宽。

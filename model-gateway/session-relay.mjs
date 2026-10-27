@@ -1,3 +1,4 @@
+import {sessionOutputTokens,assertOutputBudget,withoutOutputBudget} from './session-budget.mjs';
 import {automaticRecoveryRequest,automaticRecoveryIdentity} from './automatic-recovery.mjs';
 import {settleFrozenTools,recoveryInputMessages} from './native-recovery.mjs';
 import {SessionLifecycle} from './session-lifecycle.mjs';
@@ -70,11 +71,15 @@ export function sessionRelay(options, retained) {
       const compiled = compileContext(request, options);
       const model = typeof options.modelFor === 'function' ? options.modelFor(request.model) : options.model;
       const matchKey = store?.key || key;
-      const signature = createHmac('sha256', matchKey).update(stableJson({ model, outputTokens,
+      const signatureFor = outputTokens => createHmac('sha256', matchKey).update(stableJson({ model, outputTokens,
         // 候选仅允许追加指令；旧前缀须逐字节匹配，旧规则修改仍不能复用。
         system: options.liveInstructionUpdates === true ? null : compiled.metrics.systemHash,
         tools: compiled.metrics.toolsHash, policy: compiled.policy, effort: request.reasoning_effort || 'auto', stop: request.stop,
         cliVersion: store ? options.cliVersion || null : null })).digest('hex');
+      // 保持旧签名算法，用候选 CLI 的实际预算验证身份，再单独检查本轮上限。
+      const signature = signatureFor(outputTokens);
+      const matchesSignature = session => session.signature === signatureFor(sessionOutputTokens(session) ?? outputTokens);
+      const checkBudget = session => assertOutputBudget(sessionOutputTokens(session) ?? (session.signature === signature ? outputTokens : undefined), outputTokens);
       const affinityHash = affinity ? createHmac('sha256', matchKey).update('sticky:'+affinity.key).digest('hex') : undefined;
       if(compactionIntent(request)) {
         const replayKey=createHmac('sha256',matchKey).update(retryIdentity(request)).digest('hex');
@@ -130,23 +135,25 @@ export function sessionRelay(options, retained) {
           throw error;
         } finally {session.compacting=false;session.creationReserved=false;}
       }
-      const replay=[...sessions].find(s=>['idle','waiting-tool'].includes(s.state)&&s.signature===signature&&s.affinityHash===affinityHash
+      const replay=[...sessions].find(s=>['idle','waiting-tool'].includes(s.state)&&matchesSignature(s)&&s.affinityHash===affinityHash
         &&s.automaticRecoveryResult?.identity===automaticRecoveryIdentity(request)&&s.automaticRecoveryResult.history===s.history&&s.automaticRecoveryResult.expected===s.expected);
       if(replay){
+        checkBudget(replay);
         try{options.onSessionEvent?.({type:'native_automatic_recovery',sessionId:replay.sessionId,event:'replayed',model_requests:0});}catch{}
         return {...structuredClone(replay.automaticRecoveryResult.result),usage_complete:true,upstream_usage:{input_tokens:0,output_tokens:0,cache_creation_input_tokens:0,cache_read_input_tokens:0},usage:{prompt_tokens:0,completion_tokens:0,total_tokens:0}};
       }
-      if([...sessions].some(s=>s.recoveryInProgress&&s.affinityHash===affinityHash&&(s.recoveryIdentity===retryIdentity(request)||automaticRecoveryRequest({state:'frozen',frozenRequest:s.frozenRequest},request))))throw recoveryError('SESSION_BUSY','同一会话的恢复仍在进行');
+      if([...sessions].some(s=>s.recoveryInProgress&&s.affinityHash===affinityHash&&(s.recoveryIdentity===retryIdentity(request)||automaticRecoveryRequest({state:'frozen',frozenRequest:s.frozenRequest},request,{allowBudgetChange:true}))))throw recoveryError('SESSION_BUSY','同一会话的恢复仍在进行');
       const armed=[...sessions].filter(session=>session.state==='frozen'&&session.recoveryArmed);
       const candidates=[...sessions].filter(s=>s.state==='frozen').flatMap(session=>{
         if(session.affinityHash!==affinityHash)return [];
-        const automatic=automaticRecoveryRequest(session,request);
+        const automatic=automaticRecoveryRequest(session,request,{allowBudgetChange:true});
         if(automatic){
-          const control=continueRecoveryRequest({state:'frozen',recoveryArmed:true,frozenRequest:session.frozenRequest},request);
+          const control=continueRecoveryRequest({state:'frozen',recoveryArmed:true,frozenRequest:session.frozenRequest},request,{allowBudgetChange:true});
           const tail=control?automatic.tail.filter(m=>m.role!=='user'):automatic.tail;
           return [{session,recoveryRequest:automatic.request,tail,attemptIdentity:automatic.identity,automatic:true}];
         }
-        if(session.recoveryArmed&&session.recoveryIdentity===retryIdentity(request))return [{session,recoveryRequest:request,tail:[],automatic:false}];
+        if(session.recoveryArmed&&(session.recoveryIdentity===retryIdentity(request)
+          ||session.frozenRequest&&retryIdentity(withoutOutputBudget(session.frozenRequest))===retryIdentity(withoutOutputBudget(request))))return [{session,recoveryRequest:request,tail:[],automatic:false}];
         return [];
       });
       if(candidates.length>1)throw recoveryError('RECOVERY_SESSION_AMBIGUOUS','新消息不能唯一关联冻结会话，未恢复进程');
@@ -157,11 +164,13 @@ export function sessionRelay(options, retained) {
           const previous=recovering.automaticRecoveryAttempt;
           throw recoveryError(previous.code||'RECOVERY_ALREADY_ATTEMPTED',previous.message||'同一新消息已经尝试恢复，不自动重复执行');
         }
+        // 预算拒绝发生在恢复状态变更之前，允许调用方纠正上限后重试。
+        if(matchesSignature(recovering))checkBudget(recovering);
         recovering.recoveryInProgress=true;
         if(automatic)recovering.automaticRecoveryAttempt={identity:attemptIdentity};
         const quarantine=recovering.quarantineRecord;
         try {
-          if(recovering.signature!==signature||recovering.affinityHash!==affinityHash)throw recoveryError('RECOVERY_CONFIG_MISMATCH','模型、工具、规则或会话身份已经变化');
+          if(!matchesSignature(recovering)||recovering.affinityHash!==affinityHash)throw recoveryError('RECOVERY_CONFIG_MISMATCH','模型、工具、规则或会话身份已经变化');
           if(!quarantine)throw recoveryError('RECOVERY_BOUNDARY_UNSAFE','缺少已保存的封存记录');
           if(!await recovering.verifySuspended())throw recoveryError('NATIVE_PROCESS_GONE','原 CLI 已退出或暂停状态不可确认，未重建历史');
           const delta=recoveryDelta(recovering,recoveryRequest,{hashKey:store?.key,allowInstructionUpdates:options.liveInstructionUpdates===true});
@@ -222,7 +231,7 @@ export function sessionRelay(options, retained) {
           throw Object.assign(new Error('固定会话已因异常封存；禁止自动重建'), {code:'SESSION_QUARANTINED',status:409,retryable:false});
         }
         if (affinityHash && !['idle','waiting-tool'].includes(session.state)) throw Object.assign(new Error('固定会话仍在处理上一轮'), {code:'SESSION_BUSY',status:409,retryable:false});
-        if (session.signature !== signature || !['idle', 'waiting-tool'].includes(session.state)) continue;
+        if (!matchesSignature(session) || !['idle', 'waiting-tool'].includes(session.state)) continue;
         signatureMatches++;
         const compacted=compactedDelta(session,request,{hashKey:store?.key});
         const candidate = compacted || continuationDelta(session, request, { allowInstructionUpdates: options.liveInstructionUpdates === true,
@@ -234,7 +243,7 @@ export function sessionRelay(options, retained) {
             rejectionReasons[reason] = (rejectionReasons[reason] || 0) + 1;
             if(session.pendingIds.size&&reason!=='history_prefix_mismatch'&&reason!=='messages_not_appended')rejectedBoundarySessions.add(session);
           } });
-        if (candidate !== undefined) { selected = session; delta = candidate; break; }
+        if (candidate !== undefined) { checkBudget(session); selected = session; delta = candidate; break; }
         historyRejected++;
       }
       if (!selected) {
@@ -261,20 +270,21 @@ export function sessionRelay(options, retained) {
             { code: 'TOOL_CONTINUATION_UNCERTAIN', status: 409, retryable: false });
         }
         selected = await allocate(async () => {
-        const restored = await store?.take(request, signature, options.liveInstructionUpdates === true, affinityHash, {consume:false});
+        const restored = await store?.take(request, signature, options.liveInstructionUpdates === true, affinityHash, {consume:false, signatureFor, requestedOutputTokens:outputTokens});
         if (restored?.mismatch) throw Object.assign(new Error('固定会话的持久检查点不匹配'), {code:'SESSION_HISTORY_MISMATCH',status:409,retryable:false});
         if (restored?.missing) throw Object.assign(new Error('已绑定的原生历史文件缺失；禁止自动重建长历史'), {code:'NATIVE_TRANSCRIPT_MISSING',status:409,retryable:false});
         if (restored?.unsafe) throw Object.assign(new Error('原生会话文件在完成检查点后发生变化；不自动恢复或重新提交历史'),
           { code: 'NATIVE_TRANSCRIPT_UNCERTAIN', status: 409, retryable: false });
         if (!restored?.id) sessionEntry(request, compiled, options);
         await makeRoom();
-        const created = new NativeCliSession(request, compiled, { ...options, model, outputTokens, historyHashKey: store?.key,
+        const actualOutputTokens = restored?.outputTokens ?? outputTokens;
+        const created = new NativeCliSession(request, compiled, { ...options, model, outputTokens:actualOutputTokens, historyHashKey: store?.key,
           onIdleSessionClosed:session=>store?.refreshClosed(session),
           onInvalidateCheckpoint: async id=>{ await store?.forget(id); await store?.quarantineAffinity(affinityHash);
-            const row={signature,history:[...created.history],affinityHash,historyNormalization:created.historyNormalization,nativeSessionId:created.nativeSessionId};quarantined.push(row);created.quarantineRecord=row;
-            await store?.quarantineHistory(signature,row.history,affinityHash,row.historyNormalization,row.nativeSessionId); },
+            const row={signature:created.signature,history:[...created.history],affinityHash,historyNormalization:created.historyNormalization,nativeSessionId:created.nativeSessionId};quarantined.push(row);created.quarantineRecord=row;
+            await store?.quarantineHistory(row.signature,row.history,affinityHash,row.historyNormalization,row.nativeSessionId); },
           resumeNativeId: restored?.id, resumeDelta: restored?.delta });
-        created.signature = signature; created.affinityHash = affinityHash; created.creationReserved = true;
+        created.signature = signatureFor(actualOutputTokens); created.affinityHash = affinityHash; created.creationReserved = true;
         sessions.add(created);
         try {
           await created.start();
@@ -291,7 +301,7 @@ export function sessionRelay(options, retained) {
         });
       } else timing?.mark('cli_session_reused');
       try { options.onSessionEvent?.({ type: 'native_session_selection', requestId: timing?.requestId,
-        reused: delta !== undefined, sessionId: selected.sessionId, sessions: sessions.size, signatureMatches, historyRejected, rejectionReasons }); } catch {}
+        reused: delta !== undefined, requestedOutputTokens:outputTokens, cliOutputTokens:selected.options.outputTokens, sessionId: selected.sessionId, sessions: sessions.size, signatureMatches, historyRejected, rejectionReasons }); } catch {}
       timing?.mark('context_ready');
       // 先撤销旧检查点再启动下一轮；崩溃或工具执行中断不能留下可重放的旧边界。
       try {

@@ -1,3 +1,4 @@
+import {sessionOutputTokens,assertOutputBudget,outputBudgetError} from './session-budget.mjs';
 import {compactedDelta,compactionIntent} from './compaction-boundary.mjs';
 import {hydrateCompactionSource} from './native-compaction.mjs';
 import {compactMemoryAliases,compactMemoryContext} from './compact-memory-alias.mjs';
@@ -101,7 +102,7 @@ export class NativeSessionStore {
       instructions:sessionHistory(messages).filter(m=>['system','developer'].includes(m.role)).map(m=>historyKey(m,{hashKey:this.key,exact:true})),
       memoryAliases:compactMemoryAliases(messages,{hashKey:this.key,toolSchemas:session.request.tools}).map(({index,hash})=>({index,hash})),
       conversation:[...sessionHistory(messages).filter(m=>!['system','developer'].includes(m.role)),session.lastAssistant].map(m=>historyKey(m,{hashKey:this.key,toolSchemas:session.request.tools}))}:undefined;
-    this.records.set(session.nativeSessionId, { id: session.nativeSessionId, signature: session.signature,compactSource,
+    this.records.set(session.nativeSessionId, { id: session.nativeSessionId, signature: session.signature,outputTokens:sessionOutputTokens(session),compactSource,
       historyNormalization: session.historyNormalization, affinityHash: session.affinityHash, history: session.history, expected: session.expected, compaction:session.compaction, snapshot, savedAt: Date.now() });
     await this.persist();
   }
@@ -168,21 +169,29 @@ export class NativeSessionStore {
     }catch { /* 已封存索引；磁盘错误不允许恢复推理。 */ }
     return result;
   }
-  async take(request, signature, allowInstructionUpdates, affinityHash, {consume=true}={}) {
+  async take(request, signature, allowInstructionUpdates, affinityHash, {consume=true,signatureFor,requestedOutputTokens}={}) {
     await this.ready;
     for (const row of this.records.values()) {
       if (row.affinityHash !== affinityHash) continue;
-      if (row.signature !== signature) { if (affinityHash) return this.rejectRestore(row,request,{mismatch:true},'CHECKPOINT_HISTORY_MISMATCH'); continue; }
+      const actual = sessionOutputTokens(row) ?? (row.signature === signature ? requestedOutputTokens : undefined);
+      const matches = signatureFor ? actual !== undefined && row.signature === signatureFor(actual) : row.signature === signature;
+      if (!matches) {
+        // 旧索引若缺少预算，不能猜测后封存；保留检查点供原参数请求恢复。
+        if (signatureFor && actual === undefined && (affinityHash || continuationDelta({...row,pendingIds:new Set()},request,{allowInstructionUpdates,hashKey:this.key})))
+          throw outputBudgetError('SESSION_OUTPUT_BUDGET_UNKNOWN','旧检查点缺少可验证的 CLI 输出上限；保留原检查点');
+        if (affinityHash) return this.rejectRestore(row,request,{mismatch:true},'CHECKPOINT_HISTORY_MISMATCH'); continue;
+      }
       if(row.compaction?.nativeCommitted)await hydrateCompactionSource({nativeSessionId:row.id,compaction:row.compaction,options:{home:this.home,configDir:this.configDir,historyHashKey:this.key}});
       const delta = compactedDelta({...row,pendingIds:new Set()},request,{hashKey:this.key}) || continuationDelta({ ...row, pendingIds: new Set() }, request,
         { allowInstructionUpdates, hashKey: this.key });
       if (!delta) { if (affinityHash) return this.rejectRestore(row,request,{mismatch:true},'CHECKPOINT_HISTORY_MISMATCH'); continue; }
+      if (signatureFor) assertOutputBudget(actual, requestedOutputTokens);
       const snapshot = await this.transcriptSnapshot(row.id);
       if (!snapshot) return this.rejectRestore(row,request,{missing:true},'NATIVE_TRANSCRIPT_MISSING');
       if (snapshot.size !== row.snapshot.size || snapshot.mtimeMs !== row.snapshot.mtimeMs) return this.rejectRestore(row,request,{unsafe:true},'NATIVE_TRANSCRIPT_UNCERTAIN');
       // 池分配时只读核验，容量与进程准备成功后由执行入口消费；直接调用仍默认消费。
       if(consume)await this.forget(row.id);
-      return { id: row.id, delta };
+      return { id: row.id, delta, ...(signatureFor ? {outputTokens:actual} : {}) };
     }
     if(affinityHash) {
       try {await fs.access(path.join(this.folder,'binding-'+affinityHash)); return {unsafe:true};}
