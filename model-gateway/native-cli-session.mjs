@@ -440,6 +440,7 @@ export class NativeCliSession {
     turn.probeFinished=turn.probes?.finish(outcome)||Promise.resolve();
   }
   fail(error) {
+    if(error.code==='SESSION_LIMIT')this.quotaFailureNotice=error.message;
     const initialCancellation=statelessInitialCancellation(this,error);
     if(initialCancellation||statelessQuotaFailure(this,error)){
       const turn=this.turn;this.turn=undefined;this.clearTurn(turn,initialCancellation?'cancelled':'error');

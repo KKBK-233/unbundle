@@ -1,4 +1,5 @@
 import {automaticRecoveryRequest,automaticRecoveryIdentity} from './automatic-recovery.mjs';
+import {quotaRecoveryDelta} from './quota-recovery.mjs';
 import {settleFrozenTools,recoveryInputMessages} from './native-recovery.mjs';
 import {SessionLifecycle} from './session-lifecycle.mjs';
 import {compactionIntent,compactionBoundary,compactionRecord,compactedDelta} from './compaction-boundary.mjs';
@@ -141,6 +142,30 @@ export function sessionRelay(options, retained) {
         return {...structuredClone(replay.automaticRecoveryResult.result),usage_complete:true,upstream_usage:{input_tokens:0,output_tokens:0,cache_creation_input_tokens:0,cache_read_input_tokens:0},usage:{prompt_tokens:0,completion_tokens:0,total_tokens:0}};
       }
       if([...sessions].some(s=>s.recoveryInProgress&&s.affinityHash===affinityHash&&(s.recoveryIdentity===retryIdentity(request)||automaticRecoveryRequest({state:'frozen',frozenRequest:s.frozenRequest},request))))throw recoveryError('SESSION_BUSY','同一会话的恢复仍在进行');
+      const quotaCandidates=[...sessions].filter(s=>s.affinityHash===affinityHash&&matchesSession(s)).flatMap(session=>{
+        const delta=quotaRecoveryDelta(session,request,{hashKey:store?.key,allowInstructionUpdates:options.liveInstructionUpdates===true});
+        return delta?[{session,delta}]:[];
+      });
+      if(quotaCandidates.length>1)throw recoveryError('RECOVERY_SESSION_AMBIGUOUS','额度恢复请求不能唯一关联原会话');
+      if(quotaCandidates.length){
+        const {session,delta}=quotaCandidates[0],quarantine=session.quarantineRecord;
+        if(session.recoveryInProgress)throw recoveryError('SESSION_BUSY','额度恢复仍在进行');
+        session.recoveryInProgress=true;
+        try{
+          if(!quarantine||!await session.verifySuspended())throw recoveryError('NATIVE_PROCESS_GONE','原额度等待进程不可确认，未重建历史');
+          // 已确认的 api_error 是本轮结束，不再当作未完成流式推理。
+          session.freezePreviousState='idle';session.frozenTurn=undefined;
+          const result=await session.run(request,delta,{signal,onText,timing,resumeFrozen:true});
+          await store?.releaseQuarantine(quarantine);
+          for(let i=quarantined.length-1;i>=0;i--)if(quarantined[i]===quarantine)quarantined.splice(i,1);
+          if(session.quarantineRecord===quarantine)session.quarantineRecord=undefined;
+          session.freezeReason=undefined;session.frozenRequest=undefined;session.quotaFailureNotice=undefined;
+          try{await store?.checkpoint(session);}catch{try{options.onSessionEvent?.({type:'native_checkpoint_failed',code:'CHECKPOINT_WRITE_FAILED'});}catch{}}
+          try{options.onSessionEvent?.({type:'native_quota_recovery',sessionId:session.sessionId,event:'completed',historyRebuilt:false,toolsReplayed:false});}catch{}
+          return result;
+        }catch(error){if(session.state!=='frozen')await session.freeze(error.code||'QUOTA_RECOVERY_FAILED',{request});throw error;}
+        finally{session.recoveryInProgress=false;}
+      }
       const armed=[...sessions].filter(session=>session.state==='frozen'&&session.recoveryArmed);
       const candidates=[...sessions].filter(s=>s.state==='frozen').flatMap(session=>{
         if(session.affinityHash!==affinityHash)return [];
