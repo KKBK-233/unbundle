@@ -14,7 +14,7 @@ import http from 'node:http';
 import readline from 'node:readline';
 import { spawn } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { CliEvents } from './cli-events.mjs';
+import { CliEvents, completeAssistant } from './cli-events.mjs';
 import { stableJson, compileContext } from './context.mjs';
 import { resolveEffort } from './effort.mjs';
 import { sessionQuotaFailure } from './session-quota-guard.mjs';
@@ -369,6 +369,9 @@ export class NativeCliSession {
       this.fail(Object.assign(new Error('CLI 未完成 MCP 交接便继续执行'), { code: 'CLI_TOOL_HANDOFF_FAILED' })); return;
     }
     if (inner?.type === 'message_start') { turn.awaitingStart = false; turn.timing?.mark('upstream_message_start'); }
+    // 明确的 API 重试属于进展，只刷新空闲计时，不延长整轮总时限。
+    if (event.type === 'system' && event.subtype === 'api_retry') { this.progress(); return; }
+    if (completeAssistant(event)) turn.awaitingStart = false;
     if (turn.awaitingStart && !['result'].includes(event.type)) return;
     const phase = inner?.type === 'content_block_delta'
       ? { thinking_delta: 'thinking', text_delta: 'text', input_json_delta: 'tool_delta' }[inner.delta?.type]

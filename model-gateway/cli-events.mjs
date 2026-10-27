@@ -1,6 +1,14 @@
 import {recordBashPhase} from './tool-boundary-trace.mjs';
 import { stableJson } from './context.mjs';
 
+// 完整正常消息可作为非流式回退边界；错误占位和未结束快照不能提前交付工具。
+export function completeAssistant(event) {
+  const message = event?.message;
+  return event?.type === 'assistant' && !event.is_api_error_message
+    && typeof message?.id === 'string' && message.id.length > 0 && Array.isArray(message.content)
+    && ['tool_use', 'end_turn', 'max_tokens', 'stop_sequence'].includes(message.stop_reason);
+}
+
 // 汇总官方 CLI 的事件：工具等待整条消息结束，用量按 message.id 去重。
 export class CliEvents {
   constructor(available, onText, stops = [], { allowToolSearch = false, maxToolSearchCalls = 8 } = {}) {
@@ -23,6 +31,7 @@ export class CliEvents {
     this.maxToolSearchCalls = maxToolSearchCalls;
     this.searchCalls = new Map();
     this.messageSearchCalls = new Set();
+    this.completedMessages = new Map();
   }
 
   count(id, usage) {
@@ -118,11 +127,27 @@ export class CliEvents {
       if (event.is_api_error_message) return;
       const message = event.message || {};
       this.count(message.id, message.usage);
+      const complete = completeAssistant(event);
+      if (complete) {
+        const fingerprint = stableJson({ content: message.content, stop_reason: message.stop_reason });
+        const previous = this.completedMessages.get(message.id);
+        if (previous !== undefined) {
+          if (previous !== fingerprint) throw new Error('CLI 完整消息 ID 冲突');
+          return;
+        }
+        this.completedMessages.set(message.id, fingerprint);
+      }
       for (const block of message.content || []) {
-        if (block.type === 'text' && !this.sawDelta) this.emit(block.text);
+        if (block.type === 'text' && !(this.sawDelta && (!message.id || message.id === this.currentId))) this.emit(block.text);
         if (this.stopSequence !== undefined) return;
         if (block.type !== 'tool_use') continue;
         this.addCall(block);
+      }
+      if (complete) {
+        this.flushText();
+        if (message.stop_reason === 'tool_use') this.finishToolMessage();
+        else if (this.blocks.size || this.calls.size) throw new Error('CLI 工具消息缺少有效结束信号');
+        if (message.stop_reason === 'max_tokens') this.outputLimitReached = true;
       }
     }
     if (event.type !== 'stream_event') return;
@@ -130,6 +155,7 @@ export class CliEvents {
     if (inner.type === 'message_start') {
       if (this.blocks.size) throw new Error('CLI 工具消息不完整');
       this.currentId = inner.message?.id;
+      this.sawDelta = false;
       this.messageSearchCalls.clear();
       this.count(this.currentId, inner.message?.usage);
     }
