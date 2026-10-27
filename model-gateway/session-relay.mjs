@@ -231,6 +231,8 @@ export function sessionRelay(options, retained) {
         const compacted=compactedDelta(session,request,{hashKey:store?.key});
         const candidate = compacted || continuationDelta(session, request, { allowInstructionUpdates: options.liveInstructionUpdates === true,
           hashKey: store?.key,
+          onCancelledTailProjection: detail => { try { options.onSessionEvent?.({type:'native_cancelled_completed_tail',requestId:timing?.requestId,sessionId:session.sessionId,...detail}); } catch {} },
+          onReceiptAlias: detail => { try { options.onSessionEvent?.({type:'native_cancelled_receipt_alias',requestId:timing?.requestId,sessionId:session.sessionId,...detail}); } catch {} },
           onAssistantMismatch: detail => { try { options.onSessionEvent?.({type:'native_assistant_mismatch',
             requestId:timing?.requestId,sessionId:session.sessionId,...detail}); } catch {} },
           onReject: reason => {

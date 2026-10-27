@@ -99,3 +99,20 @@ test('Desktop 独立图片显示注释与纯继续可随完整结果续接，原
   assert.equal(continuationDelta(session,{messages:[...prefix,reply,...tail]}),undefined);
  }
 });
+
+
+test('已确认取消仅映射本轮已交回收据的固定缺失占位符，保留原生真实结果',()=>{
+ const hashKey='synthetic-cancel-key',user={role:'user',content:'task'},assistant={role:'assistant',content:null,tool_calls:[{id:'done',type:'function',function:{name:'Bash',arguments:'{}'}}]},receipt={role:'tool',tool_call_id:'done',content:'REAL_RESULT'},nextUser={role:'user',content:'new task'},prior=[user,assistant,receipt],placeholder={...receipt,content:'[Tool result missing due to internal error]',is_error:true};
+ const session={interrupted:true,request:{messages:prior},history:prior.map(m=>historyKey(m,{hashKey,exact:true})),pendingIds:new Set(),cancelledReceiptIds:new Set(['done'])},aliases=[];
+ assert.deepEqual(continuationDelta(session,{messages:[user,assistant,placeholder,nextUser]},{hashKey,allowInstructionUpdates:true,onReceiptAlias:d=>aliases.push(d)}),[nextUser]);assert.equal(session.request.messages[2].content,'REAL_RESULT');assert.equal(aliases.length,1);assert.equal(aliases[0].nativeResultPreserved,true);
+ for(const [changedSession,changedResult]of [[{...session,cancelledReceiptIds:new Set()},placeholder],[{...session,interrupted:false},placeholder],[session,{...placeholder,content:'another error'}],[session,{...placeholder,tool_call_id:'different'}],[session,{...placeholder,extra:'untrusted'}]])assert.equal(continuationDelta(changedSession,{messages:[user,assistant,changedResult,nextUser]},{hashKey,allowInstructionUpdates:true}),undefined);
+});
+
+
+test('已确认取消只允许省略最后已完成的工具尾部，不允许丢弃用户指令或可见正文',()=>{
+ const hashKey='synthetic-tail-key',user={role:'user',content:'task'},env={role:'system',content:'# Environment update\n - Primary working directory: E:\\demo (was E:\\)\n'},assistant={role:'assistant',content:null,tool_calls:[{id:'done',type:'function',function:{name:'Bash',arguments:'{}'}}]},receipt={role:'tool',tool_call_id:'done',content:'REAL_RESULT'},nextUser={role:'user',content:'new task'};
+ const make=prior=>({interrupted:true,request:{messages:prior},history:prior.map(m=>historyKey(m,{hashKey,exact:true})),pendingIds:new Set(),cancelledReceiptIds:new Set(['done'])});
+ const prior=[user,env,assistant,receipt,env],session=make(prior),events=[];assert.deepEqual(continuationDelta(session,{messages:[user,nextUser,env]},{hashKey,allowInstructionUpdates:true,onCancelledTailProjection:d=>events.push(d)}),[nextUser,env]);assert.equal(events[0].nativeTailPreserved,true);assert.equal(events[0].toolResultsResubmitted,false);assert.equal(session.request.messages[3].content,'REAL_RESULT');
+ for(const current of [{...session,cancelledReceiptIds:new Set()},make([user,env,{...assistant,content:'visible answer'},receipt,env]),make([user,env,assistant,receipt,{role:'user',content:'must preserve'},env]),make([user,env,assistant,env])])assert.equal(continuationDelta(current,{messages:[user,nextUser,env]},{hashKey,allowInstructionUpdates:true}),undefined);
+ assert.equal(continuationDelta(session,{messages:[{...user,content:'changed old task'},nextUser,env]},{hashKey,allowInstructionUpdates:true}),undefined);
+});

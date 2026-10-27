@@ -71,6 +71,7 @@ const nativeRelay = process.env.GATEWAY_SESSION_RELAY === '1' ? sessionRelay({
   maxImageBytes, maxOutputTokens, timeoutMs, idleTimeoutMs, toolSearch, maxToolSearchCalls, liveInstructionUpdates,
   persistentSessions, cliVersion: startupCliVersion, anomalyDir,
   requireLiveToolContinuation: true,
+  preserveCancelledSession: true,
   onCliAudit: record => console.error(JSON.stringify(record)),
   onSessionEvent: record => console.error(JSON.stringify(record)),
 }) : undefined;

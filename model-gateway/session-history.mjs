@@ -36,14 +36,54 @@ export function assistantMessage(execution) {
   return { role: 'assistant', content: execution.content || null,
     ...(execution.tool_calls?.length ? { tool_calls: execution.tool_calls } : {}) };
 }
-export function continuationDelta(session, request, { allowInstructionUpdates = false, onReject, onAssistantMismatch, hashKey } = {}) {
+export function continuationDelta(session, request, { allowInstructionUpdates = false, onReject, onAssistantMismatch, onReceiptAlias, onCancelledTailProjection, hashKey } = {}) {
   const reject = reason => { onReject?.(reason); return undefined; };
   const toolSchemas=session.historyNormalization===true ? request.tools : undefined;
-  const messages = sessionHistory(request.messages), prefix = session.history;
-  if (messages.length <= prefix.length) return reject('messages_not_appended');
-  if (!prefix.every((value, index) => historyKey(messages[index], { exact: allowInstructionUpdates, hashKey, toolSchemas }) === value)) return reject('history_prefix_mismatch');
+  const messages = sessionHistory(request.messages);
+  let prefix = session.history;
+  const prior=session.interrupted===true&&session.request?sessionHistory(session.request.messages):undefined;
+  if(session.interrupted===true&&session.request){
+    // Send now 可把新消息插到末尾目录快照之前；只移动纯环境事实，不放宽历史正文。
+    if(prior.length===prefix.length&&prior.length&&callerRuntimeStatus(prior.at(-1))?.type==='environment')prefix=prefix.slice(0,-1);
+  }
+  const matchPrefix=(value,index)=>{
+    const actual=messages[index],actualKey=historyKey(actual,{exact:allowInstructionUpdates,hashKey,toolSchemas});
+    if(actualKey===value)return true;
+    // Send now 会用固定“结果缺失”占位符替换收据；只接受原生取消已确认、
+    // 且本轮实际交回过的同 ID。原生真实结果保持权威，不重新提交或执行工具。
+    const original=prior?.[index];
+    if(!session.cancelledReceiptIds?.has(actual?.tool_call_id)||actual.role!=='tool'||actual.is_error!==true
+      ||actual.content!=='[Tool result missing due to internal error]'
+      ||Object.keys(actual).some(k=>!['role','tool_call_id','content','is_error'].includes(k))
+      ||original?.role!=='tool'||original.tool_call_id!==actual.tool_call_id
+      ||historyKey(original,{exact:allowInstructionUpdates,hashKey,toolSchemas})!==value)return false;
+    try{onReceiptAlias?.({toolKey:historyKey({role:'tool',tool_call_id:actual.tool_call_id},{hashKey}),originalKey:value,placeholderKey:actualKey,nativeResultPreserved:true});}catch{}
+    return true;
+  };
+  let matches=messages.length>prefix.length&&prefix.every(matchPrefix);
+  if(!matches&&prior?.length===session.history.length&&session.cancelledReceiptIds?.size){
+    const assistantIndex=prior.findLastIndex(m=>m.role==='assistant'),assistant=prior[assistantIndex];
+    const calls=assistant?.tool_calls||[],ids=new Set(calls.map(c=>c.id));
+    let base=assistantIndex;
+    while(base>0&&callerRuntimeStatus(prior[base-1])?.type==='environment')base--;
+    const tail=prior.slice(base),receipts=tail.filter(m=>m.role==='tool');
+    const emptyText=assistant&&(assistant.content==null||typeof assistant.content==='string'&&!assistant.content.trim());
+    const verified=base>=0&&calls.length>0&&ids.size===calls.length&&emptyText
+      &&calls.every(c=>session.cancelledReceiptIds.has(c.id))&&receipts.length===ids.size
+      &&new Set(receipts.map(m=>m.tool_call_id)).size===ids.size&&receipts.every(m=>ids.has(m.tool_call_id))
+      &&tail.every((m,i)=>historyKey(m,{exact:allowInstructionUpdates,hashKey,toolSchemas})===session.history[base+i]
+        &&(base+i===assistantIndex||m.role==='tool'&&ids.has(m.tool_call_id)||callerRuntimeStatus(m)?.type==='environment'));
+    const candidate=session.history.slice(0,base),delta=messages.slice(base);
+    if(verified&&messages.length>base&&candidate.every(matchPrefix)&&delta.some(m=>m.role==='user')
+      &&delta.every(m=>m.role==='user'||callerRuntimeStatus(m)?.type==='environment'||allowInstructionUpdates&&['system','developer'].includes(m.role))){
+      prefix=candidate;matches=true;
+      try{onCancelledTailProjection?.({omittedDesktopMessages:session.history.length-base,completedTools:ids.size,nativeTailPreserved:true,toolResultsResubmitted:false});}catch{}
+    }
+  }
+  if(messages.length<=prefix.length)return reject('messages_not_appended');
+  if(!matches)return reject('history_prefix_mismatch');
   if (session.interrupted === true) {
-    // 仅接受没有可见助手输出、没有工具交接的已确认中断；不猜补助手消息。
+    // 仅接受已确认中断后的用户增量；原生已完成工具事实保留，不猜补或重放工具。
     const delta = messages.slice(prefix.length);
     if (!delta.some(message => message.role === 'user') || delta.some(message => message.role !== 'user'
       && !(callerRuntimeStatus(message)?.type === 'environment'

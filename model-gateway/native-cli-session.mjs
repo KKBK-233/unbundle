@@ -157,6 +157,9 @@ export class NativeCliSession {
       }
       pending.res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ jsonrpc: '2.0', id: pending.rpcId, result: value }));
       this.pendingHttp.delete(id); this.results.delete(id);
+      // 真实结果已交给原 MCP 等待者；不能把已完成的旧调用误当作当前取消边界。
+      this.pendingIds.delete(id);
+      this.turn?.deliveredReceiptIds?.add(id);
     }
   }
   releaseTools() {
@@ -250,7 +253,7 @@ export class NativeCliSession {
         || result?.terminal_reason !== 'aborted_streaming' || result.user_message_uuid !== turn.inputUuid) throw failure;
       if (this.turn !== turn || this.state === 'closed') throw failure;
       this.turn = undefined; this.clearTurn(turn,'cancelled'); this.state = 'idle'; this.interrupted = true;
-      this.expected = undefined; this.lastUsed = Date.now();
+      this.expected = undefined; this.cancelledReceiptIds = new Set(turn.deliveredReceiptIds); this.lastUsed = Date.now();
       this.report('cancel_preserved', 'ack_and_terminal'); await turn.probeFinished; turn.reject(failure);
       this.expiry = setTimeout(() => { void this.close('expired').catch(() => {}); }, this.options.sessionTtlMs || 1800000);
       this.expiry.unref?.();
@@ -267,7 +270,7 @@ export class NativeCliSession {
     clearTimeout(this.expiry); this.history = sessionHistory(request.messages).map(message => historyKey(message,
       { exact: this.options.liveInstructionUpdates === true, hashKey: this.options.historyHashKey, toolSchemas: this.request.tools })); this.expected = undefined;
     this.request=request;
-    this.state = 'running'; this.interrupted = false; this.cancelBarrier = undefined;
+    this.state = 'running'; this.interrupted = false; this.cancelledReceiptIds = undefined; this.cancelBarrier = undefined;
     return new Promise((resolve, reject) => {
       const policy = toolChoice(request);
       const probes=requestProbes({requestId:timing?.requestId,anomalyDir:this.options.anomalyDir,log:this.options.onAnomaly,
@@ -277,7 +280,7 @@ export class NativeCliSession {
       }, request.stop == null ? [] : typeof request.stop === 'string' ? [request.stop] : request.stop, { allowToolSearch: this.options.toolSearch, maxToolSearchCalls: this.options.maxToolSearchCalls, preferAggregateWithMcpValidation: true });
       const audit = cliOutputAudit({ requestId: timing?.requestId, sink: this.options.onCliAudit });
       const turn = { events, audit, probes, resolve, reject, signal, timing, policy, awaitingStart: true, outputBytes: 0,
-        strategy: delta !== undefined ? 'native_increment' : this.entryMode || 'native_new' };
+        strategy: delta !== undefined ? 'native_increment' : this.entryMode || 'native_new', deliveredReceiptIds: new Set() };
       this.turn = turn;
       turn.abort = () => this.cancelTurn(turn);
       signal?.addEventListener('abort', turn.abort, { once: true });
