@@ -1,6 +1,6 @@
 import {cacheEnvironment} from './cache-policy.mjs';
 import {nativeCompact} from './native-compaction.mjs';
-import {statelessQuotaFailure} from './stateless-quota.mjs';
+import {statelessQuotaFailure,statelessInitialCancellation} from './stateless-quota.mjs';
 import {suspendCli,resumeCli,verifySuspended} from './process-freeze.mjs';
 const DEFAULT_TOOL_WAIT_MS=1800000;
 import { toolSearchConfig } from './tool-search-config.mjs';
@@ -437,11 +437,12 @@ export class NativeCliSession {
     turn.probeFinished=turn.probes?.finish(outcome)||Promise.resolve();
   }
   fail(error) {
-    if(statelessQuotaFailure(this,error)){
-      const turn=this.turn;this.turn=undefined;this.clearTurn(turn,'error');
-      this.report('quota_rejected','STATELESS_QUOTA_REJECTION');
+    const initialCancellation=statelessInitialCancellation(this,error);
+    if(initialCancellation||statelessQuotaFailure(this,error)){
+      const turn=this.turn;this.turn=undefined;this.clearTurn(turn,initialCancellation?'cancelled':'error');
+      this.report(initialCancellation?'initial_cancelled':'quota_rejected',initialCancellation?'STATELESS_INITIAL_CANCELLATION':'STATELESS_QUOTA_REJECTION');
       // 结束本次空白 CLI；原生落盘文件保留，错误仍交给账户冷却保护处理。
-      void Promise.all([this.close('quota_rejected'),turn.probeFinished]).then(()=>turn.reject(error),()=>turn.reject(error));return;
+      void Promise.all([this.close(initialCancellation?'initial_cancelled':'quota_rejected'),turn.probeFinished]).then(()=>turn.reject(error),()=>turn.reject(error));return;
     }
     const protocolCodes = new Map([
       ['CLI 工具调用 ID 冲突', 'CLI_TOOL_ID_CONFLICT'], ['CLI 返回了无效的工具调用', 'CLI_TOOL_INVALID'],
