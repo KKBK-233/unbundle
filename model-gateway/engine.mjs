@@ -138,7 +138,8 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
       if (event.type === 'system' && event.subtype === 'api_retry') { retryEvents++; observe('api_retry'); }
       if (['message_start', 'content_block_start', 'content_block_delta', 'content_block_stop', 'message_delta', 'message_stop'].includes(inner?.type)
         || ['assistant', 'result'].includes(event.type)) refreshProgress();
-      if (inner?.type === 'message_start') timing?.mark('upstream_message_start');
+      if (inner?.type === 'message_start') {timing?.onUsage?.({upstream_usage:inner.message?.usage});timing?.mark('upstream_message_start');}
+      if(event.type==='assistant'&&!event.is_api_error_message)timing?.onUsage?.({upstream_usage:event.message?.usage});
       if (inner?.type === 'content_block_delta' && inner.delta?.type === 'thinking_delta') timing?.mark('first_thinking');
       if (inner?.type === 'content_block_start' && inner.content_block?.type === 'tool_use') timing?.mark('first_tool');
       if (inner?.type === 'message_delta' && inner.delta?.stop_reason) timing?.mark('upstream_message_end');

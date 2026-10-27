@@ -196,7 +196,7 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
 
       let streamed = false, visibleText = false;
       if (body.stream) {
-        if (anthropic) { nativeWriter = anthropicWriter(res, nativeId, body.model); nativeWriter.start(); }
+        if (anthropic) { nativeWriter = anthropicWriter(res, nativeId, body.model); nativeWriter.start(); timing.onUsage=usage=>nativeWriter.usage(usage); }
         else {
           res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
           chunk({ role: 'assistant' });

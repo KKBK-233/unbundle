@@ -372,13 +372,13 @@ export class NativeCliSession {
       || event.type === 'result')) {
       this.fail(Object.assign(new Error('CLI 未完成 MCP 交接便继续执行'), { code: 'CLI_TOOL_HANDOFF_FAILED' })); return;
     }
-    if (inner?.type === 'message_start') { turn.awaitingStart = false; turn.timing?.mark('upstream_message_start'); }
+    if (inner?.type === 'message_start') { turn.awaitingStart = false; turn.timing?.onUsage?.({upstream_usage:inner.message?.usage}); turn.timing?.mark('upstream_message_start'); }
     // 官方 CLI 在流式重试降级后可能只给完整 assistant，没有 message_start。
     // API 错误占位消息不能作为模型回复；工具仍须通过真实 MCP 等待和参数校验。
     if(turn.awaitingStart&&event.type==='assistant'&&!event.is_api_error_message
       &&typeof event.message?.id==='string'&&Array.isArray(event.message?.content)
       &&['tool_use','end_turn','max_tokens','stop_sequence'].includes(event.message.stop_reason)){
-      turn.awaitingStart=false;turn.timing?.mark('upstream_message_start');
+      turn.awaitingStart=false;turn.timing?.onUsage?.({upstream_usage:event.message.usage});turn.timing?.mark('upstream_message_start');
     }
     if (turn.awaitingStart && !['result'].includes(event.type)) return;
     const phase = inner?.type === 'content_block_delta'
