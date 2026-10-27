@@ -142,3 +142,8 @@ test('CLI 退出前没有工具消息结束信号时，不把未完成工具当�
     }), /工具消息不完整/);
   } finally { await fs.rm(home, { recursive: true, force: true }); }
 });
+
+
+test('MCP 校验模式也不接受同一 ID 的两份冲突完整参数',()=>{
+ const events=new CliEvents(available,undefined,[],{preferAggregateWithMcpValidation:true});events.accept(snapshot(0,{path:'a'}));assert.throws(()=>events.accept(snapshot(0,{path:'b'})),/ID 冲突/);
+});
