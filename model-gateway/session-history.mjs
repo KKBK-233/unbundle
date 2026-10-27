@@ -106,15 +106,20 @@ export function continuationDelta(session, request, { allowInstructionUpdates = 
     const tools = delta.filter(message => message.role === 'tool');
     if (tools.length !== session.pendingIds.size) return reject('tool_result_count_mismatch');
     // Desktop 会在图片工具结果后另附 user 角色的尺寸注释。只接受固定格式的
-    // 显示数据和纯“继续”控制，不能把新的任务文本混进等待中的工具交接。
+    // 显示数据和纯“继续”控制；生产显式启用时，还允许完整收据之后的用户文本，
+    // 经 caller_handoff_context 独立标注用户身份，不覆盖原工具正文。
     const note=/^\[Image: original [1-9]\d{0,5}x[1-9]\d{0,5}, displayed at [1-9]\d{0,5}x[1-9]\d{0,5}\. Multiply coordinates by \d+(?:\.\d+)? to map to original image\.\]$/;
     const resume=/^(?:继续\s*){1,8}$/;
     const users=delta.filter(m=>m.role==='user'),lastTool=delta.findLastIndex(m=>m.role==='tool');
     const parts=users.flatMap(m=>typeof m.content==='string'?m.content.trim().split(/\r?\n/).map(s=>s.trim()).filter(Boolean):[]);
     const imageCount=tools.reduce((n,m)=>n+(Array.isArray(m.content)?m.content.filter(b=>['image','image_url'].includes(b?.type)).length:0),0);
+    const handoffUser = (message,i) => session.options?.allowToolHandoffUserMessages===true
+      &&message.role==='user'&&i>lastTool&&typeof message.content==='string'&&message.content.trim()
+      &&!Object.keys(message).some(k=>!['role','content'].includes(k));
     if(parts.filter(s=>note.test(s)).length>imageCount
       ||parts.filter(s=>resume.test(s)).length>8
       ||delta.some((message,i)=>message.role!=='tool'&&!allowedUpdate(message)
+        &&!handoffUser(message,i)
         &&!(message.role==='user'&&i>lastTool&&typeof message.content==='string'
           &&!Object.keys(message).some(k=>!['role','content'].includes(k))
           &&message.content.trim()&&message.content.trim().split(/\r?\n/).every(s=>!s.trim()||note.test(s.trim())||resume.test(s.trim())))))return reject('unsafe_tool_delta');

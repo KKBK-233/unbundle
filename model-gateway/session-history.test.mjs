@@ -2,6 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sessionHistory, historyKey, continuationDelta, continuationToolResults, assistantMessage, mcpToolResult } from './session-history.mjs';
 
+test('停止工具续接后允许收据后的新用户消息，保持收据和调用方身份独立',()=>{
+ const user={role:'user',content:'原任务'},reply=assistantMessage({tool_calls:[{id:'a',type:'function',function:{name:'Read',arguments:'{}'}}]}),receipt={role:'tool',tool_call_id:'a',content:'真实结果'},next={role:'user',content:'停止旧方向，改为检查结果'};
+ const session={history:[historyKey(user)],expected:historyKey(reply),pendingIds:new Set(['a']),options:{allowToolHandoffUserMessages:true}};
+ const request=delta=>({messages:[user,reply,...delta]});
+ assert.deepEqual(continuationDelta(session,request([receipt,next])),[receipt,next]);
+ const result=continuationToolResults([receipt,next],1024).get('a');assert.equal(result.content[0].text,'真实结果');const context=JSON.parse(result.content[1].text);assert.equal(context.kind,'caller_handoff_context');assert.deepEqual(context.messages,[next]);
+ for(const delta of [[next,receipt],[next],[{...receipt,tool_call_id:'other'},next],[receipt,receipt,next],[receipt,{...next,extra:'x'}],[receipt,{...next,content:[{type:'text',text:'unsupported'}]}]])assert.equal(continuationDelta(session,request(delta)),undefined);
+});
+
 test('会话匹配忽略纯运行余量，但不忽略混合指令或用户引用', () => {
   const user = { role: 'user', content: '任务' };
   const status = { role: 'system', content: '<total_tokens>100 tokens left</total_tokens>' };
