@@ -38,7 +38,9 @@ npm run doctor
 
 安装前请阅读 [完整说明](https://github.com/KKBK-233/unbundle/blob/docs/README.md)，确认环境要求、部署步骤和兼容边界。
 
-`main` 保存程序、配置模板、部署脚本与当前安装入口；[docs 分支](https://github.com/KKBK-233/unbundle/tree/docs) 集中维护详细文档和历史记录。
+`main` 保存稳定版本及当前安装入口；`dev` 是日常开发和修复的集成分支；[docs 分支](https://github.com/KKBK-233/unbundle/tree/docs) 集中维护详细文档和历史记录。
+
+参与开发时先切换到 `dev`，或从 `dev` 创建任务分支，开发 PR 以 `dev` 为目标。完成审查和验证后，经维护者明确授权再将 `dev` 合入 `main`，日常改动不直接推入 `main`。安装用户继续使用默认的 `main`。
 
 部署服务名、供应商 ID 和诊断标记沿用原值，以兼容已有安装和配置。
 
