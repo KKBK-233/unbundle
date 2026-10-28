@@ -237,12 +237,12 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
       if (execution.tool_calls?.length) timing.mark('first_tool');
       if (controller.signal.aborted) return;
       // 用量放在响应顶层，避免 Harness 把统计字段写进 assistant 历史。
-      const { usage, upstream_usage, usage_complete, finish_reason, stop_sequence, ...message } = execution;
+      const { usage, upstream_usage, usage_complete, finish_reason, stop_sequence, stop_reason, ...message } = execution;
       const statistics = { ...(usage ? { usage } : {}), ...(upstream_usage ? { upstream_usage, usage_complete } : {}) };
 
-      const finish = finish_reason === 'length' ? 'length' : message.tool_calls?.length ? 'tool_calls' : 'stop';
+      const finish = stop_reason === 'refusal' ? 'content_filter' : finish_reason === 'length' ? 'length' : message.tool_calls?.length ? 'tool_calls' : 'stop';
       if (anthropic) {
-        const reason = stop_sequence !== undefined ? 'stop_sequence' : finish === 'length' ? 'max_tokens' : finish === 'tool_calls' ? 'tool_use' : 'end_turn';
+        const reason = stop_reason === 'refusal' ? 'refusal' : stop_sequence !== undefined ? 'stop_sequence' : finish === 'length' ? 'max_tokens' : finish === 'tool_calls' ? 'tool_use' : 'end_turn';
         if (body.stream) nativeWriter.finish(execution, reason);
         else json(200, { id: nativeId, type: 'message', role: 'assistant', model: body.model, content: anthropicContent(execution), stop_reason: reason, stop_sequence: stop_sequence ?? null, usage: anthropicUsage(execution) });
       } else if (body.stream) {
@@ -255,6 +255,7 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
         json(200, { id, object: 'chat.completion', created, model: body.model, choices: [{ index: 0, message, finish_reason: finish }], ...statistics });
       }
       outcome = 'success';
+      if (stop_reason === 'refusal') timing.mark('response_refusal');
       timing.mark('response_complete');
     } catch (error) {
       const bodyTimeout = ['REQUEST_BODY_IDLE_TIMEOUT', 'REQUEST_BODY_TIMEOUT'].includes(error.code);

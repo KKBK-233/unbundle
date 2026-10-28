@@ -6,12 +6,12 @@ export function completeAssistant(event) {
   const message = event?.message;
   return event?.type === 'assistant' && !event.is_api_error_message
     && typeof message?.id === 'string' && message.id.length > 0 && Array.isArray(message.content)
-    && ['tool_use', 'end_turn', 'max_tokens', 'stop_sequence'].includes(message.stop_reason);
+    && ['tool_use', 'end_turn', 'max_tokens', 'stop_sequence', 'refusal'].includes(message.stop_reason);
 }
 
 // 汇总官方 CLI 的事件：工具等待整条消息结束，用量按 message.id 去重。
 export class CliEvents {
-  constructor(available, onText, stops = [], { allowToolSearch = false, maxToolSearchCalls = 8 } = {}) {
+  constructor(available, onText, stops = [], { allowToolSearch = false, maxToolSearchCalls = 8, onStopReason } = {}) {
     this.tools = new Map(available.map(tool => [`mcp__omp__${tool.name}`, tool.original]));
     this.onText = onText;
     this.calls = new Map();
@@ -20,6 +20,8 @@ export class CliEvents {
     this.sawDelta = false;
     this.toolEnd = false;
     this.outputLimitReached = false;
+    this.refused = false;
+    this.onStopReason = onStopReason;
     this.blocks = new Map();
     this.recoveredToolStops = 0;
     this.stops = stops;
@@ -118,9 +120,21 @@ export class CliEvents {
     this.toolEnd = this.calls.size > 0;
   }
 
+  // 拒绝是正常的终止原因；封存当前回复，丢弃未交付工具，避免 CLI 续写覆盖拒绝。
+  acceptStop(reason) {
+    if (typeof reason !== 'string' || !reason) return;
+    try { this.onStopReason?.(reason); } catch {}
+    if (reason === 'refusal') {
+      this.refused = true;
+      this.blocks.clear();
+      this.calls.clear();
+      this.toolEnd = false;
+    }
+  }
+
   accept(event) {
-    // 首次截断即封存本轮输出；进程停止前排队的续写事件不能再追加文本或用量。
-    if (this.outputLimitReached || this.stopSequence !== undefined) return;
+    // 首次拒绝或截断即封存本轮输出；进程停止前的续写不能追加文本或用量。
+    if (this.refused || this.outputLimitReached || this.stopSequence !== undefined) return;
     if (event.type === 'result') this.result = event;
     if (event.type === 'assistant') {
       // CLI 自己生成的 API 错误消息不属于模型回复，不能混入文本或历史。
@@ -140,11 +154,12 @@ export class CliEvents {
       for (const block of message.content || []) {
         if (block.type === 'text' && !(this.sawDelta && (!message.id || message.id === this.currentId))) this.emit(block.text);
         if (this.stopSequence !== undefined) return;
-        if (block.type !== 'tool_use') continue;
+        if (block.type !== 'tool_use' || complete && message.stop_reason === 'refusal') continue;
         this.addCall(block);
       }
       if (complete) {
         this.flushText();
+        this.acceptStop(message.stop_reason);
         if (message.stop_reason === 'tool_use') this.finishToolMessage();
         else if (this.blocks.size || this.calls.size) throw new Error('CLI 工具消息缺少有效结束信号');
         if (message.stop_reason === 'max_tokens') this.outputLimitReached = true;
@@ -180,6 +195,7 @@ export class CliEvents {
     if (inner.type === 'message_delta') {
       this.flushText();
       this.count(this.currentId, inner.usage);
+      this.acceptStop(inner.delta?.stop_reason);
       if (inner.delta?.stop_reason === 'max_tokens') {
         if (this.blocks.size || this.calls.size) throw new Error('输出截断时工具消息不完整');
         this.outputLimitReached = true;

@@ -60,6 +60,8 @@ claude --settings .local/profiles/default/claude-code.settings.json
 
 ## 验证和日常使用
 
+拒绝响应的协议字段、网关日志查询及历史观测限制见[拒绝响应与日志排查](docs/refusal-diagnostics.md)。
+
 `doctor` 只检查隧道、网关、鉴权、模型列表和官方 CLI 登录布尔值，不调用模型。另行运行以下命令会发起 **1 次** Sonnet 真实请求，最多 1024 输出 token：
 
 ```powershell

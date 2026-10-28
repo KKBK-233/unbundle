@@ -274,7 +274,7 @@ export class NativeCliSession {
         context:{...this.compiled.metrics,model:request.model,effort:resolveEffort(request)||'auto',requestedOutputTokens:this.options.outputTokens,cliVersion:this.options.cliVersion}});
       const events = new CliEvents(this.compiled.available, text => {
         if(!this.turn?.cancelling&&!policy.required&&!policy.single){probes.output(text);onText?.(text);}
-      }, request.stop == null ? [] : typeof request.stop === 'string' ? [request.stop] : request.stop, { allowToolSearch: this.options.toolSearch, maxToolSearchCalls: this.options.maxToolSearchCalls });
+      }, request.stop == null ? [] : typeof request.stop === 'string' ? [request.stop] : request.stop, { allowToolSearch: this.options.toolSearch, maxToolSearchCalls: this.options.maxToolSearchCalls, onStopReason: reason => timing?.upstreamStop?.(reason) });
       const audit = cliOutputAudit({ requestId: timing?.requestId, sink: this.options.onCliAudit });
       const turn = { events, audit, probes, resolve, reject, signal, timing, policy, awaitingStart: true, outputBytes: 0,
         strategy: delta !== undefined ? 'native_increment' : this.entryMode || 'native_new' };
@@ -387,6 +387,9 @@ export class NativeCliSession {
       turn.events.accept(event.type === 'result' ? { ...event, usage: undefined } : event);
       if (inner?.type === 'content_block_delta' && inner.delta?.type === 'thinking_delta') turn.timing?.mark('first_thinking');
       if (inner?.type === 'content_block_start' && inner.content_block?.type === 'tool_use') turn.timing?.mark('first_tool');
+      if (turn.events.refused) {
+        this.deliver({ role: 'assistant', content: turn.events.text, stop_reason: 'refusal', ...turn.events.usage() }, false); return;
+      }
       if (turn.events.outputLimitReached || turn.events.stopSequence !== undefined) {
         const result = { role: 'assistant', content: turn.events.text, finish_reason: 'length', ...turn.events.usage() };
         if (turn.events.stopSequence !== undefined) { delete result.finish_reason; result.stop_sequence = turn.events.stopSequence; }
@@ -411,7 +414,7 @@ export class NativeCliSession {
   }
   deliver(result, reusable) {
     const turn = this.turn; if (!turn) return;
-    try { enforceToolChoice(turn.policy, result.tool_calls, turn.events.usage()); }
+    try { if (result.stop_reason !== 'refusal') enforceToolChoice(turn.policy, result.tool_calls, turn.events.usage()); }
     catch (error) { this.fail(error); return; }
     this.turn = undefined; this.clearTurn(turn);
     this.expected = historyKey(assistantMessage(result), { hashKey: this.options.historyHashKey, toolSchemas: this.request.tools }); this.lastUsed = Date.now();

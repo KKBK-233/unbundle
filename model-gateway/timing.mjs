@@ -1,18 +1,28 @@
 import { performance } from 'node:perf_hooks';
 import { randomUUID } from 'node:crypto';
 
-// 耗时仅记录固定阶段、请求关联号和数值；禁止正文、工具参数及认证信息进入日志。
+// 耗时仅记录固定阶段、结束原因枚举、请求关联号和数值；禁止正文、工具参数及认证信息进入日志。
 export function createTiming(sink) {
   const requestId = randomUUID();
   const start = performance.now();
   const stages = {};
   let progress;
+  let upstreamStopReason;
+  let upstreamRefusal = false;
   let upload;
   let lastProgressReport = 0;
   let ended = false;
   const publish = record => { try { sink?.({ type: 'gateway_timing', requestId, ...record }); } catch {} };
   return {
     requestId,
+    // 每次结束事件立即记录；保留拒绝标记，未知值不原样写入日志。
+    upstreamStop(reason) {
+      if (ended || typeof reason !== 'string' || !reason) return;
+      const allowed = ['end_turn', 'max_tokens', 'stop_sequence', 'tool_use', 'pause_turn', 'refusal', 'model_context_window_exceeded'];
+      upstreamStopReason = allowed.includes(reason) ? reason : 'unknown';
+      upstreamRefusal ||= reason === 'refusal';
+      publish({ stage: 'upstream_stop', elapsedMs: Math.round(performance.now() - start), stopReason: upstreamStopReason });
+    },
     // 仅记录上传字节数，不保存或哈希用户正文。
     upload(receivedBytes, expectedBytes) {
       if (ended || !Number.isSafeInteger(receivedBytes) || receivedBytes < 0) return;
@@ -43,7 +53,7 @@ export function createTiming(sink) {
     finish(outcome) {
       if (ended) return;
       ended = true;
-      publish({ stage: 'finished', outcome, elapsedMs: Math.round(performance.now() - start), stages, ...(progress ? { progress } : {}), ...(upload ? { upload } : {}) });
+      publish({ stage: 'finished', outcome, elapsedMs: Math.round(performance.now() - start), stages, ...(upstreamStopReason ? { upstreamStopReason, upstreamRefusal } : {}), ...(progress ? { progress } : {}), ...(upload ? { upload } : {}) });
     },
   };
 }

@@ -37,7 +37,7 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
   const probes = requestProbes({anomalyDir,requestId:timing?.requestId,
     context:{...metrics,model:request.model,effort:resolveEffort(request)||'auto',requestedOutputTokens:maxOutputTokens,cliVersion}});
   const policy = toolChoice(request);
-  const events = new CliEvents(available, text => { probes.output(text); if (!policy.required && !policy.single) onText?.(text); }, stops, { allowToolSearch: discovery.enabled, maxToolSearchCalls: discovery.maxCalls });
+  const events = new CliEvents(available, text => { probes.output(text); if (!policy.required && !policy.single) onText?.(text); }, stops, { allowToolSearch: discovery.enabled, maxToolSearchCalls: discovery.maxCalls, onStopReason: reason => timing?.upstreamStop?.(reason) });
   let probeOutcome = 'completed';
   let child, timer, idleTimer, killTimer, lines, errors = '', aborted = false, timedOut = false, idleTimedOut = false, protocolError;
   let outputBytes = 0, toolArgumentBytes = 0, upstreamMessages = 0, retryEvents = 0, mcpCalls = 0;
@@ -153,8 +153,8 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
         } else if (closesTool) observe('tool_stop');
         else if (inner?.type === 'message_delta' && inner.delta?.stop_reason) observe('message_end');
         else if (['assistant', 'result'].includes(event.type)) observe(event.type);
-        // 输出达到调用方上限即结束，防止 CLI 自行续写超过这一轮的额度。
-        if (events.outputLimitReached || events.stopSequence !== undefined) kill('SIGKILL');
+        // 拒绝或达到调用方输出边界即结束，防止 CLI 续写覆盖本轮结果。
+        if (events.refused || events.outputLimitReached || events.stopSequence !== undefined) kill('SIGKILL');
         else if (events.toolEnd) terminate();
       } catch (error) { protocolError = error; terminate(); }
     });
@@ -166,6 +166,7 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     if (timedOut) throw Object.assign(new Error(`推理达到总时限（${timeoutMs / 1000} 秒）`), { code: 'INFERENCE_TIMEOUT' });
     if (idleTimedOut) throw Object.assign(new Error(`上游连续 ${idleTimeoutMs / 1000} 秒没有推理进展`), { code: 'INFERENCE_IDLE_TIMEOUT' });
     if (protocolError) throw protocolError;
+    if (events.refused) return { role: 'assistant', content: events.text, stop_reason: 'refusal', ...events.usage() };
     if (events.stopSequence !== undefined || events.outputLimitReached || events.toolEnd) enforceToolChoice(policy, [...events.calls.values()], events.usage());
     if (events.stopSequence !== undefined) return { role: 'assistant', content: events.text, stop_sequence: events.stopSequence, ...events.usage() };
     events.flushText();
