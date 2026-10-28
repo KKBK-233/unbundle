@@ -1,10 +1,12 @@
 import { performance } from 'node:perf_hooks';
 import { randomUUID } from 'node:crypto';
+import { cliDiagnostics } from './cli-diagnostics.mjs';
 
 // 耗时仅记录固定阶段、结束原因枚举、请求关联号和数值；禁止正文、工具参数及认证信息进入日志。
 export function createTiming(sink) {
   const requestId = randomUUID();
   const start = performance.now();
+  const cli = cliDiagnostics({ requestId, sink });
   const stages = {};
   let progress;
   let upstreamStopReason;
@@ -15,6 +17,14 @@ export function createTiming(sink) {
   const publish = record => { try { sink?.({ type: 'gateway_timing', requestId, ...record }); } catch {} };
   return {
     requestId,
+    // 原始 CLI 元数据不依赖响应解析器，错误占位及续接通知也可追踪。
+    cliContext(value) { if (!ended) cli.context(value); },
+    cliEvent(event) { if (!ended) cli.accept(event); },
+    bindResponse(responseId, protocol) {
+      if (ended || !/^(?:msg_|chatcmpl-)[a-zA-Z0-9-]{1,80}$/.test(responseId)) return;
+      if (!['anthropic', 'chat_completions'].includes(protocol)) return;
+      publish({ stage: 'response_binding', responseId, protocol });
+    },
     // 每次结束事件立即记录；保留拒绝标记，未知值不原样写入日志。
     upstreamStop(reason) {
       if (ended || typeof reason !== 'string' || !reason) return;
@@ -53,6 +63,7 @@ export function createTiming(sink) {
     finish(outcome) {
       if (ended) return;
       ended = true;
+      cli.finish(outcome);
       publish({ stage: 'finished', outcome, elapsedMs: Math.round(performance.now() - start), stages, ...(upstreamStopReason ? { upstreamStopReason, upstreamRefusal } : {}), ...(progress ? { progress } : {}), ...(upload ? { upload } : {}) });
     },
   };

@@ -167,6 +167,7 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
 
       const id = `chatcmpl-${randomUUID()}`;
       const nativeId = `msg_${randomUUID().replaceAll('-', '')}`;
+      timing.bindResponse(anthropic ? nativeId : id, anthropic ? 'anthropic' : 'chat_completions');
       const created = Math.floor(Date.now() / 1000);
       const chunk = (delta, finish = null) => res.write(`data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created, model: body.model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`);
       timing.mark('request_validated');

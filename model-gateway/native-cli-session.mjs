@@ -269,6 +269,7 @@ export class NativeCliSession {
     this.request=request;
     this.state = 'running'; this.interrupted = false; this.cancelBarrier = undefined;
     return new Promise((resolve, reject) => {
+      timing?.cliContext?.({ cliVersion: this.options.cliVersion, model: this.options.model });
       const policy = toolChoice(request);
       const probes=requestProbes({requestId:timing?.requestId,anomalyDir:this.options.anomalyDir,log:this.options.onAnomaly,
         context:{...this.compiled.metrics,model:request.model,effort:resolveEffort(request)||'auto',requestedOutputTokens:this.options.outputTokens,cliVersion:this.options.cliVersion}});
@@ -344,6 +345,7 @@ export class NativeCliSession {
     }
     // 在任何转换和等待状态过滤前记录原始协议类别，避免把解析遗漏当作 CLI 没输出。
     const event = turn.audit.line(value); if (!event) return;
+    turn.timing?.cliEvent?.(event);
     turn.probes.accept(event);
     if (turn.cancelling) {
       const inner = event.type === 'stream_event' ? event.event : event;

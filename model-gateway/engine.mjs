@@ -38,6 +38,7 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     context:{...metrics,model:request.model,effort:resolveEffort(request)||'auto',requestedOutputTokens:maxOutputTokens,cliVersion}});
   const policy = toolChoice(request);
   const events = new CliEvents(available, text => { probes.output(text); if (!policy.required && !policy.single) onText?.(text); }, stops, { allowToolSearch: discovery.enabled, maxToolSearchCalls: discovery.maxCalls, onStopReason: reason => timing?.upstreamStop?.(reason) });
+  timing?.cliContext?.({ cliVersion, model });
   let probeOutcome = 'completed';
   let child, timer, idleTimer, killTimer, lines, errors = '', aborted = false, timedOut = false, idleTimedOut = false, protocolError;
   let outputBytes = 0, toolArgumentBytes = 0, upstreamMessages = 0, retryEvents = 0, mcpCalls = 0;
@@ -128,6 +129,7 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     lines = readline.createInterface({ input: child.stdout });
     lines.on('line', line => {
       let event; try { event = JSON.parse(line); } catch { return; }
+      timing?.cliEvent?.(event);
       probes.accept(event);
       timing?.mark('cli_first_event');
       const inner = event.type === 'stream_event' ? event.event : undefined;
