@@ -16,7 +16,7 @@ import { NativeCliSession } from './native-cli-session.mjs';
 import { continuationDelta, historyKey, sessionHistory } from './session-history.mjs';
 import path from 'node:path';
 import { NativeSessionStore } from './native-session-store.mjs';
-import { archiveSession } from './session-quarantine.mjs';
+import { archiveSession,quarantineNativeSession } from './session-quarantine.mjs';
 
 async function awaitCancellation(promise, signal) {
   signal?.throwIfAborted(); let abort;
@@ -103,7 +103,7 @@ export function sessionRelay(options, retained) {
             await makeRoom();
             const {row,sourceRequest,boundary}=saved;
             const session=new NativeCliSession(sourceRequest,compileContext(sourceRequest,options),{...options,model,outputTokens:row.compactSource.outputTokens,historyHashKey:store.key,resumeNativeId:row.id,resumeDelta:[],resumeForCompaction:true,
-              onIdleSessionClosed:s=>store.refreshClosed(s),onInvalidateCheckpoint:async()=>{await store.forget(row.id);await store.quarantineHistory(row.signature,row.history,row.affinityHash,row.historyNormalization,row.id);await store.quarantineAffinity(row.affinityHash);}});
+              onIdleSessionClosed:s=>store.refreshClosed(s),onInvalidateCheckpoint:()=>quarantineNativeSession(session,{store,quarantined})});
             session.signature=row.signature;session.affinityHash=affinityHash;session.creationReserved=true;sessions.add(session);
             try{await session.start();await store.forget(row.id);return {session,boundary};}catch(error){await session.close();sessions.delete(session);throw error;}
           });
@@ -305,9 +305,7 @@ export function sessionRelay(options, retained) {
         await makeRoom();
         const created = new NativeCliSession(request, compiled, { ...options, model, outputTokens: restored?.outputTokens ?? outputTokens, historyHashKey: store?.key,
           onIdleSessionClosed:session=>store?.refreshClosed(session),
-          onInvalidateCheckpoint: async id=>{ await store?.forget(id); await store?.quarantineAffinity(affinityHash);
-            const row={signature:created.signature,history:[...created.history],affinityHash,historyNormalization:created.historyNormalization,nativeSessionId:created.nativeSessionId};quarantined.push(row);created.quarantineRecord=row;
-            await store?.quarantineHistory(row.signature,row.history,affinityHash,row.historyNormalization,row.nativeSessionId); },
+          onInvalidateCheckpoint:()=>quarantineNativeSession(created,{store,quarantined}),
           resumeNativeId: restored?.id, resumeDelta: restored?.delta });
         created.signature = restored?.signature ?? signature; created.affinityHash = affinityHash; created.creationReserved = true;
         sessions.add(created);
