@@ -1,5 +1,12 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import{quotaRecoveryDelta}from'./quota-recovery.mjs';import{historyKey}from'./session-history.mjs';import{sessionQuotaFailure}from'./session-quota-guard.mjs';
+test('额度恢复允许末条纯目录状态移动，旧正文和混合指令仍严格比较',()=>{
+ const user={role:'user',content:'原任务'},env={role:'system',content:'# Environment update\n - Primary working directory: E:\\demo (was E:\\)\n'},next={role:'user',content:'继续'};
+ const make=messages=>({state:'frozen',freezeReason:'SESSION_LIMIT',request:{messages},history:messages.map(m=>historyKey(m)),pendingIds:new Set(),pendingHttp:new Map(),results:new Map(),pendingControls:new Map(),frozenTurn:{events:{result:{is_error:true,terminal_reason:'api_error',result:"You've hit your session limit"},text:'',calls:new Map(),blocks:new Map()}}});
+ const current={messages:[user,next,env]};assert.deepEqual(quotaRecoveryDelta(make([user,env]),current),[next,env]);
+ assert.equal(quotaRecoveryDelta(make([user,env]),{messages:[{...user,content:'changed'},next,env]}),undefined);
+ const mixed={...env,content:env.content+'Never change production.'};assert.equal(quotaRecoveryDelta(make([user,mixed]),{messages:[user,next,mixed]},{allowInstructionUpdates:true}),undefined);
+});
 test('额度终止后只接受严格原历史之后的新用户消息',()=>{
  const user={role:'user',content:'原任务'},next={role:'user',content:'继续'},notice=sessionQuotaFailure("You've hit your session limit").message;
  const make=()=>({state:'frozen',freezeReason:'SESSION_LIMIT',history:[historyKey(user)],pendingIds:new Set(),pendingHttp:new Map(),results:new Map(),pendingControls:new Map(),frozenTurn:{events:{result:{is_error:true,terminal_reason:'api_error',result:"You've hit your session limit"},text:'',calls:new Map(),blocks:new Map()}}});

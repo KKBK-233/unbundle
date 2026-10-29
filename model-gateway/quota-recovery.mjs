@@ -15,5 +15,7 @@ export function quotaRecoveryDelta(session,request,options={}) {
  const expected=historyKey(assistantMessage({content:notice}),{hashKey:options.hashKey});
  const tail=actual?.role==='assistant'&&historyKey(actual,{hashKey:options.hashKey})===expected
    ?[...messages.slice(0,index),...messages.slice(index+1)]:messages;
- return continuationDelta({...session,interrupted:true,request:undefined}, {...request,messages:tail},options);
+ // 保留本轮请求快照，复用纯目录状态移到新用户消息之后的既有兼容。
+ // 额度恢复不借用取消请求的工具收据别名或尾部投影。
+ return continuationDelta({...session,interrupted:true,cancelledReceiptIds:undefined}, {...request,messages:tail},options);
 }
