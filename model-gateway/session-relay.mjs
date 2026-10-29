@@ -1,5 +1,6 @@
 import {automaticRecoveryRequest,automaticRecoveryIdentity} from './automatic-recovery.mjs';
 import {quotaRecoveryDelta} from './quota-recovery.mjs';
+import {compactedToolDefinitionsChanged} from './tool-definition-update.mjs';
 import {settleFrozenTools,recoveryInputMessages} from './native-recovery.mjs';
 import {SessionLifecycle} from './session-lifecycle.mjs';
 import {compactionIntent,compactionBoundary,compactionRecord,compactedDelta} from './compaction-boundary.mjs';
@@ -71,10 +72,10 @@ export function sessionRelay(options, retained) {
       const compiled = compileContext(request, options);
       const model = typeof options.modelFor === 'function' ? options.modelFor(request.model) : options.model;
       const matchKey = store?.key || key;
-      const signatureForOutput = cap => createHmac('sha256', matchKey).update(stableJson({ model, outputTokens: cap,
+      const signatureForOutput = (cap,toolsHash=compiled.metrics.toolsHash) => createHmac('sha256', matchKey).update(stableJson({ model, outputTokens: cap,
         // 候选仅允许追加指令；旧前缀须逐字节匹配，旧规则修改仍不能复用。
         system: options.liveInstructionUpdates === true ? null : compiled.metrics.systemHash,
-        tools: compiled.metrics.toolsHash, policy: compiled.policy, effort: request.reasoning_effort || 'auto', stop: request.stop,
+        tools: toolsHash, policy: compiled.policy, effort: request.reasoning_effort || 'auto', stop: request.stop,
         cliVersion: store ? options.cliVersion || null : null })).digest('hex');
       const signature = signatureForOutput(outputTokens);
       // 输出参数是上限；保留现有较小 CLI 上限，其他配置必须完全一致。
@@ -238,7 +239,7 @@ export function sessionRelay(options, retained) {
       for (const [id, until] of failedRestores) if (until <= Date.now()) failedRestores.delete(id);
       if (failedRestores.has(restoreKey)) throw Object.assign(new Error('同一恢复请求刚刚失败；不自动重复提交长历史'),
         { code: 'RESTORE_RETRY_BLOCKED', status: 409, retryable: false });
-      let selected, delta, signatureMatches = 0, historyRejected = 0;
+      let selected, delta, toolsUpdate, signatureMatches = 0, historyRejected = 0;
       const rejectionReasons = {};
       const rejectedBoundarySessions=new Set(), mismatchedSessions=new Set();
       for (const session of sessions) {
@@ -251,9 +252,12 @@ export function sessionRelay(options, retained) {
           throw Object.assign(new Error('固定会话已因异常封存；禁止自动重建'), {code:'SESSION_QUARANTINED',status:409,retryable:false});
         }
         if (affinityHash && !['idle','waiting-tool'].includes(session.state)) throw Object.assign(new Error('固定会话仍在处理上一轮'), {code:'SESSION_BUSY',status:409,retryable:false});
-        if (!matchesSession(session) || !['idle', 'waiting-tool'].includes(session.state)) continue;
-        signatureMatches++;
+        if (!['idle', 'waiting-tool'].includes(session.state)) continue;
         const compacted=compactedDelta(session,request,{hashKey:store?.key});
+        const updatingTools=!!compacted&&compactedToolDefinitionsChanged(session,compiled)
+          &&outputTokens>=session.options.outputTokens&&session.signature===signatureForOutput(session.options.outputTokens,session.compiled.metrics.toolsHash);
+        if(!matchesSession(session)&&!updatingTools)continue;
+        signatureMatches++;
         const candidate = compacted || continuationDelta(session, request, { allowInstructionUpdates: options.liveInstructionUpdates === true,
           hashKey: store?.key,
           onCancelledTailProjection: detail => { try { options.onSessionEvent?.({type:'native_cancelled_completed_tail',requestId:timing?.requestId,sessionId:session.sessionId,...detail}); } catch {} },
@@ -265,7 +269,7 @@ export function sessionRelay(options, retained) {
             rejectionReasons[reason] = (rejectionReasons[reason] || 0) + 1;
             if(session.pendingIds.size&&reason!=='history_prefix_mismatch'&&reason!=='messages_not_appended')rejectedBoundarySessions.add(session);
           } });
-        if (candidate !== undefined) { selected = session; delta = candidate; break; }
+        if (candidate !== undefined) { selected = session; delta = candidate; if(updatingTools)toolsUpdate={compiled,signature:signatureForOutput(session.options.outputTokens)}; break; }
         historyRejected++;
       }
       if (!selected) {
@@ -328,7 +332,7 @@ export function sessionRelay(options, retained) {
       try {
         await store?.forget(selected.nativeSessionId);
         if(compactedDelta(selected,request,{hashKey:store?.key}))selected.compaction=undefined;
-        const running = selected.run(request, delta, { signal, onText, timing });
+        const running = selected.run(request, delta, { signal, onText, timing, toolsUpdate });
         selected.creationReserved = false;
         const result = await running;
         try { await store?.checkpoint(selected); }

@@ -128,7 +128,7 @@ export class NativeCliSession {
         return;
       }
       if (body.method === 'initialize') reply(body.id, { protocolVersion: '2025-03-26', capabilities: { tools: {} }, serverInfo: { name: 'caller-tool-relay', version: '1' } });
-      else if (body.method === 'tools/list') reply(body.id, { tools: this.compiled.exposedTools });
+      else if (body.method === 'tools/list') {this.toolListRevision=(this.toolListRevision||0)+1;reply(body.id, { tools: this.compiled.exposedTools });}
       else if (body.method === 'tools/call') {
         if(this.compacting){
           const error=Object.assign(new Error('原生压缩禁止执行调用方工具'),{code:'NATIVE_TOOL_NOT_ALLOWED'});
@@ -215,6 +215,16 @@ export class NativeCliSession {
     for (const key of this.instructionPayloads.keys()) if (key !== route) this.instructionPayloads.delete(key);
     this.report('instructions_updated', 'caller_append');
   }
+  async updateToolDefinitions(update){
+    const previous=this.compiled,revision=this.toolListRevision||0;
+    this.compiled=update.compiled;
+    try{
+      const result=await this.control({subtype:'mcp_reconnect',serverName:'omp'});
+      if(result?.error||Object.keys(result?.errors||{}).length||(this.toolListRevision||0)<=revision)throw new Error('CLI 未读取新的 MCP 工具定义');
+      this.signature=update.signature;
+      this.report('tools_updated','native_mcp_reconnected');
+    }catch(error){this.compiled=previous;throw Object.assign(new Error('原生工具定义刷新未得到确认；未提交新消息'),{code:'NATIVE_TOOL_DEFINITIONS_UPDATE_FAILED',status:409,retryable:false});}
+  }
   writeUser(input, turn) {
     const frame=JSON.parse(input);
     // 普通调用方文本不在 VPS 展开 @路径或执行斜杠命令；仅压缩模块可发固定 /compact。
@@ -264,7 +274,7 @@ export class NativeCliSession {
     } finally { clearTimeout(timer); }
   }
   summarize(request,boundary,context={}) {return nativeCompact(this,request,boundary,context);}
-  run(request, delta, { signal, onText, timing, resumeFrozen=false } = {}) {
+  run(request, delta, { signal, onText, timing, resumeFrozen=false, toolsUpdate } = {}) {
     if(resumeFrozen&&this.state==='frozen')this.state=this.freezePreviousState;
     if (!['idle', 'waiting-tool'].includes(this.state)) return Promise.reject(new Error('CLI 会话正在处理其他请求'));
     clearTimeout(this.expiry); this.history = sessionHistory(request.messages).map(message => historyKey(message,
@@ -305,11 +315,13 @@ export class NativeCliSession {
         if(resumeFrozen&&this.turn===turn){this.freezing=undefined;this.recoveryArmed=false;if(!resumedForControl)void resumeCli(this.child).then(()=>this.report('recovered','same_process')).catch(error=>this.fail(error));}
       };
       const instructionDelta = delta ?? this.initialInstructionDelta;
+      const toolsReady=toolsUpdate?this.updateToolDefinitions(toolsUpdate):Promise.resolve();
       if (instructionDelta !== undefined && this.options.liveInstructionUpdates === true) {
         const controls=instructionDelta.some(m=>['system','developer'].includes(m.role)&&!callerRuntimeStatus(m));
         const ready=resumeFrozen&&controls?resumeCli(this.child).then(()=>{resumedForControl=true;}):Promise.resolve();
-        void ready.then(()=>this.updateInstructions(request, instructionDelta)).then(()=>{this.initialInstructionDelta=undefined;advance();}).catch(error => { if (this.turn === turn) this.fail(error); });
-      } else advance();
+        void toolsReady.then(()=>ready).then(()=>this.updateInstructions(request, instructionDelta)).then(()=>{this.initialInstructionDelta=undefined;advance();}).catch(error => { if (this.turn === turn) this.fail(error); });
+      } else if(toolsUpdate){void toolsReady.then(advance).catch(error=>{if(this.turn===turn)this.fail(error);});}
+      else advance();
     });
   }
   progress() {
