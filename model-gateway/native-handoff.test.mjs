@@ -13,19 +13,21 @@ const config=JSON.parse(fs.readFileSync(process.argv[1],'utf8')).mcpServers.omp,
 const emit=v=>console.log(JSON.stringify(v));
 const start=id=>emit({type:'stream_event',event:{type:'message_start',message:{id,usage:{input_tokens:1,output_tokens:0}}}});
 const call=(id,name,path)=>fetch(config.url,{method:'POST',headers:{...config.headers,'content-type':'application/json'},
- body:JSON.stringify({jsonrpc:'2.0',id,method:'tools/call',params:{name,arguments:mode==='reordered'?{path,options:{offset:0,limit:5}}:{path},_meta:{'claudecode/toolUseId':id}}})});
+ body:JSON.stringify({jsonrpc:'2.0',id,method:'tools/call',params:{name,arguments:mode==='reordered'?{path,options:{offset:0,limit:5}}:mode==='unicode'||mode==='unicode-mismatch'?{path,content:mode==='unicode'?String.fromCharCode(0x2019):'changed'}:{path},_meta:{'claudecode/toolUseId':id}}})});
 readline.createInterface({input:process.stdin}).on('line',()=>{
- start('initial');
+ if(mode==='aggregate')emit({type:'system',subtype:'api_retry',attempt:1});else start('initial');
  const tools=[{type:'tool_use',id:'native_1',name:'mcp__omp__Read',input:mode==='reordered'?{options:{limit:5,offset:0},path:'first'}:{path:'first'}}];
+ if(mode==='unicode'||mode==='unicode-mismatch'){tools[0]={type:'tool_use',id:'native_1',name:'mcp__omp__Write',input:{path:'first',content:String.fromCharCode(0x2019)}};emit({type:'stream_event',event:{type:'content_block_start',index:0,content_block:{type:'tool_use',id:'native_1',name:'mcp__omp__Write',input:{}}}});emit({type:'stream_event',event:{type:'content_block_delta',index:0,delta:{type:'input_json_delta',partial_json:JSON.stringify({path:'first',content:String.fromCharCode(92)+'u2019'})}}});}
  if(mode==='serial')tools.push({type:'tool_use',id:'native_2',name:'mcp__omp__Write',input:{path:'second'}});
- emit({type:'assistant',message:{content:tools}});
- emit({type:'stream_event',event:{type:'message_delta',delta:{stop_reason:'tool_use'},usage:{output_tokens:1}}});
+ emit({type:'assistant',message:{id:'initial',content:tools,...(mode==='aggregate'?{stop_reason:'tool_use',usage:{input_tokens:2,output_tokens:3}}:{})}});
+ if(mode==='unicode'||mode==='unicode-mismatch')emit({type:'stream_event',event:{type:'content_block_stop',index:0}});
+ if(mode!=='aggregate')emit({type:'stream_event',event:{type:'message_delta',delta:{stop_reason:'tool_use'},usage:{output_tokens:1}}});
  if(mode==='timeout')return;
  if(mode==='internal-error'){
   setTimeout(()=>emit({type:'user',message:{content:[{type:'tool_result',tool_use_id:'native_1',is_error:true,content:'Synthetic internal rejection'}]}}),20);return;
  }
  if(mode==='unrequested')setTimeout(()=>start('unexpected'),80);
- call('native_1','Read','first').then(async response=>{
+ call('native_1',mode==='unicode'||mode==='unicode-mismatch'?'Write':'Read','first').then(async response=>{
   if(!response.ok)return;
   await response.json();
   if(mode==='serial'){const second=await call('native_2','Write','second');if(!second.ok)return;await second.json();}
@@ -37,10 +39,10 @@ readline.createInterface({input:process.stdin}).on('line',()=>{
 });`;
 const request = { model: 'claude-opus-5-5', max_tokens: 1024, messages: [{ role: 'user', content: 'synthetic' }],
   tools: ['Read', 'Write'].map(name => ({ type: 'function', function: { name, parameters: { type: 'object' } } })) };
-async function setup(mode) {
+async function setup(mode, overrides={}) {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'native-handoff-')), records = []; let spawns = 0;
   const relay = sessionRelay({ home, model: request.model, maxOutputTokens: 1024, timeoutMs: 3000, handoffTimeoutMs: 150,
-    requireLiveToolContinuation: true, maxSessions: 1,
+    requireLiveToolContinuation: true, maxSessions: 1, ...overrides,
     onSessionEvent: value => records.push(value),
     spawnProcess: (_cli, args, options) => { spawns++; return spawn(process.execPath,
       ['--input-type=module', '-e', script, args[args.indexOf('--mcp-config') + 1], mode], options); } });
@@ -175,4 +177,39 @@ test('真实参数变化不能通过解冻入口放行，已丢失进程也不�
   await assert.rejects(state.relay.recover(frozen.sessionId),{code:'RECOVERY_ARGUMENTS_CHANGED'});
   await assert.rejects(state.relay.recover('0'.repeat(24)),{code:'NATIVE_PROCESS_GONE'});assert.equal(state.spawns(),1);
  }finally{await state.close();}
+});
+
+
+test('工具续接提高输出上限后仍复用原进程，并能切回原上限',async()=>{
+ const state=await setup('reordered',{maxOutputTokens:2048});
+ try{
+  const first=await state.relay.infer(request);
+  const next={...request,max_tokens:2048,messages:[...request.messages,assistantMessage(first),...first.tool_calls.map(c=>({role:'tool',tool_call_id:c.id,content:'REAL_RESULT'}))]};
+  const second=await state.relay.infer(next);assert.equal(second.content,'DONE');assert.equal(state.spawns(),1);
+  const third=await state.relay.infer({...request,messages:[...next.messages,assistantMessage(second),{role:'user',content:'继续'}]});
+  assert.equal(third.tool_calls.length,1);assert.equal(state.spawns(),1);
+ }finally{await state.close();}
+});
+
+test('低于原 CLI 实际输出上限的续接仍然拒绝',async()=>{
+ const state=await setup('reordered',{maxOutputTokens:2048});
+ try{const first=await state.relay.infer(request);const next={...request,max_tokens:512,messages:[...request.messages,assistantMessage(first),...first.tool_calls.map(c=>({role:'tool',tool_call_id:c.id,content:'REAL_RESULT'}))]};await assert.rejects(state.relay.infer(next),{code:'SESSION_OUTPUT_BUDGET_TOO_SMALL'});assert.equal(state.spawns(),1);}finally{await state.close();}
+});
+
+
+test('过载重试后仅有完整 assistant 时仍交付真实工具并续接原进程',async()=>{
+ const state=await setup('aggregate');try{
+  const first=await state.relay.infer(request);assert.equal(first.tool_calls.length,1);assert.equal(first.upstream_usage.input_tokens,2);
+  const next={...request,messages:[...request.messages,assistantMessage(first),{role:'tool',tool_call_id:first.tool_calls[0].id,content:'REAL_RESULT'}]};
+  assert.equal((await state.relay.infer(next)).content,'DONE');assert.equal(state.spawns(),1);
+ }finally{await state.close();}
+});
+
+
+test('流片段中的字面 Unicode 转义不覆盖完整 Write 参数，须与真实 MCP 一致',async()=>{
+ const state=await setup('unicode');try{const first=await state.relay.infer(request);assert.equal(first.tool_calls.length,1);assert.equal(JSON.parse(first.tool_calls[0].function.arguments).content,String.fromCharCode(0x2019));const next={...request,messages:[...request.messages,assistantMessage(first),{role:'tool',tool_call_id:first.tool_calls[0].id,content:'REAL_WRITE_RESULT'}]};assert.equal((await state.relay.infer(next)).content,'DONE');assert.equal(state.spawns(),1);}finally{await state.close();}
+});
+
+test('完整 Write 参数与真实 MCP 不一致时仍拒绝交付 Desktop',async()=>{
+ const state=await setup('unicode-mismatch');try{await assert.rejects(state.relay.infer(request),{code:'NATIVE_TOOL_ID_MISMATCH'});assert.equal(state.spawns(),1);}finally{await state.close();}
 });

@@ -1,6 +1,6 @@
 import {cacheEnvironment} from './cache-policy.mjs';
 import {nativeCompact} from './native-compaction.mjs';
-import {statelessQuotaFailure} from './stateless-quota.mjs';
+import {statelessQuotaFailure,statelessInitialCancellation} from './stateless-quota.mjs';
 import {suspendCli,resumeCli,verifySuspended} from './process-freeze.mjs';
 const DEFAULT_TOOL_WAIT_MS=1800000;
 import { toolSearchConfig } from './tool-search-config.mjs';
@@ -128,7 +128,7 @@ export class NativeCliSession {
         return;
       }
       if (body.method === 'initialize') reply(body.id, { protocolVersion: '2025-03-26', capabilities: { tools: {} }, serverInfo: { name: 'caller-tool-relay', version: '1' } });
-      else if (body.method === 'tools/list') reply(body.id, { tools: this.compiled.exposedTools });
+      else if (body.method === 'tools/list') {this.toolListRevision=(this.toolListRevision||0)+1;reply(body.id, { tools: this.compiled.exposedTools });}
       else if (body.method === 'tools/call') {
         if(this.compacting){
           const error=Object.assign(new Error('原生压缩禁止执行调用方工具'),{code:'NATIVE_TOOL_NOT_ALLOWED'});
@@ -157,6 +157,9 @@ export class NativeCliSession {
       }
       pending.res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ jsonrpc: '2.0', id: pending.rpcId, result: value }));
       this.pendingHttp.delete(id); this.results.delete(id);
+      // 真实结果已交给原 MCP 等待者；不能把已完成的旧调用误当作当前取消边界。
+      this.pendingIds.delete(id);
+      this.turn?.deliveredReceiptIds?.add(id);
     }
   }
   releaseTools() {
@@ -212,6 +215,16 @@ export class NativeCliSession {
     for (const key of this.instructionPayloads.keys()) if (key !== route) this.instructionPayloads.delete(key);
     this.report('instructions_updated', 'caller_append');
   }
+  async updateToolDefinitions(update){
+    const previous=this.compiled,revision=this.toolListRevision||0;
+    this.compiled=update.compiled;
+    try{
+      const result=await this.control({subtype:'mcp_reconnect',serverName:'omp'});
+      if(result?.error||Object.keys(result?.errors||{}).length||(this.toolListRevision||0)<=revision)throw new Error('CLI 未读取新的 MCP 工具定义');
+      this.signature=update.signature;
+      this.report('tools_updated','native_mcp_reconnected');
+    }catch(error){this.compiled=previous;throw Object.assign(new Error('原生工具定义刷新未得到确认；未提交新消息'),{code:'NATIVE_TOOL_DEFINITIONS_UPDATE_FAILED',status:409,retryable:false});}
+  }
   writeUser(input, turn) {
     const frame=JSON.parse(input);
     // 普通调用方文本不在 VPS 展开 @路径或执行斜杠命令；仅压缩模块可发固定 /compact。
@@ -250,7 +263,9 @@ export class NativeCliSession {
         || result?.terminal_reason !== 'aborted_streaming' || result.user_message_uuid !== turn.inputUuid) throw failure;
       if (this.turn !== turn || this.state === 'closed') throw failure;
       this.turn = undefined; this.clearTurn(turn,'cancelled'); this.state = 'idle'; this.interrupted = true;
-      this.expected = undefined; this.lastUsed = Date.now();
+      this.expected = undefined; this.cancelledReceiptIds = new Set(turn.deliveredReceiptIds); this.lastUsed = Date.now();
+      this.cancelConfirmed=true;
+      try{await this.options.onCancelledSession?.(this);}catch{this.report('cancel_checkpoint_failed','CHECKPOINT_WRITE_FAILED');}
       this.report('cancel_preserved', 'ack_and_terminal'); await turn.probeFinished; turn.reject(failure);
       this.expiry = setTimeout(() => { void this.close('expired').catch(() => {}); }, this.options.sessionTtlMs || 1800000);
       this.expiry.unref?.();
@@ -261,13 +276,13 @@ export class NativeCliSession {
     } finally { clearTimeout(timer); }
   }
   summarize(request,boundary,context={}) {return nativeCompact(this,request,boundary,context);}
-  run(request, delta, { signal, onText, timing, resumeFrozen=false } = {}) {
+  run(request, delta, { signal, onText, timing, resumeFrozen=false, toolsUpdate } = {}) {
     if(resumeFrozen&&this.state==='frozen')this.state=this.freezePreviousState;
     if (!['idle', 'waiting-tool'].includes(this.state)) return Promise.reject(new Error('CLI 会话正在处理其他请求'));
     clearTimeout(this.expiry); this.history = sessionHistory(request.messages).map(message => historyKey(message,
       { exact: this.options.liveInstructionUpdates === true, hashKey: this.options.historyHashKey, toolSchemas: this.request.tools })); this.expected = undefined;
     this.request=request;
-    this.state = 'running'; this.interrupted = false; this.cancelBarrier = undefined;
+    this.state = 'running'; this.interrupted = false; this.cancelConfirmed=false; this.cancelledReceiptIds = undefined; this.cancelBarrier = undefined;
     return new Promise((resolve, reject) => {
       timing?.cliContext?.({ cliVersion: this.options.cliVersion, model: this.options.model });
       const policy = toolChoice(request);
@@ -275,10 +290,10 @@ export class NativeCliSession {
         context:{...this.compiled.metrics,model:request.model,effort:resolveEffort(request)||'auto',requestedOutputTokens:this.options.outputTokens,cliVersion:this.options.cliVersion}});
       const events = new CliEvents(this.compiled.available, text => {
         if(!this.turn?.cancelling&&!policy.required&&!policy.single){probes.output(text);onText?.(text);}
-      }, request.stop == null ? [] : typeof request.stop === 'string' ? [request.stop] : request.stop, { allowToolSearch: this.options.toolSearch, maxToolSearchCalls: this.options.maxToolSearchCalls, onStopReason: reason => timing?.upstreamStop?.(reason), onToolCall: call => timing?.cliTool?.(call) });
+      }, request.stop == null ? [] : typeof request.stop === 'string' ? [request.stop] : request.stop, { allowToolSearch: this.options.toolSearch, maxToolSearchCalls: this.options.maxToolSearchCalls, preferAggregateWithMcpValidation: true, onStopReason: reason => timing?.upstreamStop?.(reason), onToolCall: call => timing?.cliTool?.(call) });
       const audit = cliOutputAudit({ requestId: timing?.requestId, sink: this.options.onCliAudit });
       const turn = { events, audit, probes, resolve, reject, signal, timing, policy, awaitingStart: true, outputBytes: 0,
-        strategy: delta !== undefined ? 'native_increment' : this.entryMode || 'native_new' };
+        strategy: delta !== undefined ? 'native_increment' : this.entryMode || 'native_new', deliveredReceiptIds: new Set() };
       this.turn = turn;
       turn.abort = () => this.cancelTurn(turn);
       signal?.addEventListener('abort', turn.abort, { once: true });
@@ -303,11 +318,13 @@ export class NativeCliSession {
         if(resumeFrozen&&this.turn===turn){this.freezing=undefined;this.recoveryArmed=false;if(!resumedForControl)void resumeCli(this.child).then(()=>this.report('recovered','same_process')).catch(error=>this.fail(error));}
       };
       const instructionDelta = delta ?? this.initialInstructionDelta;
+      const toolsReady=toolsUpdate?this.updateToolDefinitions(toolsUpdate):Promise.resolve();
       if (instructionDelta !== undefined && this.options.liveInstructionUpdates === true) {
         const controls=instructionDelta.some(m=>['system','developer'].includes(m.role)&&!callerRuntimeStatus(m));
         const ready=resumeFrozen&&controls?resumeCli(this.child).then(()=>{resumedForControl=true;}):Promise.resolve();
-        void ready.then(()=>this.updateInstructions(request, instructionDelta)).then(()=>{this.initialInstructionDelta=undefined;advance();}).catch(error => { if (this.turn === turn) this.fail(error); });
-      } else advance();
+        void toolsReady.then(()=>ready).then(()=>this.updateInstructions(request, instructionDelta)).then(()=>{this.initialInstructionDelta=undefined;advance();}).catch(error => { if (this.turn === turn) this.fail(error); });
+      } else if(toolsUpdate){void toolsReady.then(advance).catch(error=>{if(this.turn===turn)this.fail(error);});}
+      else advance();
     });
   }
   progress() {
@@ -370,10 +387,14 @@ export class NativeCliSession {
       || event.type === 'result')) {
       this.fail(Object.assign(new Error('CLI 未完成 MCP 交接便继续执行'), { code: 'CLI_TOOL_HANDOFF_FAILED' })); return;
     }
-    if (inner?.type === 'message_start') { turn.awaitingStart = false; turn.timing?.mark('upstream_message_start'); }
+    if (inner?.type === 'message_start') { turn.awaitingStart = false; turn.timing?.onUsage?.({upstream_usage:inner.message?.usage}); turn.timing?.mark('upstream_message_start'); }
+    // 官方 CLI 在流式重试降级后可能只给完整 assistant，没有 message_start。
+    // API 错误占位消息不能作为模型回复；工具仍须通过真实 MCP 等待和参数校验。
+    if(turn.awaitingStart&&completeAssistant(event)){
+      turn.awaitingStart=false;turn.timing?.onUsage?.({upstream_usage:event.message.usage});turn.timing?.mark('upstream_message_start');
+    }
     // 明确的 API 重试属于进展，只刷新空闲计时，不延长整轮总时限。
     if (event.type === 'system' && event.subtype === 'api_retry') { this.progress(); return; }
-    if (completeAssistant(event)) turn.awaitingStart = false;
     if (turn.awaitingStart && !['result'].includes(event.type)) return;
     const phase = inner?.type === 'content_block_delta'
       ? { thinking_delta: 'thinking', text_delta: 'text', input_json_delta: 'tool_delta' }[inner.delta?.type]
@@ -422,6 +443,7 @@ export class NativeCliSession {
     this.expected = historyKey(assistantMessage(result), { hashKey: this.options.historyHashKey, toolSchemas: this.request.tools }); this.lastUsed = Date.now();
     this.expectedFingerprint = assistantFingerprint(assistantMessage(result), {hashKey:this.options.historyHashKey});
     this.lastAssistant=assistantMessage(result);
+    this.lastStopReason=result.stop_reason;
     this.state = result.tool_calls?.length ? 'waiting-tool' : 'idle';
     void turn.probeFinished.then(()=>turn.resolve(result));
     if (!reusable) void this.close();
@@ -437,11 +459,13 @@ export class NativeCliSession {
     turn.probeFinished=turn.probes?.finish(outcome)||Promise.resolve();
   }
   fail(error) {
-    if(statelessQuotaFailure(this,error)){
-      const turn=this.turn;this.turn=undefined;this.clearTurn(turn,'error');
-      this.report('quota_rejected','STATELESS_QUOTA_REJECTION');
+    if(error.code==='SESSION_LIMIT')this.quotaFailureNotice=error.message;
+    const initialCancellation=statelessInitialCancellation(this,error);
+    if(initialCancellation||statelessQuotaFailure(this,error)){
+      const turn=this.turn;this.turn=undefined;this.clearTurn(turn,initialCancellation?'cancelled':'error');
+      this.report(initialCancellation?'initial_cancelled':'quota_rejected',initialCancellation?'STATELESS_INITIAL_CANCELLATION':'STATELESS_QUOTA_REJECTION');
       // 结束本次空白 CLI；原生落盘文件保留，错误仍交给账户冷却保护处理。
-      void Promise.all([this.close('quota_rejected'),turn.probeFinished]).then(()=>turn.reject(error),()=>turn.reject(error));return;
+      void Promise.all([this.close(initialCancellation?'initial_cancelled':'quota_rejected'),turn.probeFinished]).then(()=>turn.reject(error),()=>turn.reject(error));return;
     }
     const protocolCodes = new Map([
       ['CLI 工具调用 ID 冲突', 'CLI_TOOL_ID_CONFLICT'], ['CLI 返回了无效的工具调用', 'CLI_TOOL_INVALID'],
@@ -496,6 +520,16 @@ export class NativeCliSession {
     catch(error){if(error.code==='ESRCH')return false;throw error;}
   }
   async close(reason = 'closed',{immediateKill=false,discardFrozen=false}={}) {
+    if(['expired','capacity'].includes(reason)&&this.state==='idle'&&this.interrupted&&this.options.persistentSessions===true){
+      // 取消后没有普通助手完成帧；先确认专用检查点落盘，不能静默丢掉恢复入口。
+      let saved=false;try{saved=await this.options.onCancelledSession?.(this);}catch{}
+      if(this.state!=='idle'||this.turn)return false;
+      if(saved!==true){
+        this.report('close_blocked','CANCEL_CHECKPOINT_UNAVAILABLE');
+        if(reason==='capacity')throw Object.assign(new Error('取消会话的恢复检查点尚未保存'),{code:'SESSION_CAPACITY',status:429,retryable:false});
+        this.expiry=setTimeout(()=>{void this.close('expired').catch(()=>{});},this.options.sessionTtlMs||1800000);this.expiry.unref?.();return false;
+      }
+    }
     if(['expired','capacity'].includes(reason)&&this.state==='waiting-tool'&&this.pendingIds.size){
       if(reason==='capacity')throw Object.assign(new Error('长工具正在执行，禁止容量回收'),{code:'SESSION_CAPACITY',status:429,retryable:false});
       this.report('close_blocked','caller_tool_running');

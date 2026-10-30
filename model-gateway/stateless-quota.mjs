@@ -8,3 +8,11 @@ export function statelessQuotaFailure(session,error){
  const messages=session.request.messages.filter(m=>!['system','developer'].includes(m.role));
  return messages.length===1&&messages[0].role==='user';
 }
+
+// 启动测试断线且尚未收到任何模型消息时，释放空 CLI，不生成永久封存记录。
+export function statelessInitialCancellation(session,error){
+ if(error?.code!=='REQUEST_CANCELLED'||!statelessQuotaFailure(session,{code:'SESSION_LIMIT'}))return false;
+ const turn=session.turn,events=turn.events;
+ return turn.awaitingStart===true&&!events.text.trim()&&!events.pendingText.trim()
+   &&!events.receivedText&&events.counts.size===0&&events.blocks.size===0;
+}

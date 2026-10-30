@@ -1,6 +1,6 @@
 # 拒绝响应与日志排查
 
-从 1.0.7 开始，逐轮 CLI 与原生会话均识别流式 `message_delta.delta.stop_reason` 和完整 `assistant.message.stop_reason` 中的 `refusal`。拒绝作为正常终止响应交付，保留正文和已收到的用量；没有正文时也保留拒绝状态。网关不会自行重试拒绝，未交付的工具调用不交付，排队的后续输出不覆盖拒绝。原生会话结束该 CLI 进程，不复用尚未完成结果事件的进程。
+本分支移植上游 1.0.7/1.0.8 的修复，逐轮 CLI 与原生会话均识别流式 `message_delta.delta.stop_reason` 和完整 `assistant.message.stop_reason` 中的 `refusal`。拒绝作为正常终止响应交付，保留正文和已收到的用量；没有正文时也保留拒绝状态。网关不会自行重试拒绝，未交付的工具调用不交付，排队的后续输出不覆盖拒绝。原生会话结束该 CLI 进程，不复用尚未完成结果事件的进程。启用原生持久化时，正常退出落盘后为已交付的拒绝保存检查点；下一条消息使用同一 UUID 原生恢复，只发送新增输入。
 
 - Anthropic `/v1/messages`：HTTP 200，非流式顶层或 SSE `message_delta.delta` 返回 `stop_reason: "refusal"`。
 - 兼容 `/v1/chat/completions`：流式和非流式均映射为 `finish_reason: "content_filter"`，不在 assistant 消息内附加内部状态字段。

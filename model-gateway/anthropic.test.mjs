@@ -120,7 +120,7 @@ test('原生接口流式文本、并行工具和缓存三桶保持一致，阶�
 test('原生流心跳经过 SDK 的 ping 过滤后仍有事件，空正文不影响后续工具和用量', { timeout: 18000 }, async () => {
   let complete;
   const pending = new Promise(resolve => { complete = resolve; });
-  const app = await gateway({ token: 'test', port: 0, models: [{ id: body.model }], execute: () => pending });
+  const app = await gateway({ token: 'test', port: 0, models: [{ id: body.model }], execute: (_r,_s,_t,timing) => {timing.onUsage({upstream_usage:{input_tokens:7,output_tokens:0,cache_read_input_tokens:13,cache_creation_input_tokens:17}});return pending;} });
   const controller = new AbortController();
   let reader;
   try {
@@ -171,7 +171,7 @@ test('原生流心跳经过 SDK 的 ping 过滤后仍有事件，空正文不影
 test('保活与真实正文共用文本块，不重复输出或覆盖最终用量', () => {
   const writes = [];
   const writer = anthropicWriter({ writeHead() {}, write: value => writes.push(value), end() {} }, 'msg_test', body.model);
-  writer.start(); writer.ping(); writer.ping(); writer.text('真正的正文');
+  writer.start(); writer.usage({upstream_usage:{input_tokens:7}}); writer.ping(); writer.ping(); writer.text('真正的正文');
   writer.finish({ content: '真正的正文', upstream_usage: { input_tokens: 7, output_tokens: 11 } }, 'end_turn');
   const events = writes.map(wire => JSON.parse(wire.split('\ndata: ')[1]));
   assert.equal(events.filter(event => event.type === 'content_block_start').length, 1);

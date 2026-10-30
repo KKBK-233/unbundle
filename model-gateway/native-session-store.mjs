@@ -7,6 +7,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { continuationDelta,historyKey,sessionHistory } from './session-history.mjs';
+import {cancellationBoundary,cancelledCheckpointDelta,validCancellationBoundary} from './cancel-checkpoint.mjs';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const hash = /^[0-9a-f]{64}$/;
@@ -31,8 +32,12 @@ export class NativeSessionStore {
       if (Buffer.byteLength(raw) > 64 * 1024 * 1024) throw new Error('原生会话索引超过上限');
       const rows = JSON.parse(raw);
       if (!Array.isArray(rows)) throw new Error('原生会话索引格式无效');
-      for (const row of rows) if ((row.affinityHash===undefined || hash.test(row.affinityHash)) && uuid.test(row.id) && hash.test(row.signature) && hash.test(row.expected)
+      for (const row of rows) if ((row.affinityHash===undefined || hash.test(row.affinityHash)) && uuid.test(row.id) && hash.test(row.signature)
+        && (row.interrupted===true?row.expected===undefined&&validCancellationBoundary(row.cancellation,row.history?.length):hash.test(row.expected))
         && Array.isArray(row.history) && row.history.every(value => hash.test(value))
+        && (row.verifiedToolResults===undefined || Array.isArray(row.verifiedToolResults)&&row.verifiedToolResults.length>0&&row.verifiedToolResults.length<=32
+          &&row.verifiedToolResults.every(v=>v&&typeof v.id==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(v.id)&&hash.test(v.hash))
+          &&new Set(row.verifiedToolResults.map(v=>v.id)).size===row.verifiedToolResults.length)
         && Number.isFinite(row.snapshot?.size) && Number.isFinite(row.snapshot?.mtimeMs)
         && Number.isFinite(row.savedAt)) this.records.set(row.id, row);
     } catch (error) { if (error.code !== 'ENOENT') throw error; }
@@ -93,21 +98,28 @@ export class NativeSessionStore {
   async checkpoint(session) {
     await this.ready;
     if (session.state !== 'idle' || session.pendingIds.size || !session.nativeConfirmed || !uuid.test(session.nativeSessionId)
-      || !session.expected || session.interrupted) return;
+      || session.turn || session.pendingHttp?.size || session.results?.size || session.pendingControls?.size) return;
+    const cancellation=cancellationBoundary(session);
+    if(session.interrupted?!cancellation:!session.expected)return;
     const snapshot = await this.transcriptSnapshot(session.nativeSessionId);
     if (!snapshot) return;
     const messages=session.request?.messages||[],first=messages.findIndex(m=>!['system','developer'].includes(m.role));
-    const compactSource=session.lastAssistant?{model:session.request.model,outputTokens:session.options.outputTokens,toolsHash:session.compiled.metrics.toolsHash,
+    const compactSource=session.interrupted?{outputTokens:session.options.outputTokens}:session.lastAssistant?{model:session.request.model,outputTokens:session.options.outputTokens,toolsHash:session.compiled.metrics.toolsHash,
       systems:messages.slice(0,first<0?messages.length:first).map(m=>historyKey(m,{hashKey:this.key,exact:true})),
       instructions:sessionHistory(messages).filter(m=>['system','developer'].includes(m.role)).map(m=>historyKey(m,{hashKey:this.key,exact:true})),
       memoryAliases:compactMemoryAliases(messages,{hashKey:this.key,toolSchemas:session.request.tools}).map(({index,hash})=>({index,hash})),
       conversation:[...sessionHistory(messages).filter(m=>!['system','developer'].includes(m.role)),session.lastAssistant].map(m=>historyKey(m,{hashKey:this.key,toolSchemas:session.request.tools}))}:undefined;
     this.records.set(session.nativeSessionId, { id: session.nativeSessionId, signature: session.signature,outputTokens:sessionOutputTokens(session),compactSource,
-      historyNormalization: session.historyNormalization, affinityHash: session.affinityHash, history: session.history, expected: session.expected, compaction:session.compaction, snapshot, savedAt: Date.now() });
+      historyNormalization: session.historyNormalization, affinityHash: session.affinityHash, history: [...session.history], expected: session.expected, compaction:session.compaction, snapshot, savedAt: Date.now(),
+      ...(cancellation?{interrupted:true,cancellation}:{}) });
     await this.persist();
+    return true;
   }
   async refreshClosed(session) {
     await this.ready;
+    // 拒绝帧立即结束 CLI，避免原生自动续写；退出落盘后登记这个已完成回复。
+    if(session.lastStopReason==='refusal'&&session.state==='closed'&&!session.interrupted
+      &&session.child&&(session.child.exitCode!==null||session.child.signalCode!==null))return this.checkpoint({...session,state:'idle'});
     const row=this.records.get(session.nativeSessionId);
     if(!row||row.signature!==session.signature||row.expected!==session.expected
       ||JSON.stringify(row.history)!==JSON.stringify(session.history))return;
@@ -182,10 +194,20 @@ export class NativeSessionStore {
         if (affinityHash) return this.rejectRestore(row,request,{mismatch:true},'CHECKPOINT_HISTORY_MISMATCH'); continue;
       }
       if(row.compaction?.nativeCommitted)await hydrateCompactionSource({nativeSessionId:row.id,compaction:row.compaction,options:{home:this.home,configDir:this.configDir,historyHashKey:this.key}});
-      const delta = compactedDelta({...row,pendingIds:new Set()},request,{hashKey:this.key}) || continuationDelta({ ...row, pendingIds: new Set() }, request,
+      let delta = row.interrupted?cancelledCheckpointDelta(row,request,{hashKey:this.key,allowInstructionUpdates}):
+        compactedDelta({...row,pendingIds:new Set()},request,{hashKey:this.key}) || continuationDelta({ ...row, pendingIds: new Set(row.verifiedToolResults?.map(v=>v.id)||[]) }, request,
         { allowInstructionUpdates, hashKey: this.key });
       if (!delta) { if (affinityHash) return this.rejectRestore(row,request,{mismatch:true},'CHECKPOINT_HISTORY_MISMATCH'); continue; }
       if (signatureFor) assertOutputBudget(actual, requestedOutputTokens);
+      if(row.verifiedToolResults){
+        // 仅管理员在原生副本离线核验、真实结果已写入后建立此检查点；普通请求不创建它。
+        // 已持久化的结果只核对 HMAC，不再交给 CLI，也不自动重跑对应工具。
+        const results=delta.filter(m=>m.role==='tool');
+        if(row.verifiedToolResults.some(v=>!results.some(m=>m.tool_call_id===v.id&&historyKey(m,{hashKey:this.key,exact:true})===v.hash)))
+          return this.rejectRestore(row,request,{unsafe:true},'VERIFIED_TOOL_RESULT_CHANGED');
+        delta=delta.filter(m=>m.role!=='tool');
+        if(!delta.some(m=>m.role==='user'))return {unsafe:true};
+      }
       const snapshot = await this.transcriptSnapshot(row.id);
       if (!snapshot) return this.rejectRestore(row,request,{missing:true},'NATIVE_TRANSCRIPT_MISSING');
       if (snapshot.size !== row.snapshot.size || snapshot.mtimeMs !== row.snapshot.mtimeMs) return this.rejectRestore(row,request,{unsafe:true},'NATIVE_TRANSCRIPT_UNCERTAIN');

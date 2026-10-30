@@ -2,6 +2,17 @@ import {toolBoundarySnapshot} from './tool-boundary-trace.mjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+// 两种原生创建路径共用当前会话快照，不能沿用恢复时的旧检查点边界。
+export async function quarantineNativeSession(session,{store,quarantined}){
+  await store?.forget(session.nativeSessionId);
+  await store?.quarantineAffinity(session.affinityHash);
+  const row={signature:session.signature,history:[...session.history],affinityHash:session.affinityHash,
+    historyNormalization:session.historyNormalization,nativeSessionId:session.nativeSessionId};
+  quarantined.push(row);session.quarantineRecord=row;
+  await store?.quarantineHistory(row.signature,row.history,row.affinityHash,row.historyNormalization,row.nativeSessionId);
+  return row;
+}
+
 // 错误现场仅保存到受限目录；不记录到日志，不包含 MCP bearer、环境变量或认证文件。
 export async function archiveSession(session,{request,reason,partialTurn}) {
   const root=path.join(session.options.home,'quarantined-sessions');
