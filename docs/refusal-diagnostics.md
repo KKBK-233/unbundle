@@ -60,3 +60,8 @@ journalctl --namespace=claude-relay -u velella-model-gateway.service -o cat --no
 无需主动发送容易拒绝的内容来验收。使用模拟 CLI 回放拒绝、通知和后续正常回复，即可确认日志不遗漏且响应行为不变。以后自然出现拒绝时，先检查 message_end 的 category/explanation，再检查后续的消息、续接和切换事件；如 CLI 没透出原因，日志会保留缺失状态，不生成猜测。
 
 诊断沿用现有 GATEWAY_TIMING_DIAGNOSTICS 开关和服务日志保留策略，不额外建立会话正文归档。
+
+
+## 1.0.9 工具发现与交接
+
+新增工具类别、内部发现和响应准备记录，详见 [工具诊断](tool-diagnostics.md)。与拒绝事件使用同一 requestId，但工具选择不代表安全拒绝，也不代表客户端已经执行。

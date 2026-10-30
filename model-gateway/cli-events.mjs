@@ -11,7 +11,7 @@ export function completeAssistant(event) {
 
 // 汇总官方 CLI 的事件：工具等待整条消息结束，用量按 message.id 去重。
 export class CliEvents {
-  constructor(available, onText, stops = [], { allowToolSearch = false, maxToolSearchCalls = 8, onStopReason } = {}) {
+  constructor(available, onText, stops = [], { allowToolSearch = false, maxToolSearchCalls = 8, onStopReason, onToolCall } = {}) {
     this.tools = new Map(available.map(tool => [`mcp__omp__${tool.name}`, tool.original]));
     this.onText = onText;
     this.calls = new Map();
@@ -22,6 +22,7 @@ export class CliEvents {
     this.outputLimitReached = false;
     this.refused = false;
     this.onStopReason = onStopReason;
+    this.onToolCall = onToolCall;
     this.blocks = new Map();
     this.recoveredToolStops = 0;
     this.stops = stops;
@@ -89,7 +90,10 @@ export class CliEvents {
       if (typeof block.id !== 'string' || !block.id || !block.input || typeof block.input !== 'object' || Array.isArray(block.input)) throw new Error('CLI 返回了无效的工具搜索');
       const input = stableJson(block.input);
       if (this.searchCalls.has(block.id) && this.searchCalls.get(block.id) !== input) throw new Error('CLI 工具搜索 ID 冲突');
+      const fresh = !this.searchCalls.has(block.id);
       this.searchCalls.set(block.id, input); this.messageSearchCalls.add(block.id);
+      // 只观察已校验调用，流式和完整快照不重复计数，诊断异常不改变执行。
+      if (fresh) { try { this.onToolCall?.({ id: block.id, kind: 'search', query: block.input.query }); } catch {} }
       if (this.searchCalls.size > this.maxToolSearchCalls) throw Object.assign(new Error('本轮内部工具搜索次数达到配置上限，已停止以避免重复消耗。请缩小任务后手动继续。'), {
         code: 'TOOL_SEARCH_LIMIT', status: 422, retryable: false, statistics: { ...this.usage(), usage_complete: false },
       });
@@ -100,7 +104,12 @@ export class CliEvents {
     recordBashPhase('cli',block.id,name,block.input);
     const call = { id: block.id, type: 'function', function: { name, arguments: stableJson(block.input) } };
     if (this.calls.has(block.id) && stableJson(this.calls.get(block.id)) !== stableJson(call)) throw new Error('CLI 工具调用 ID 冲突');
+    const fresh = !this.calls.has(block.id);
     this.calls.set(block.id, call);
+    if (fresh) {
+      try { this.onToolCall?.({ id: block.id, kind: 'caller', name,
+        ...(name === 'Read' ? { readRange: Object.hasOwn(block.input, 'offset') || Object.hasOwn(block.input, 'limit') ? 'explicit' : 'default' } : {}) }); } catch {}
+    }
   }
 
   // 消息结束也是工具参数的边界；兼容 CLI 未透出逐块 stop，但不猜补残缺 JSON。

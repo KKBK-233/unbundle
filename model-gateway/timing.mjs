@@ -20,6 +20,8 @@ export function createTiming(sink) {
     // 原始 CLI 元数据不依赖响应解析器，错误占位及续接通知也可追踪。
     cliContext(value) { if (!ended) cli.context(value); },
     cliEvent(event) { if (!ended) cli.accept(event); },
+    cliTool(call) { if (!ended) cli.toolCall(call); },
+    toolHandoff(calls) { if (!ended) cli.toolHandoff(calls); },
     bindResponse(responseId, protocol) {
       if (ended || !/^(?:msg_|chatcmpl-)[a-zA-Z0-9-]{1,80}$/.test(responseId)) return;
       if (!['anthropic', 'chat_completions'].includes(protocol)) return;

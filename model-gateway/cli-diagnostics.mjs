@@ -1,4 +1,5 @@
 import { performance } from 'node:perf_hooks';
+import { toolDiagnostics } from './tool-diagnostics.mjs';
 
 const stops = new Set(['end_turn', 'max_tokens', 'stop_sequence', 'tool_use', 'pause_turn', 'refusal', 'model_context_window_exceeded']);
 const lifecycle = new Set(['refusal_continuation', 'refusal_no_fallback', 'fallback_request', 'server_fallback', 'query_model_change', 'streaming_fallback_began', 'tombstone']);
@@ -37,6 +38,7 @@ export function cliDiagnostics({ requestId, sink, maxRecords = 256, maxPriorityR
     try { sink?.({ type: 'gateway_cli_event', requestId, sequence: ++sequence,
       elapsedMs: Math.round(performance.now() - started), event, ...defined(fields) }); } catch {}
   };
+  const tools = toolDiagnostics(write);
   const message = (messageId, start = false) => {
     const key = id(messageId);
     let state = key && messages.get(key);
@@ -77,6 +79,8 @@ export function cliDiagnostics({ requestId, sink, maxRecords = 256, maxPriorityR
       ...details(msg.stop_details, e) }, refused);
   };
   return {
+    toolCall(call) { if (!ended) { observed = true; tools.call(call); } },
+    toolHandoff(calls) { if (!ended) { observed = true; tools.handoff(calls); } },
     context(value) {
       if (ended) return;
       observed = true;
@@ -85,6 +89,7 @@ export function cliDiagnostics({ requestId, sink, maxRecords = 256, maxPriorityR
     accept(e) {
       if (ended || !e || typeof e !== 'object' || Array.isArray(e)) return;
       observed = true;
+      tools.result(e);
       const inner = e.type === 'stream_event' ? e.event : e;
       const source = e.type === 'stream_event' ? 'stream' : 'direct';
       if (inner?.type === 'message_start') {
@@ -138,7 +143,7 @@ export function cliDiagnostics({ requestId, sink, maxRecords = 256, maxPriorityR
     finish(outcome) {
       if (ended) return;
       ended = true;
-      if (observed) write('summary', { outcome, ...counts }, false, true);
+      if (observed) write('summary', { outcome, ...counts, ...tools.summary() }, false, true);
     },
   };
 }

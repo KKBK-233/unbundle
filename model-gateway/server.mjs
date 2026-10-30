@@ -237,6 +237,8 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
       } else if (execution.content) timing.mark('first_text');
       if (execution.tool_calls?.length) timing.mark('first_tool');
       if (controller.signal.aborted) return;
+      // 仅表示准备发回客户端，不声称客户端已收到或已执行工具。
+      timing.toolHandoff(execution.tool_calls);
       // 用量放在响应顶层，避免 Harness 把统计字段写进 assistant 历史。
       const { usage, upstream_usage, usage_complete, finish_reason, stop_sequence, stop_reason, ...message } = execution;
       const statistics = { ...(usage ? { usage } : {}), ...(upstream_usage ? { upstream_usage, usage_complete } : {}) };

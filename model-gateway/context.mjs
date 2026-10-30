@@ -104,7 +104,6 @@ export function compileContext(request, { cacheBreakpoint = DEFAULT_CACHE_BREAKP
   if (new Set(mapped.map(tool => tool.name)).size !== mapped.length) throw new Error('工具别名冲突');
   const available = policy.mode === 'none' ? [] : policy.name ? mapped.filter(tool => tool.original === policy.name) : mapped;
   const exposedTools = available.map(({ original, ...tool }) => tool);
-  // 字节统计仅描述网关构造的载荷，不是 token 用量，也不包含 CLI 额外注入。
   // 仅改写真实 assistant 工具调用字段，原请求、正文、参数及结果保持不变。
   // 历史名称与当前 MCP 定义一致，避免把已执行的本地工具误认作云端内置工具。
   const historyToolNames = new Map(mapped.map(tool => [tool.original, `mcp__omp__${tool.name}`]));
@@ -167,6 +166,7 @@ export function compileContext(request, { cacheBreakpoint = DEFAULT_CACHE_BREAKP
   if (['5m','1h'].includes(cacheBreakpoint)) blocks.at(-1).cache_control = { type: 'ephemeral', ttl: cacheBreakpoint };
   // 旧诊断接口仅保留结构化快照；执行器禁止将此快照作为用户消息提交。
   const input = JSON.stringify({ type: 'user', message: { role: 'user', content: blocks } }) + '\n';
+  // 字节统计仅描述网关构造的载荷，不是 token 用量，也不包含 CLI 额外注入。
   const metrics = {
     instructionBytes: Buffer.byteLength(instructionJson) + Buffer.byteLength(updateJson),
     systemPromptBytes: Buffer.byteLength(systemPrompt),

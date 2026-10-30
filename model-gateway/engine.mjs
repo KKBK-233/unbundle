@@ -37,7 +37,7 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
   const probes = requestProbes({anomalyDir,requestId:timing?.requestId,
     context:{...metrics,model:request.model,effort:resolveEffort(request)||'auto',requestedOutputTokens:maxOutputTokens,cliVersion}});
   const policy = toolChoice(request);
-  const events = new CliEvents(available, text => { probes.output(text); if (!policy.required && !policy.single) onText?.(text); }, stops, { allowToolSearch: discovery.enabled, maxToolSearchCalls: discovery.maxCalls, onStopReason: reason => timing?.upstreamStop?.(reason) });
+  const events = new CliEvents(available, text => { probes.output(text); if (!policy.required && !policy.single) onText?.(text); }, stops, { allowToolSearch: discovery.enabled, maxToolSearchCalls: discovery.maxCalls, onStopReason: reason => timing?.upstreamStop?.(reason), onToolCall: call => timing?.cliTool?.(call) });
   timing?.cliContext?.({ cliVersion, model });
   let probeOutcome = 'completed';
   let child, timer, idleTimer, killTimer, lines, errors = '', aborted = false, timedOut = false, idleTimedOut = false, protocolError;
