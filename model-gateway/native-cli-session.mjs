@@ -14,7 +14,7 @@ import http from 'node:http';
 import readline from 'node:readline';
 import { spawn } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { CliEvents } from './cli-events.mjs';
+import { CliEvents,completeAssistant } from './cli-events.mjs';
 import { stableJson, compileContext } from './context.mjs';
 import { resolveEffort } from './effort.mjs';
 import { sessionQuotaFailure } from './session-quota-guard.mjs';
@@ -284,12 +284,13 @@ export class NativeCliSession {
     this.request=request;
     this.state = 'running'; this.interrupted = false; this.cancelConfirmed=false; this.cancelledReceiptIds = undefined; this.cancelBarrier = undefined;
     return new Promise((resolve, reject) => {
+      timing?.cliContext?.({ cliVersion: this.options.cliVersion, model: this.options.model });
       const policy = toolChoice(request);
       const probes=requestProbes({requestId:timing?.requestId,anomalyDir:this.options.anomalyDir,log:this.options.onAnomaly,
         context:{...this.compiled.metrics,model:request.model,effort:resolveEffort(request)||'auto',requestedOutputTokens:this.options.outputTokens,cliVersion:this.options.cliVersion}});
       const events = new CliEvents(this.compiled.available, text => {
         if(!this.turn?.cancelling&&!policy.required&&!policy.single){probes.output(text);onText?.(text);}
-      }, request.stop == null ? [] : typeof request.stop === 'string' ? [request.stop] : request.stop, { allowToolSearch: this.options.toolSearch, maxToolSearchCalls: this.options.maxToolSearchCalls, preferAggregateWithMcpValidation: true });
+      }, request.stop == null ? [] : typeof request.stop === 'string' ? [request.stop] : request.stop, { allowToolSearch: this.options.toolSearch, maxToolSearchCalls: this.options.maxToolSearchCalls, preferAggregateWithMcpValidation: true, onStopReason: reason => timing?.upstreamStop?.(reason) });
       const audit = cliOutputAudit({ requestId: timing?.requestId, sink: this.options.onCliAudit });
       const turn = { events, audit, probes, resolve, reject, signal, timing, policy, awaitingStart: true, outputBytes: 0,
         strategy: delta !== undefined ? 'native_increment' : this.entryMode || 'native_new', deliveredReceiptIds: new Set() };
@@ -361,6 +362,7 @@ export class NativeCliSession {
     }
     // 在任何转换和等待状态过滤前记录原始协议类别，避免把解析遗漏当作 CLI 没输出。
     const event = turn.audit.line(value); if (!event) return;
+    turn.timing?.cliEvent?.(event);
     turn.probes.accept(event);
     if(event.type==='system'&&event.subtype==='api_retry')this.progress();
     if (turn.cancelling) {
@@ -389,9 +391,7 @@ export class NativeCliSession {
     if (inner?.type === 'message_start') { turn.awaitingStart = false; turn.timing?.onUsage?.({upstream_usage:inner.message?.usage}); turn.timing?.mark('upstream_message_start'); }
     // 官方 CLI 在流式重试降级后可能只给完整 assistant，没有 message_start。
     // API 错误占位消息不能作为模型回复；工具仍须通过真实 MCP 等待和参数校验。
-    if(turn.awaitingStart&&event.type==='assistant'&&!event.is_api_error_message
-      &&typeof event.message?.id==='string'&&Array.isArray(event.message?.content)
-      &&['tool_use','end_turn','max_tokens','stop_sequence'].includes(event.message.stop_reason)){
+    if(turn.awaitingStart&&completeAssistant(event)){
       turn.awaitingStart=false;turn.timing?.onUsage?.({upstream_usage:event.message.usage});turn.timing?.mark('upstream_message_start');
     }
     if (turn.awaitingStart && !['result'].includes(event.type)) return;
@@ -409,6 +409,9 @@ export class NativeCliSession {
       turn.events.accept(event.type === 'result' ? { ...event, usage: undefined } : event);
       if (inner?.type === 'content_block_delta' && inner.delta?.type === 'thinking_delta') turn.timing?.mark('first_thinking');
       if (inner?.type === 'content_block_start' && inner.content_block?.type === 'tool_use') turn.timing?.mark('first_tool');
+      if (turn.events.refused) {
+        this.deliver({ role: 'assistant', content: turn.events.text, stop_reason: 'refusal', ...turn.events.usage() }, false); return;
+      }
       if (turn.events.outputLimitReached || turn.events.stopSequence !== undefined) {
         const result = { role: 'assistant', content: turn.events.text, finish_reason: 'length', ...turn.events.usage() };
         if (turn.events.stopSequence !== undefined) { delete result.finish_reason; result.stop_sequence = turn.events.stopSequence; }
@@ -433,12 +436,13 @@ export class NativeCliSession {
   }
   deliver(result, reusable) {
     const turn = this.turn; if (!turn) return;
-    try { enforceToolChoice(turn.policy, result.tool_calls, turn.events.usage()); }
+    try { if (result.stop_reason !== 'refusal') enforceToolChoice(turn.policy, result.tool_calls, turn.events.usage()); }
     catch (error) { this.fail(error); return; }
     this.turn = undefined; this.clearTurn(turn);
     this.expected = historyKey(assistantMessage(result), { hashKey: this.options.historyHashKey, toolSchemas: this.request.tools }); this.lastUsed = Date.now();
     this.expectedFingerprint = assistantFingerprint(assistantMessage(result), {hashKey:this.options.historyHashKey});
     this.lastAssistant=assistantMessage(result);
+    this.lastStopReason=result.stop_reason;
     this.state = result.tool_calls?.length ? 'waiting-tool' : 'idle';
     void turn.probeFinished.then(()=>turn.resolve(result));
     if (!reusable) void this.close();

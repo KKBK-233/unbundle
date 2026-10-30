@@ -116,6 +116,9 @@ export class NativeSessionStore {
   }
   async refreshClosed(session) {
     await this.ready;
+    // 拒绝帧立即结束 CLI，避免原生自动续写；退出落盘后登记这个已完成回复。
+    if(session.lastStopReason==='refusal'&&session.state==='closed'&&!session.interrupted
+      &&session.child&&(session.child.exitCode!==null||session.child.signalCode!==null))return this.checkpoint({...session,state:'idle'});
     const row=this.records.get(session.nativeSessionId);
     if(!row||row.signature!==session.signature||row.expected!==session.expected
       ||JSON.stringify(row.history)!==JSON.stringify(session.history))return;
