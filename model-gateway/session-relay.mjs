@@ -1,5 +1,6 @@
 import {automaticRecoveryRequest,automaticRecoveryIdentity} from './automatic-recovery.mjs';
 import {quotaRecoveryDelta} from './quota-recovery.mjs';
+import {unrequestedRecoveryDelta,unrequestedToolRecoveryDelta,cancelledWaitContext} from './unrequested-recovery.mjs';
 import {compactedToolDefinitionsChanged} from './tool-definition-update.mjs';
 import {settleFrozenTools,recoveryInputMessages} from './native-recovery.mjs';
 import {SessionLifecycle} from './session-lifecycle.mjs';
@@ -58,7 +59,9 @@ export function sessionRelay(options, retained) {
     const oldest = [...sessions].filter(s => s.state === 'idle' && !s.creationReserved && !s.compacting && !s.recoveryInProgress)
       .sort((a,b) => (a.lastUsed || 0) - (b.lastUsed || 0))[0];
     if (!oldest) throw Object.assign(new Error('原生会话容量已满'), {code:'SESSION_CAPACITY',status:429,retryable:false});
-    await oldest.close('capacity'); sessions.delete(oldest);
+    const closed=await oldest.close('capacity');
+    if(closed===false||oldest.state!=='closed')throw Object.assign(new Error('原生会话尚不能安全回收'),{code:'SESSION_CAPACITY',status:429,retryable:false});
+    sessions.delete(oldest);
   }
   const lifecycle = store ? new SessionLifecycle(store,{protectedIds:()=>new Set([...sessions].filter(s=>s.state!=='closed').map(s=>s.nativeSessionId)),retentionMs:options.archiveRetentionMs}) : undefined;
   async function inferTurn(request, { signal, onText, timing, affinity } = {}) {
@@ -103,7 +106,7 @@ export function sessionRelay(options, retained) {
             await makeRoom();
             const {row,sourceRequest,boundary}=saved;
             const session=new NativeCliSession(sourceRequest,compileContext(sourceRequest,options),{...options,model,outputTokens:row.compactSource.outputTokens,historyHashKey:store.key,resumeNativeId:row.id,resumeDelta:[],resumeForCompaction:true,
-              onIdleSessionClosed:s=>store.refreshClosed(s),onInvalidateCheckpoint:()=>quarantineNativeSession(session,{store,quarantined})});
+              onIdleSessionClosed:s=>store.refreshClosed(s),onCancelledSession:s=>store.checkpoint(s),onInvalidateCheckpoint:()=>quarantineNativeSession(session,{store,quarantined})});
             session.signature=row.signature;session.affinityHash=affinityHash;session.creationReserved=true;sessions.add(session);
             try{await session.start();await store.forget(row.id);return {session,boundary};}catch(error){await session.close();sessions.delete(session);throw error;}
           });
@@ -143,6 +146,33 @@ export function sessionRelay(options, retained) {
         return {...structuredClone(replay.automaticRecoveryResult.result),usage_complete:true,upstream_usage:{input_tokens:0,output_tokens:0,cache_creation_input_tokens:0,cache_read_input_tokens:0},usage:{prompt_tokens:0,completion_tokens:0,total_tokens:0}};
       }
       if([...sessions].some(s=>s.recoveryInProgress&&s.affinityHash===affinityHash&&(s.recoveryIdentity===retryIdentity(request)||automaticRecoveryRequest({state:'frozen',frozenRequest:s.frozenRequest},request))))throw recoveryError('SESSION_BUSY','同一会话的恢复仍在进行');
+      const orphaned=[...sessions].filter(s=>s.affinityHash===affinityHash&&matchesSession(s)).flatMap(session=>{
+        const matchOptions={hashKey:store?.key,allowInstructionUpdates:options.liveInstructionUpdates===true};
+        const delta=unrequestedRecoveryDelta(session,request,matchOptions)||unrequestedToolRecoveryDelta(session,request,matchOptions);
+        return delta?[{session,delta}]:[];
+      });
+      if(orphaned.length>1)throw recoveryError('RECOVERY_SESSION_AMBIGUOUS','未交付工具等待不能唯一关联原会话');
+      if(orphaned.length){
+        const {session,delta}=orphaned[0],quarantine=session.quarantineRecord;
+        if(session.recoveryInProgress)throw recoveryError('SESSION_BUSY','正在取消原工具等待');
+        session.recoveryInProgress=true;
+        try{
+          if(!quarantine||!await session.verifySuspended())throw recoveryError('NATIVE_PROCESS_GONE','原工具等待进程不可确认');
+          // 不把缺少回传当作未执行；明确保留执行状态未知，不伪造工具结果。
+          const receipts=delta.filter(m=>m.role==='tool'),context=receipts.length?{role:'user',content:stableJson({kind:'caller_completed_tool_handoff',ids:receipts.map(m=>m.tool_call_id),note:'The actual caller results were saved above. Continue the original caller task from those results; do not repeat completed operations.'})}:cancelledWaitContext(session);
+          await settleFrozenTools(session,receipts,{signal});
+          const result=await session.run(request,[context,...recoveryInputMessages(delta)],{signal,onText,timing});
+          await store?.releaseQuarantine(quarantine);
+          for(let i=quarantined.length-1;i>=0;i--)if(quarantined[i]===quarantine)quarantined.splice(i,1);
+          if(session.quarantineRecord===quarantine)session.quarantineRecord=undefined;
+          session.freezeReason=undefined;session.frozenRequest=undefined;
+          session.automaticRecoveryResult={identity:automaticRecoveryIdentity(request),result:structuredClone(result),history:session.history,expected:session.expected};
+          try{await store?.checkpoint(session);}catch{try{options.onSessionEvent?.({type:'native_checkpoint_failed',code:'CHECKPOINT_WRITE_FAILED'});}catch{}}
+          try{options.onSessionEvent?.({type:'native_unrequested_recovery',sessionId:session.sessionId,event:'completed',historyRebuilt:false,toolsReplayed:false});}catch{}
+          return result;
+        }catch(error){if(session.state!=='frozen')await session.freeze(error.code||'UNREQUESTED_RECOVERY_FAILED',{request});throw error;}
+        finally{session.recoveryInProgress=false;}
+      }
       const quotaCandidates=[...sessions].filter(s=>s.affinityHash===affinityHash&&matchesSession(s)).flatMap(session=>{
         const delta=quotaRecoveryDelta(session,request,{hashKey:store?.key,allowInstructionUpdates:options.liveInstructionUpdates===true});
         return delta?[{session,delta}]:[];
@@ -305,6 +335,7 @@ export function sessionRelay(options, retained) {
         await makeRoom();
         const created = new NativeCliSession(request, compiled, { ...options, model, outputTokens: restored?.outputTokens ?? outputTokens, historyHashKey: store?.key,
           onIdleSessionClosed:session=>store?.refreshClosed(session),
+          onCancelledSession:session=>store?.checkpoint(session),
           onInvalidateCheckpoint:()=>quarantineNativeSession(created,{store,quarantined}),
           resumeNativeId: restored?.id, resumeDelta: restored?.delta });
         created.signature = restored?.signature ?? signature; created.affinityHash = affinityHash; created.creationReserved = true;

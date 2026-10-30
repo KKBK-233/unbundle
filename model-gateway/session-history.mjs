@@ -84,7 +84,9 @@ export function continuationDelta(session, request, { allowInstructionUpdates = 
   if(!matches)return reject('history_prefix_mismatch');
   if (session.interrupted === true) {
     // 仅接受已确认中断后的用户增量；原生已完成工具事实保留，不猜补或重放工具。
-    const delta = messages.slice(prefix.length);
+    let delta = messages.slice(prefix.length);
+    const plain=(m,role,content)=>m?.role===role&&m.content===content&&Object.keys(m).every(k=>['role','content'].includes(k));
+    if(session.cancelConfirmed===true&&plain(delta[0],'user','[Request interrupted by user]')&&plain(delta[1],'assistant','No response requested.'))delta=delta.slice(2);
     if (!delta.some(message => message.role === 'user') || delta.some(message => message.role !== 'user'
       && !(callerRuntimeStatus(message)?.type === 'environment'
         || allowInstructionUpdates && ['system', 'developer'].includes(message.role)))) return reject('unsafe_interrupted_delta');

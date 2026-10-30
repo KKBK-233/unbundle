@@ -264,6 +264,8 @@ export class NativeCliSession {
       if (this.turn !== turn || this.state === 'closed') throw failure;
       this.turn = undefined; this.clearTurn(turn,'cancelled'); this.state = 'idle'; this.interrupted = true;
       this.expected = undefined; this.cancelledReceiptIds = new Set(turn.deliveredReceiptIds); this.lastUsed = Date.now();
+      this.cancelConfirmed=true;
+      try{await this.options.onCancelledSession?.(this);}catch{this.report('cancel_checkpoint_failed','CHECKPOINT_WRITE_FAILED');}
       this.report('cancel_preserved', 'ack_and_terminal'); await turn.probeFinished; turn.reject(failure);
       this.expiry = setTimeout(() => { void this.close('expired').catch(() => {}); }, this.options.sessionTtlMs || 1800000);
       this.expiry.unref?.();
@@ -280,7 +282,7 @@ export class NativeCliSession {
     clearTimeout(this.expiry); this.history = sessionHistory(request.messages).map(message => historyKey(message,
       { exact: this.options.liveInstructionUpdates === true, hashKey: this.options.historyHashKey, toolSchemas: this.request.tools })); this.expected = undefined;
     this.request=request;
-    this.state = 'running'; this.interrupted = false; this.cancelledReceiptIds = undefined; this.cancelBarrier = undefined;
+    this.state = 'running'; this.interrupted = false; this.cancelConfirmed=false; this.cancelledReceiptIds = undefined; this.cancelBarrier = undefined;
     return new Promise((resolve, reject) => {
       const policy = toolChoice(request);
       const probes=requestProbes({requestId:timing?.requestId,anomalyDir:this.options.anomalyDir,log:this.options.onAnomaly,
@@ -513,6 +515,16 @@ export class NativeCliSession {
     catch(error){if(error.code==='ESRCH')return false;throw error;}
   }
   async close(reason = 'closed',{immediateKill=false,discardFrozen=false}={}) {
+    if(['expired','capacity'].includes(reason)&&this.state==='idle'&&this.interrupted&&this.options.persistentSessions===true){
+      // 取消后没有普通助手完成帧；先确认专用检查点落盘，不能静默丢掉恢复入口。
+      let saved=false;try{saved=await this.options.onCancelledSession?.(this);}catch{}
+      if(this.state!=='idle'||this.turn)return false;
+      if(saved!==true){
+        this.report('close_blocked','CANCEL_CHECKPOINT_UNAVAILABLE');
+        if(reason==='capacity')throw Object.assign(new Error('取消会话的恢复检查点尚未保存'),{code:'SESSION_CAPACITY',status:429,retryable:false});
+        this.expiry=setTimeout(()=>{void this.close('expired').catch(()=>{});},this.options.sessionTtlMs||1800000);this.expiry.unref?.();return false;
+      }
+    }
     if(['expired','capacity'].includes(reason)&&this.state==='waiting-tool'&&this.pendingIds.size){
       if(reason==='capacity')throw Object.assign(new Error('长工具正在执行，禁止容量回收'),{code:'SESSION_CAPACITY',status:429,retryable:false});
       this.report('close_blocked','caller_tool_running');
