@@ -6,6 +6,8 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { compileContext, stableJson } from './context.mjs';
 import { infer } from './engine.mjs';
+import { fromAnthropic, anthropicContent } from './anthropic.mjs';
+import { CliEvents } from './cli-events.mjs';
 
 const tools = [{ type: 'function', function: { name: 'read_file', description: 'TOOL_DESCRIPTION_SENTINEL', parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } } }];
 
@@ -66,7 +68,9 @@ test('指令只传一次，工具定义不嵌入历史，调用方原始内容�
   assert(!compiled.input.includes('SYSTEM_SENTINEL'));
   assert(!compiled.input.includes('DEVELOPER_SENTINEL'));
   assert(!compiled.input.includes('TOOL_DESCRIPTION_SENTINEL'));
-  assert.deepEqual(JSON.parse(compiled.input).message.content.map(block => JSON.parse(block.text)), messages.slice(2));
+  const expected = structuredClone(messages.slice(2));
+  expected[1].tool_calls[0].function.name = 'mcp__omp__read_file';
+  assert.deepEqual(JSON.parse(compiled.input).message.content.map(block => JSON.parse(block.text)), expected);
   assert.equal(compiled.metrics.toolCount, 1);
   assert.deepEqual(compiled.exposedTools[0].inputSchema, tools[0].function.parameters);
   assert.equal(compiled.metrics.historyBytes, Buffer.byteLength(compiled.input));
@@ -172,7 +176,8 @@ test('动态指令保留优先级、原位引用和单份正文，嵌入角色�
   assert.deepEqual(updates, [3, 4, 7].map(index => ({ id: `message_${index}`, messageIndex: index, message: messages[index] })));
   const history = JSON.parse(compiled.input).message.content;
   assert.deepEqual(history.map(block => JSON.parse(block.text)), messages.slice(1).map((message, offset) =>
-    [3, 4, 7].includes(offset + 1) ? { role: message.role, instruction_ref: `message_${offset + 1}` } : message));
+    [3, 4, 7].includes(offset + 1) ? { role: message.role, instruction_ref: `message_${offset + 1}` }
+      : offset + 1 === 5 ? { ...message, tool_calls: [{ ...message.tool_calls[0], function: { ...message.tool_calls[0].function, name: 'mcp__omp__read_file' } }] } : message));
   for (const text of ['LEADING_RULE', 'MID_SYSTEM', 'MID_DEVELOPER', 'LATER_SYSTEM']) {
     assert.equal(compiled.systemPrompt.split(text).length - 1, 1);
     assert(!compiled.input.includes(text));
@@ -226,7 +231,8 @@ test('默认独立进程保留长指令、完成历史和真实工具结果，�
   const first=await infer({messages,tools},options);assert.equal(first.tool_calls[0].function.name,'read_file');
   messages.push(first,{role:'tool',tool_call_id:first.tool_calls[0].id,content:'REAL_TOOL_RESULT'},{role:'assistant',content:'完成'},{role:'user',content:'继续'});
   const next=JSON.parse((await infer({messages,tools},options)).content);
-  assert.deepEqual(next.conversation.messages,messages.slice(1));
+  const expected=structuredClone(messages.slice(1));expected[1].tool_calls[0].function.name='mcp__omp__read_file';
+  assert.deepEqual(next.conversation.messages,expected);
   assert(next.system.includes('CALLER_RULE_中文'));assert.equal(spawns,2);
  }finally{await fs.rm(home,{recursive:true,force:true});}
 });
@@ -250,7 +256,53 @@ test('桌面与连接器的大工具集合仍能完成 MCP 调用及续接', asy
     assert.equal(afterTool.conversation.messages.at(-1).content,'SYNTHETIC_LINEAR_RESULT');
     messages.push({role:'assistant',content:'已完成'},{role:'user',content:'继续'});
     const next=JSON.parse((await infer({messages,tools:many},options)).content);
-    assert.deepEqual(next.conversation.messages,messages);assert.equal(next.exposed.length,161);
+    const expected=structuredClone(messages);expected[1].tool_calls[0].function.name='mcp__omp__mcp__linear__get_issue';
+    assert.deepEqual(next.conversation.messages,expected);assert.equal(next.exposed.length,161);
     assert.deepEqual(await fs.readdir(home), ['workspace']);
   } finally { await fs.rm(home, { recursive: true, force: true }); }
+});
+
+// 覆盖本次故障边界：片段读取历史进入云端时名称统一，编辑返回本地时恢复原名。
+test('局部读取与并行工具历史使用真实 MCP 名称，编辑往返不改变原始参数', () => {
+  const longName = 'mcp__external__' + 'long_tool_'.repeat(8);
+  const names = ['Read', 'Edit', longName, 'mcp__omp__Read'];
+  const body = { model: 'offline', max_tokens: 1024,
+    tools: names.map(name => ({ name, description: 'Read Edit mcp__omp__Read', input_schema: { type: 'object' } })),
+    messages: [{ role: 'user', content: 'Read Edit mcp__omp__Read 都是正文，不能替换' },
+      { role: 'assistant', content: [
+        { type: 'text', text: 'Read 文件中的 Edit 字符串' },
+        { type: 'tool_use', id: 'partial', name: 'Read', input: { file_path: 'Read/Edit.py', offset: 13, limit: 6 } },
+        { type: 'tool_use', id: 'parallel', name: longName, input: { content: 'Read' } },
+        { type: 'tool_use', id: 'prefixed', name: 'mcp__omp__Read', input: {} },
+        { type: 'tool_use', id: 'removed', name: 'OldTool', input: {} }] },
+      { role: 'user', content: [
+        { type: 'tool_result', tool_use_id: 'parallel', content: 'Edit 返回文本' },
+        { type: 'tool_result', tool_use_id: 'partial', content: '13\tRead = "Edit"' },
+        { type: 'tool_result', tool_use_id: 'prefixed', content: 'Read' },
+        { type: 'tool_result', tool_use_id: 'removed', content: '历史失败', is_error: true }] }] };
+  const original = structuredClone(body), request = fromAnthropic(body), before = structuredClone(request);
+  const compiled = compileContext(request);
+  const history = JSON.parse(compiled.input).message.content.map(block => JSON.parse(block.text));
+  const calls = history[1].tool_calls;
+  assert.equal(calls[0].function.name, 'mcp__omp__Read');
+  assert.equal(calls[1].function.name, 'mcp__omp__' + compiled.historicalTools.find(t => t.original === longName).name);
+  assert.equal(calls[2].function.name, 'mcp__omp__mcp__omp__Read');
+  // 已移除的工具仍是历史事实，不创造定义或把它误映射成当前工具。
+  assert.equal(calls[3].function.name, 'OldTool');
+  assert.equal(compiled.available.some(t => t.original === 'OldTool'), false);
+  assert.deepEqual(calls.map(c => c.id), ['partial', 'parallel', 'prefixed', 'removed']);
+  assert.deepEqual(calls.map(c => c.function.arguments), request.messages[1].tool_calls.map(c => c.function.arguments));
+  assert.deepEqual(history.slice(2), request.messages.slice(2));
+  assert.equal(history[0].content, request.messages[0].content);
+  assert.equal(history[1].content, request.messages[1].content);
+  assert.equal(compiled.input, compileContext(request).input);
+  for (const tool_choice of ['none', { type: 'function', function: { name: 'Edit' } }]) {
+    const restricted = compileContext({ ...request, tool_choice });
+    assert.equal(restricted.input, compiled.input);
+  }
+  const edit = { file_path: 'Read/Edit.py', old_string: 'Read = "Edit"', new_string: 'Read = "changed"' };
+  const events = new CliEvents(compiled.available);
+  events.addCall({ id: 'edit', name: 'mcp__omp__Edit', input: edit });
+  assert.deepEqual(anthropicContent({ tool_calls: [...events.calls.values()] }), [{ type: 'tool_use', id: 'edit', name: 'Edit', input: edit }]);
+  assert.deepEqual(request, before); assert.deepEqual(body, original);
 });
