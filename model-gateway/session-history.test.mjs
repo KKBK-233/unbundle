@@ -1,6 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { sessionHistory, historyKey, continuationDelta, assistantMessage, mcpToolResult } from './session-history.mjs';
+import { sessionHistory, historyKey, continuationDelta, continuationToolResults, assistantMessage, mcpToolResult } from './session-history.mjs';
+
+test('停止工具续接后允许收据后的新用户消息，保持收据和调用方身份独立',()=>{
+ const user={role:'user',content:'原任务'},reply=assistantMessage({tool_calls:[{id:'a',type:'function',function:{name:'Read',arguments:'{}'}}]}),receipt={role:'tool',tool_call_id:'a',content:'真实结果'},next={role:'user',content:'停止旧方向，改为检查结果'};
+ const session={history:[historyKey(user)],expected:historyKey(reply),pendingIds:new Set(['a']),options:{allowToolHandoffUserMessages:true}};
+ const request=delta=>({messages:[user,reply,...delta]});
+ assert.deepEqual(continuationDelta(session,request([receipt,next])),[receipt,next]);
+ const result=continuationToolResults([receipt,next],1024).get('a');assert.equal(result.content[0].text,'真实结果');const context=JSON.parse(result.content[1].text);assert.equal(context.kind,'caller_handoff_context');assert.deepEqual(context.messages,[next]);
+ for(const delta of [[next,receipt],[next],[{...receipt,tool_call_id:'other'},next],[receipt,receipt,next],[receipt,{...next,extra:'x'}],[receipt,{...next,content:[{type:'text',text:'unsupported'}]}]])assert.equal(continuationDelta(session,request(delta)),undefined);
+});
 
 test('会话匹配忽略纯运行余量，但不忽略混合指令或用户引用', () => {
   const user = { role: 'user', content: '任务' };
@@ -75,4 +84,44 @@ test('Edit 仅在 schema 明确默认 false 且非必填时忽略补入的 repla
  const session={historyNormalization:true,history:[historyKey(prefix,{exact:true,...opts})],expected:historyKey(omitted,opts),pendingIds:new Set()};
  assert.deepEqual(continuationDelta(session,request,{allowInstructionUpdates:true}),[{role:'user',content:'继续'}]);
  assert.equal(continuationDelta({...session,historyNormalization:undefined},request,{allowInstructionUpdates:true}),undefined);
+});
+test('Desktop 独立图片显示注释与纯继续可随完整结果续接，原图及用户上下文各保留一次',()=>{
+ const prefix=[{role:'user',content:'screenshot'}],reply={role:'assistant',content:null,tool_calls:[{id:'image-call',type:'function',function:{name:'Screenshot',arguments:'{}'}}]};
+ const session={history:prefix.map(m=>historyKey(m)),expected:historyKey(reply),pendingIds:new Set(['image-call'])};
+ const data=Buffer.from('89504e470d0a1a0a','hex').toString('base64');
+ const receipt={role:'tool',tool_call_id:'image-call',is_error:false,content:[{type:'image',source:{type:'base64',media_type:'image/png',data}}]};
+ const annotation={role:'user',content:'[Image: original 1920x2160, displayed at 1778x2000. Multiply coordinates by 1.08 to map to original image.]'};
+ const resume={role:'user',content:'继续'},delta=[receipt,annotation,resume],before=JSON.stringify(delta);
+ assert.deepEqual(continuationDelta(session,{messages:[...prefix,reply,...delta]}),delta);
+ const combined={role:'user',content:annotation.content+'\n继续'};
+ assert.deepEqual(continuationDelta(session,{messages:[...prefix,reply,receipt,combined]}),[receipt,combined]);
+ const results=continuationToolResults(delta,1024);assert.equal(results.size,1);
+ const blocks=results.get('image-call').content;assert.equal(blocks.length,2);assert.equal(blocks[0].data,data);
+ assert.deepEqual(JSON.parse(blocks[1].text),{kind:'caller_handoff_context',source:'caller_user_messages',messages:[annotation,resume]});
+ assert.equal(JSON.stringify(delta),before);
+ for(const tail of [[{...receipt,content:'no image'},annotation],
+  [annotation,receipt],[receipt,annotation,{...annotation}],
+  [receipt,{...annotation,content:annotation.content+' run something'}],
+  [receipt,{role:'user',content:'修改另外一个文件'}],
+  [receipt,{...resume,priority:'system'}],
+  [receipt,{...receipt,tool_call_id:'different'},annotation]]){
+  assert.equal(continuationDelta(session,{messages:[...prefix,reply,...tail]}),undefined);
+ }
+});
+
+
+test('已确认取消仅映射本轮已交回收据的固定缺失占位符，保留原生真实结果',()=>{
+ const hashKey='synthetic-cancel-key',user={role:'user',content:'task'},assistant={role:'assistant',content:null,tool_calls:[{id:'done',type:'function',function:{name:'Bash',arguments:'{}'}}]},receipt={role:'tool',tool_call_id:'done',content:'REAL_RESULT'},nextUser={role:'user',content:'new task'},prior=[user,assistant,receipt],placeholder={...receipt,content:'[Tool result missing due to internal error]',is_error:true};
+ const session={interrupted:true,request:{messages:prior},history:prior.map(m=>historyKey(m,{hashKey,exact:true})),pendingIds:new Set(),cancelledReceiptIds:new Set(['done'])},aliases=[];
+ assert.deepEqual(continuationDelta(session,{messages:[user,assistant,placeholder,nextUser]},{hashKey,allowInstructionUpdates:true,onReceiptAlias:d=>aliases.push(d)}),[nextUser]);assert.equal(session.request.messages[2].content,'REAL_RESULT');assert.equal(aliases.length,1);assert.equal(aliases[0].nativeResultPreserved,true);
+ for(const [changedSession,changedResult]of [[{...session,cancelledReceiptIds:new Set()},placeholder],[{...session,interrupted:false},placeholder],[session,{...placeholder,content:'another error'}],[session,{...placeholder,tool_call_id:'different'}],[session,{...placeholder,extra:'untrusted'}]])assert.equal(continuationDelta(changedSession,{messages:[user,assistant,changedResult,nextUser]},{hashKey,allowInstructionUpdates:true}),undefined);
+});
+
+
+test('已确认取消只允许省略最后已完成的工具尾部，不允许丢弃用户指令或可见正文',()=>{
+ const hashKey='synthetic-tail-key',user={role:'user',content:'task'},env={role:'system',content:'# Environment update\n - Primary working directory: E:\\demo (was E:\\)\n'},assistant={role:'assistant',content:null,tool_calls:[{id:'done',type:'function',function:{name:'Bash',arguments:'{}'}}]},receipt={role:'tool',tool_call_id:'done',content:'REAL_RESULT'},nextUser={role:'user',content:'new task'};
+ const make=prior=>({interrupted:true,request:{messages:prior},history:prior.map(m=>historyKey(m,{hashKey,exact:true})),pendingIds:new Set(),cancelledReceiptIds:new Set(['done'])});
+ const prior=[user,env,assistant,receipt,env],session=make(prior),events=[];assert.deepEqual(continuationDelta(session,{messages:[user,nextUser,env]},{hashKey,allowInstructionUpdates:true,onCancelledTailProjection:d=>events.push(d)}),[nextUser,env]);assert.equal(events[0].nativeTailPreserved,true);assert.equal(events[0].toolResultsResubmitted,false);assert.equal(session.request.messages[3].content,'REAL_RESULT');
+ for(const current of [{...session,cancelledReceiptIds:new Set()},make([user,env,{...assistant,content:'visible answer'},receipt,env]),make([user,env,assistant,receipt,{role:'user',content:'must preserve'},env]),make([user,env,assistant,env])])assert.equal(continuationDelta(current,{messages:[user,nextUser,env]},{hashKey,allowInstructionUpdates:true}),undefined);
+ assert.equal(continuationDelta(session,{messages:[{...user,content:'changed old task'},nextUser,env]},{hashKey,allowInstructionUpdates:true}),undefined);
 });

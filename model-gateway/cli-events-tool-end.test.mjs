@@ -142,3 +142,26 @@ test('CLI 退出前没有工具消息结束信号时，不把未完成工具当�
     }), /工具消息不完整/);
   } finally { await fs.rm(home, { recursive: true, force: true }); }
 });
+
+
+test('MCP 校验模式也不接受同一 ID 的两份冲突完整参数',()=>{
+ const events=new CliEvents(available,undefined,[],{preferAggregateWithMcpValidation:true});events.accept(snapshot(0,{path:'a'}));assert.throws(()=>events.accept(snapshot(0,{path:'b'})),/ID 冲突/);
+});
+
+// 两侧合并后，完整消息回退和诊断必须共用同一次工具调用，片段不能覆盖最终参数。
+test('完整工具回退保留最终参数，重复聚合消息只记一次工具诊断', () => {
+  const calls = [], events = new CliEvents(available, undefined, [], {
+    preferAggregateWithMcpValidation: true, onToolCall: call => calls.push(call),
+  });
+  const complete = snapshot(0, { path: 'synthetic.txt', offset: 15, limit: 20 });
+  complete.message.stop_reason = 'tool_use';
+  for (const event of [begin, start(0), delta(0, '{"path":'), complete, complete]) events.accept(event);
+  assert.equal(events.toolEnd, true);
+  assert.equal(events.blocks.size, 0);
+  assert.equal(events.calls.size, 1);
+  assert.deepEqual(JSON.parse(events.calls.get('tool_0').function.arguments), complete.message.content[0].input);
+  assert.deepEqual(calls, [{ id: 'tool_0', kind: 'caller', name: 'read' }]);
+  const changed = structuredClone(complete); changed.message.content[0].input.path = 'other.txt';
+  assert.throws(() => events.accept(changed), /ID 冲突/);
+  assert.equal(calls.length, 1);
+});

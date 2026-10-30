@@ -36,15 +36,57 @@ export function assistantMessage(execution) {
   return { role: 'assistant', content: execution.content || null,
     ...(execution.tool_calls?.length ? { tool_calls: execution.tool_calls } : {}) };
 }
-export function continuationDelta(session, request, { allowInstructionUpdates = false, onReject, onAssistantMismatch, hashKey } = {}) {
+export function continuationDelta(session, request, { allowInstructionUpdates = false, onReject, onAssistantMismatch, onReceiptAlias, onCancelledTailProjection, hashKey } = {}) {
   const reject = reason => { onReject?.(reason); return undefined; };
   const toolSchemas=session.historyNormalization===true ? request.tools : undefined;
-  const messages = sessionHistory(request.messages), prefix = session.history;
-  if (messages.length <= prefix.length) return reject('messages_not_appended');
-  if (!prefix.every((value, index) => historyKey(messages[index], { exact: allowInstructionUpdates, hashKey, toolSchemas }) === value)) return reject('history_prefix_mismatch');
+  const messages = sessionHistory(request.messages);
+  let prefix = session.history;
+  const prior=session.interrupted===true&&session.request?sessionHistory(session.request.messages):undefined;
+  if(session.interrupted===true&&session.request){
+    // Send now 可把新消息插到末尾目录快照之前；只移动纯环境事实，不放宽历史正文。
+    if(prior.length===prefix.length&&prior.length&&callerRuntimeStatus(prior.at(-1))?.type==='environment')prefix=prefix.slice(0,-1);
+  }
+  const matchPrefix=(value,index)=>{
+    const actual=messages[index],actualKey=historyKey(actual,{exact:allowInstructionUpdates,hashKey,toolSchemas});
+    if(actualKey===value)return true;
+    // Send now 会用固定“结果缺失”占位符替换收据；只接受原生取消已确认、
+    // 且本轮实际交回过的同 ID。原生真实结果保持权威，不重新提交或执行工具。
+    const original=prior?.[index];
+    if(!session.cancelledReceiptIds?.has(actual?.tool_call_id)||actual.role!=='tool'||actual.is_error!==true
+      ||actual.content!=='[Tool result missing due to internal error]'
+      ||Object.keys(actual).some(k=>!['role','tool_call_id','content','is_error'].includes(k))
+      ||original?.role!=='tool'||original.tool_call_id!==actual.tool_call_id
+      ||historyKey(original,{exact:allowInstructionUpdates,hashKey,toolSchemas})!==value)return false;
+    try{onReceiptAlias?.({toolKey:historyKey({role:'tool',tool_call_id:actual.tool_call_id},{hashKey}),originalKey:value,placeholderKey:actualKey,nativeResultPreserved:true});}catch{}
+    return true;
+  };
+  let matches=messages.length>prefix.length&&prefix.every(matchPrefix);
+  if(!matches&&prior?.length===session.history.length&&session.cancelledReceiptIds?.size){
+    const assistantIndex=prior.findLastIndex(m=>m.role==='assistant'),assistant=prior[assistantIndex];
+    const calls=assistant?.tool_calls||[],ids=new Set(calls.map(c=>c.id));
+    let base=assistantIndex;
+    while(base>0&&callerRuntimeStatus(prior[base-1])?.type==='environment')base--;
+    const tail=prior.slice(base),receipts=tail.filter(m=>m.role==='tool');
+    const emptyText=assistant&&(assistant.content==null||typeof assistant.content==='string'&&!assistant.content.trim());
+    const verified=base>=0&&calls.length>0&&ids.size===calls.length&&emptyText
+      &&calls.every(c=>session.cancelledReceiptIds.has(c.id))&&receipts.length===ids.size
+      &&new Set(receipts.map(m=>m.tool_call_id)).size===ids.size&&receipts.every(m=>ids.has(m.tool_call_id))
+      &&tail.every((m,i)=>historyKey(m,{exact:allowInstructionUpdates,hashKey,toolSchemas})===session.history[base+i]
+        &&(base+i===assistantIndex||m.role==='tool'&&ids.has(m.tool_call_id)||callerRuntimeStatus(m)?.type==='environment'));
+    const candidate=session.history.slice(0,base),delta=messages.slice(base);
+    if(verified&&messages.length>base&&candidate.every(matchPrefix)&&delta.some(m=>m.role==='user')
+      &&delta.every(m=>m.role==='user'||callerRuntimeStatus(m)?.type==='environment'||allowInstructionUpdates&&['system','developer'].includes(m.role))){
+      prefix=candidate;matches=true;
+      try{onCancelledTailProjection?.({omittedDesktopMessages:session.history.length-base,completedTools:ids.size,nativeTailPreserved:true,toolResultsResubmitted:false});}catch{}
+    }
+  }
+  if(messages.length<=prefix.length)return reject('messages_not_appended');
+  if(!matches)return reject('history_prefix_mismatch');
   if (session.interrupted === true) {
-    // 仅接受没有可见助手输出、没有工具交接的已确认中断；不猜补助手消息。
-    const delta = messages.slice(prefix.length);
+    // 仅接受已确认中断后的用户增量；原生已完成工具事实保留，不猜补或重放工具。
+    let delta = messages.slice(prefix.length);
+    const plain=(m,role,content)=>m?.role===role&&m.content===content&&Object.keys(m).every(k=>['role','content'].includes(k));
+    if(session.cancelConfirmed===true&&plain(delta[0],'user','[Request interrupted by user]')&&plain(delta[1],'assistant','No response requested.'))delta=delta.slice(2);
     if (!delta.some(message => message.role === 'user') || delta.some(message => message.role !== 'user'
       && !(callerRuntimeStatus(message)?.type === 'environment'
         || allowInstructionUpdates && ['system', 'developer'].includes(message.role)))) return reject('unsafe_interrupted_delta');
@@ -65,20 +107,39 @@ export function continuationDelta(session, request, { allowInstructionUpdates = 
   if (session.pendingIds.size) {
     const tools = delta.filter(message => message.role === 'tool');
     if (tools.length !== session.pendingIds.size) return reject('tool_result_count_mismatch');
-    if (delta.some(message => message.role !== 'tool' && !allowedUpdate(message))) return reject('unsafe_tool_delta');
+    // Desktop 会在图片工具结果后另附 user 角色的尺寸注释。只接受固定格式的
+    // 显示数据和纯“继续”控制；生产显式启用时，还允许完整收据之后的用户文本，
+    // 经 caller_handoff_context 独立标注用户身份，不覆盖原工具正文。
+    const note=/^\[Image: original [1-9]\d{0,5}x[1-9]\d{0,5}, displayed at [1-9]\d{0,5}x[1-9]\d{0,5}\. Multiply coordinates by \d+(?:\.\d+)? to map to original image\.\]$/;
+    const resume=/^(?:继续\s*){1,8}$/;
+    const users=delta.filter(m=>m.role==='user'),lastTool=delta.findLastIndex(m=>m.role==='tool');
+    const parts=users.flatMap(m=>typeof m.content==='string'?m.content.trim().split(/\r?\n/).map(s=>s.trim()).filter(Boolean):[]);
+    const imageCount=tools.reduce((n,m)=>n+(Array.isArray(m.content)?m.content.filter(b=>['image','image_url'].includes(b?.type)).length:0),0);
+    const handoffUser = (message,i) => session.options?.allowToolHandoffUserMessages===true
+      &&message.role==='user'&&i>lastTool&&typeof message.content==='string'&&message.content.trim()
+      &&!Object.keys(message).some(k=>!['role','content'].includes(k));
+    if(parts.filter(s=>note.test(s)).length>imageCount
+      ||parts.filter(s=>resume.test(s)).length>8
+      ||delta.some((message,i)=>message.role!=='tool'&&!allowedUpdate(message)
+        &&!handoffUser(message,i)
+        &&!(message.role==='user'&&i>lastTool&&typeof message.content==='string'
+          &&!Object.keys(message).some(k=>!['role','content'].includes(k))
+          &&message.content.trim()&&message.content.trim().split(/\r?\n/).every(s=>!s.trim()||note.test(s.trim())||resume.test(s.trim())))))return reject('unsafe_tool_delta');
     const ids = new Set(tools.map(message => message.tool_call_id));
     if (ids.size !== tools.length || [...ids].some(id => !session.pendingIds.has(id))) return reject('tool_result_id_mismatch');
   } else if (!delta.some(message => message.role === 'user') || delta.some(message => message.role !== 'user' && !allowedUpdate(message))) return reject('unsafe_user_delta');
   return delta;
 }
 
-// 原结果各块保持原样，只在首个结果后追加明确分隔的调用方目录状态。
+// 原结果各块保持原样，附加的调用方状态明确标记来源，不冒称工具原始输出。
 export function continuationToolResults(delta, maxImageBytes) {
   const snapshots = delta.filter(message => callerRuntimeStatus(message)?.type === 'environment').map(message => ({
     ...callerRuntimeStatus(message), content: message.content,
   }));
   const results = delta.filter(message => message.role === 'tool').map(message => [message.tool_call_id, mcpToolResult(message, maxImageBytes)]);
   if (snapshots.length && results.length) results[0][1].content.push({ type: 'text', text: stableJson({ kind: 'caller_runtime_status', snapshots }) });
+  const annotations=delta.filter(m=>m.role==='user').map(m=>({role:'user',content:m.content}));
+  if(annotations.length&&results.length)results[0][1].content.push({type:'text',text:stableJson({kind:'caller_handoff_context',source:'caller_user_messages',messages:annotations})});
   return new Map(results);
 }
 

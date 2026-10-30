@@ -39,6 +39,7 @@ for (const native of [false, true]) for (const phase of ['before-text', 'partial
               emit({type:'system',subtype:'synthetic_start'});
               if (${recover}) emit({type:'result',result:'SYNTHETIC_RECOVERED'});
               else {
+                emit({type:'stream_event',event:{type:'message_start',message:{id:'synthetic',usage:{input_tokens:1,output_tokens:0}}}});
                 emit({type:'stream_event',event:{type:'content_block_start',index:0,content_block:{type:'text'}}});
                 emit({type:'stream_event',event:{type:'content_block_delta',index:0,delta:{type:'text_delta',text:'SYNTHETIC_BEGIN'}}});
                 setInterval(() => {}, 1000);

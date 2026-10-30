@@ -74,3 +74,20 @@ test('混合消息仍只信任调用前 system 固定开头，冲突或不匹配
  ])assert.strictEqual(mappedBashAssistant(actual,[item]),actual);
  assert.strictEqual(mappedBashAssistant(actual,[env('E:\\sr\\Poem'),{...mixed,content:mixed.content+'\n# Environment update\n'}]),actual);
 });
+
+// 深路径也须有调用前目录事实；缺少或错误的 cwd 不能靠三点字符串采样放行。
+test('深层 cd 只在执行目录等价时映射，其他参数及未知调用仍拒绝',()=>{
+ const cwd='E:/ps/output/4.6.54-delivery-v1/Resources/JSON/BakedConfig/Config/Level/Mission/8047115';
+ const original='cd /e/'+cwd.slice(3)+' && python inspect.py';
+ const {expected,actual}=fixture('deep-cd',original,'python inspect.py');
+ const prefix=[env(cwd)];
+ assert.equal(historyKey(mappedBashAssistant(actual,prefix)),historyKey(expected));
+ assert.strictEqual(mappedBashAssistant(actual,[]),actual);
+ assert.strictEqual(mappedBashAssistant(actual,[env('E:/other')]),actual);
+ const changed=structuredClone(actual);changed.tool_calls[0].function.arguments=JSON.stringify({command:'python inspect.py',description:'changed'});
+ assert.notEqual(historyKey(mappedBashAssistant(changed,prefix)),historyKey(expected));
+ for(const command of ['cd /e/../other && python inspect.py','cd /e/$HOME && python inspect.py','cd /e/a; python inspect.py']){
+  const sample=fixture(command,command,'python inspect.py');assert.strictEqual(mappedBashAssistant(sample.actual,prefix),sample.actual);
+ }
+ const unknown=structuredClone(actual);unknown.tool_calls[0].id='no-trace';assert.strictEqual(mappedBashAssistant(unknown,prefix),unknown);
+});

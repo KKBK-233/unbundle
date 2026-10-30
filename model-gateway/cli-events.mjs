@@ -1,17 +1,32 @@
 import {recordBashPhase} from './tool-boundary-trace.mjs';
 import { stableJson } from './context.mjs';
 
+// 完整正常消息可作为非流式回退边界；错误占位和未结束快照不能提前交付工具。
+export function completeAssistant(event) {
+  const message = event?.message;
+  return event?.type === 'assistant' && !event.is_api_error_message
+    && typeof message?.id === 'string' && message.id.length > 0 && Array.isArray(message.content)
+    && ['tool_use', 'end_turn', 'max_tokens', 'stop_sequence', 'refusal'].includes(message.stop_reason);
+}
+
 // 汇总官方 CLI 的事件：工具等待整条消息结束，用量按 message.id 去重。
 export class CliEvents {
-  constructor(available, onText, stops = [], { allowToolSearch = false, maxToolSearchCalls = 8 } = {}) {
+  constructor(available, onText, stops = [], { allowToolSearch = false, maxToolSearchCalls = 8, preferAggregateWithMcpValidation = false, onStopReason, onToolCall } = {}) {
     this.tools = new Map(available.map(tool => [`mcp__omp__${tool.name}`, tool.original]));
     this.onText = onText;
     this.calls = new Map();
+    this.aggregateIds = new Set();
+    this.streamValidatedIds = new Set();
+    this.mcpValidationIds = new Set();
+    this.preferAggregateWithMcpValidation = preferAggregateWithMcpValidation;
     this.counts = new Map();
     this.text = '';
     this.sawDelta = false;
     this.toolEnd = false;
     this.outputLimitReached = false;
+    this.refused = false;
+    this.onStopReason = onStopReason;
+    this.onToolCall = onToolCall;
     this.blocks = new Map();
     this.recoveredToolStops = 0;
     this.stops = stops;
@@ -23,6 +38,7 @@ export class CliEvents {
     this.maxToolSearchCalls = maxToolSearchCalls;
     this.searchCalls = new Map();
     this.messageSearchCalls = new Set();
+    this.completedMessages = new Map();
   }
 
   count(id, usage) {
@@ -78,7 +94,10 @@ export class CliEvents {
       if (typeof block.id !== 'string' || !block.id || !block.input || typeof block.input !== 'object' || Array.isArray(block.input)) throw new Error('CLI 返回了无效的工具搜索');
       const input = stableJson(block.input);
       if (this.searchCalls.has(block.id) && this.searchCalls.get(block.id) !== input) throw new Error('CLI 工具搜索 ID 冲突');
+      const fresh = !this.searchCalls.has(block.id);
       this.searchCalls.set(block.id, input); this.messageSearchCalls.add(block.id);
+      // 只观察已校验调用，流式和完整快照不重复计数，诊断异常不改变执行。
+      if (fresh) { try { this.onToolCall?.({ id: block.id, kind: 'search', query: block.input.query }); } catch {} }
       if (this.searchCalls.size > this.maxToolSearchCalls) throw Object.assign(new Error('本轮内部工具搜索次数达到配置上限，已停止以避免重复消耗。请缩小任务后手动继续。'), {
         code: 'TOOL_SEARCH_LIMIT', status: 422, retryable: false, statistics: { ...this.usage(), usage_complete: false },
       });
@@ -89,40 +108,92 @@ export class CliEvents {
     recordBashPhase('cli',block.id,name,block.input);
     const call = { id: block.id, type: 'function', function: { name, arguments: stableJson(block.input) } };
     if (this.calls.has(block.id) && stableJson(this.calls.get(block.id)) !== stableJson(call)) throw new Error('CLI 工具调用 ID 冲突');
+    const fresh = !this.calls.has(block.id);
     this.calls.set(block.id, call);
+    if (fresh) {
+      try { this.onToolCall?.({ id: block.id, kind: 'caller', name,
+        ...(name === 'Read' ? { readRange: Object.hasOwn(block.input, 'offset') || Object.hasOwn(block.input, 'limit') ? 'explicit' : 'default' } : {}) }); } catch {}
+    }
   }
 
-  // 消息结束也是工具参数的边界；兼容 CLI 未透出逐块 stop，但不猜补残缺 JSON。
+  // 仅在流式参数完整且一致时免除额外核验；聚合回退必须交给原生 MCP 验证。
+  finishToolBlock(block, requireFragments = false) {
+    const aggregate = this.aggregateIds.has(block.id);
+    let input, parseError;
+    if (requireFragments && !block.fragments.trim()) parseError = new Error('CLI 工具消息不完整：缺少完整参数');
+    else {
+      try { input = block.fragments ? JSON.parse(block.fragments) : block.input; }
+      catch { parseError = new Error('CLI 工具消息不完整：参数 JSON 未完整结束'); }
+    }
+    if (aggregate) {
+      const call = this.calls.get(block.id);
+      if (call?.function.name !== this.tools.get(block.name)) throw new Error('CLI 工具调用 ID 冲突');
+      if (parseError || call.function.arguments !== stableJson(input)) this.mcpValidationIds.add(block.id);
+      else { this.streamValidatedIds.add(block.id); this.mcpValidationIds.delete(block.id); }
+      return false;
+    }
+    if (parseError) throw parseError;
+    this.addCall({ ...block, input });
+    this.streamValidatedIds.add(block.id);
+    return true;
+  }
+
+  // 消息结束也是工具参数的边界；不能把待 MCP 核验的聚合回退当作已核验流式调用。
   finishToolMessage() {
-    const pending = [...this.blocks.values()].map(block => {
-      if (!block.fragments.trim()) throw new Error('CLI 工具消息不完整：缺少完整参数');
-      let input;
-      try { input = JSON.parse(block.fragments); }
-      catch { throw new Error('CLI 工具消息不完整：参数 JSON 未完整结束'); }
-      return { ...block, input };
-    });
-    // 复用正常收尾的工具白名单、对象参数及同 ID 冲突校验，失败不交付部分调用。
-    for (const block of pending) this.addCall(block);
+    for (const block of this.blocks.values()) if (this.finishToolBlock(block, true)) this.recoveredToolStops++;
     if (!this.calls.size && !this.messageSearchCalls.size) throw new Error('CLI 工具消息不完整');
-    this.recoveredToolStops += pending.length;
     this.blocks.clear();
     this.toolEnd = this.calls.size > 0;
   }
 
+  // 拒绝是正常的终止原因；封存当前回复，丢弃未交付工具，避免 CLI 续写覆盖拒绝。
+  acceptStop(reason) {
+    if (typeof reason !== 'string' || !reason) return;
+    try { this.onStopReason?.(reason); } catch {}
+    if (reason === 'refusal') {
+      this.refused = true;
+      this.blocks.clear();
+      this.calls.clear();
+      this.toolEnd = false;
+    }
+  }
+
   accept(event) {
-    // 首次截断即封存本轮输出；进程停止前排队的续写事件不能再追加文本或用量。
-    if (this.outputLimitReached || this.stopSequence !== undefined) return;
+    // 首次拒绝或截断即封存本轮输出；进程停止前的续写不能追加文本或用量。
+    if (this.refused || this.outputLimitReached || this.stopSequence !== undefined) return;
     if (event.type === 'result') this.result = event;
     if (event.type === 'assistant') {
       // CLI 自己生成的 API 错误消息不属于模型回复，不能混入文本或历史。
       if (event.is_api_error_message) return;
       const message = event.message || {};
       this.count(message.id, message.usage);
+      const complete = completeAssistant(event);
+      if (complete) {
+        const fingerprint = stableJson({ content: message.content, stop_reason: message.stop_reason });
+        const previous = this.completedMessages.get(message.id);
+        if (previous !== undefined) {
+          if (previous !== fingerprint) throw new Error('CLI 完整消息 ID 冲突');
+          return;
+        }
+        this.completedMessages.set(message.id, fingerprint);
+      }
       for (const block of message.content || []) {
-        if (block.type === 'text' && !this.sawDelta) this.emit(block.text);
+        if (block.type === 'text' && !(this.sawDelta && (!message.id || message.id === this.currentId))) this.emit(block.text);
         if (this.stopSequence !== undefined) return;
-        if (block.type !== 'tool_use') continue;
+        if (block.type !== 'tool_use' || complete && message.stop_reason === 'refusal') continue;
         this.addCall(block);
+        if (this.preferAggregateWithMcpValidation && this.calls.has(block.id)) {
+          this.aggregateIds.add(block.id);
+          // 仅完整聚合消息、没有对应流式参数时，也属于须核验的回退。
+          if (complete && !this.streamValidatedIds.has(block.id)) this.mcpValidationIds.add(block.id);
+        }
+      }
+      if (complete) {
+        this.flushText();
+        this.acceptStop(message.stop_reason);
+        if (message.stop_reason === 'tool_use') this.finishToolMessage();
+        else if (this.blocks.size || this.calls.size) throw new Error('CLI 工具消息缺少有效结束信号');
+        if (message.stop_reason === 'max_tokens') this.outputLimitReached = true;
       }
     }
     if (event.type !== 'stream_event') return;
@@ -130,6 +201,7 @@ export class CliEvents {
     if (inner.type === 'message_start') {
       if (this.blocks.size) throw new Error('CLI 工具消息不完整');
       this.currentId = inner.message?.id;
+      this.sawDelta = false;
       this.messageSearchCalls.clear();
       this.count(this.currentId, inner.message?.usage);
     }
@@ -144,7 +216,7 @@ export class CliEvents {
     }
     if (inner.type === 'content_block_stop' && this.blocks.has(inner.index)) {
       const block = this.blocks.get(inner.index);
-      this.addCall({ ...block, input: block.fragments ? JSON.parse(block.fragments) : block.input });
+      this.finishToolBlock(block);
       this.blocks.delete(inner.index);
     }
     if (inner.type === 'content_block_delta' && inner.delta?.type === 'text_delta') {
@@ -154,6 +226,7 @@ export class CliEvents {
     if (inner.type === 'message_delta') {
       this.flushText();
       this.count(this.currentId, inner.usage);
+      this.acceptStop(inner.delta?.stop_reason);
       if (inner.delta?.stop_reason === 'max_tokens') {
         if (this.blocks.size || this.calls.size) throw new Error('输出截断时工具消息不完整');
         this.outputLimitReached = true;

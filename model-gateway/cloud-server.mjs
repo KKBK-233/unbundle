@@ -1,4 +1,5 @@
 import { toolSearchConfig } from './tool-search-config.mjs';
+import { DEFAULT_CACHE_BREAKPOINT } from './cache-policy.mjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
@@ -67,10 +68,12 @@ const archiveRetentionMs = Number(process.env.GATEWAY_ARCHIVE_RETENTION_DAYS || 
 const nativeRelay = process.env.GATEWAY_SESSION_RELAY === '1' ? sessionRelay({
   cli, home, configDir, modelFor: model => upstreamModels[model], maxSessions: Number(process.env.GATEWAY_MAX_SESSIONS || 2),
   sessionTtlMs: nativeSessionTtlMs,archiveRetentionMs,toolWaitTimeoutMs,
-  maxTools, maxCliOutputBytes, maxMcpRequestBytes, cacheBreakpoint: process.env.GATEWAY_CACHE_BREAKPOINT || 'auto',
+  maxTools, maxCliOutputBytes, maxMcpRequestBytes, cacheBreakpoint: process.env.GATEWAY_CACHE_BREAKPOINT || DEFAULT_CACHE_BREAKPOINT,
   maxImageBytes, maxOutputTokens, timeoutMs, idleTimeoutMs, toolSearch, maxToolSearchCalls, liveInstructionUpdates,
   persistentSessions, cliVersion: startupCliVersion, anomalyDir,
   requireLiveToolContinuation: true,
+  preserveCancelledSession: true,
+  allowToolHandoffUserMessages: true,
   onCliAudit: record => console.error(JSON.stringify(record)),
   onSessionEvent: record => console.error(JSON.stringify(record)),
 }) : undefined;
@@ -105,7 +108,7 @@ const server = await gateway({ token, port, models, modelAliases, status: async 
     if (nativeRelay) return nativeRelay.infer(prepared, { signal, onText, timing, affinity });
     return infer(prepared, { cli, home, configDir, model: upstreamModels[request.model], signal, onText, timing,
     anomalyDir, cliVersion: (await readCliRelease())?.version || startupCliVersion,
-    maxTools, maxCliOutputBytes, maxMcpRequestBytes, cacheBreakpoint: process.env.GATEWAY_CACHE_BREAKPOINT || 'auto', maxImageBytes, maxOutputTokens, timeoutMs, idleTimeoutMs, toolSearch, maxToolSearchCalls });
+    maxTools, maxCliOutputBytes, maxMcpRequestBytes, cacheBreakpoint: process.env.GATEWAY_CACHE_BREAKPOINT || DEFAULT_CACHE_BREAKPOINT, maxImageBytes, maxOutputTokens, timeoutMs, idleTimeoutMs, toolSearch, maxToolSearchCalls });
   },
 });
 console.log(`云端模型入口监听 127.0.0.1:${port}；工具由客户端执行`);
