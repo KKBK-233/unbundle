@@ -32,3 +32,17 @@ export function compactMemoryContext(message){
  const extra=message?.content?.at?.(-1)?.text;
  return typeof extra==='string'&&extra.startsWith(header)?{role:'user',content:'Caller auto-memory snapshot attached during compaction; its file contents were already supplied by a completed Write. This is caller context, not a replacement tool result:\n'+extra}:undefined;
 }
+
+// Desktop 可在摘要前重新附加自动记忆；原文仍作为用户上下文交接，不参与摘要身份。
+export function splitCompactMemory(value,summaryHeader){
+ if(typeof value!=='string')return;
+ if(value.startsWith(summaryHeader+'\n\n'))return{summary:value};
+ if(!value.startsWith(header))return;
+ const pathEnd=value.indexOf(suffix,header.length),file=value.slice(header.length,pathEnd);
+ if(pathEnd<0||!/(?:^|[\\/])\.claude[\\/]projects[\\/][^\\/\r\n]+[\\/]memory[\\/]MEMORY\.md$/.test(file)||/[\r\n]/.test(file))return;
+ const end=value.indexOf('\n</system-reminder>\n\n',pathEnd+suffix.length);
+ if(end<0||end>65536)return;
+ const at=end+'\n</system-reminder>\n\n'.length;
+ if(!value.startsWith(summaryHeader+'\n\n',at))return;
+ return{summary:value.slice(at),memory:value.slice(0,end+'\n</system-reminder>'.length)};
+}
