@@ -1,7 +1,8 @@
+import {reclaimSessionCapacity} from './session-capacity.mjs';
 import {sessionOutputTokens,assertOutputBudget,withoutOutputBudget} from './session-budget.mjs';
 import {automaticRecoveryRequest,automaticRecoveryIdentity} from './automatic-recovery.mjs';
 import {quotaRecoveryDelta} from './quota-recovery.mjs';
-import {unrequestedRecoveryDelta,unrequestedToolRecoveryDelta,cancelledWaitContext} from './unrequested-recovery.mjs';
+import {unrequestedRecoveryDelta,unrequestedToolRecoveryDelta,cancelledWaitContext,cancelledGenerationDelta} from './unrequested-recovery.mjs';
 import {compactedToolDefinitionsChanged} from './tool-definition-update.mjs';
 import {settleFrozenTools,recoveryInputMessages} from './native-recovery.mjs';
 import {SessionLifecycle} from './session-lifecycle.mjs';
@@ -56,13 +57,7 @@ export function sessionRelay(options, retained) {
     } finally { release(); }
   }
   async function makeRoom() {
-    if (sessions.size < maxSessions) return;
-    const oldest = [...sessions].filter(s => s.state === 'idle' && !s.creationReserved && !s.compacting && !s.recoveryInProgress)
-      .sort((a,b) => (a.lastUsed || 0) - (b.lastUsed || 0))[0];
-    if (!oldest) throw Object.assign(new Error('原生会话容量已满'), {code:'SESSION_CAPACITY',status:429,retryable:false});
-    const closed=await oldest.close('capacity');
-    if(closed===false||oldest.state!=='closed')throw Object.assign(new Error('原生会话尚不能安全回收'),{code:'SESSION_CAPACITY',status:429,retryable:false});
-    sessions.delete(oldest);
+    await reclaimSessionCapacity(sessions,maxSessions);
   }
   const lifecycle = store ? new SessionLifecycle(store,{protectedIds:()=>new Set([...sessions].filter(s=>s.state!=='closed').map(s=>s.nativeSessionId)),retentionMs:options.archiveRetentionMs}) : undefined;
   async function inferTurn(request, { signal, onText, timing, affinity } = {}) {
@@ -148,6 +143,28 @@ export function sessionRelay(options, retained) {
         return {...structuredClone(replay.automaticRecoveryResult.result),usage_complete:true,upstream_usage:{input_tokens:0,output_tokens:0,cache_creation_input_tokens:0,cache_read_input_tokens:0},usage:{prompt_tokens:0,completion_tokens:0,total_tokens:0}};
       }
       if([...sessions].some(s=>s.recoveryInProgress&&s.affinityHash===affinityHash&&(s.recoveryIdentity===retryIdentity(request)||automaticRecoveryRequest({state:'frozen',frozenRequest:s.frozenRequest},request,{allowBudgetChange:true}))))throw recoveryError('SESSION_BUSY','同一会话的恢复仍在进行');
+      const cancelled=[...sessions].filter(s=>s.affinityHash===affinityHash&&matchesSignature(s)).flatMap(session=>{
+        const delta=cancelledGenerationDelta(session,request,{hashKey:store?.key,allowInstructionUpdates:options.liveInstructionUpdates===true});
+        return delta?[{session,delta}]:[];
+      });
+      if(cancelled.length>1)throw recoveryError('RECOVERY_SESSION_AMBIGUOUS','取消请求不能唯一关联原生会话');
+      if(cancelled.length){
+        const {session,delta}=cancelled[0],quarantine=session.quarantineRecord;checkBudget(session);
+        session.recoveryInProgress=true;
+        try{
+          if(!quarantine||!await session.verifySuspended())throw recoveryError('NATIVE_PROCESS_GONE','原取消进程无法确认，未重建历史');
+          await settleFrozenTools(session,[],{signal,cancelledTurn:true});
+          const result=await session.run(request,recoveryInputMessages(delta),{signal,onText,timing});
+          await store?.releaseQuarantine(quarantine);
+          for(let i=quarantined.length-1;i>=0;i--)if(quarantined[i]===quarantine)quarantined.splice(i,1);
+          session.quarantineRecord=undefined;session.freezeReason=undefined;session.frozenRequest=undefined;
+          session.automaticRecoveryResult={identity:automaticRecoveryIdentity(request),result:structuredClone(result),history:session.history,expected:session.expected};
+          try{await store?.checkpoint(session);}catch{try{options.onSessionEvent?.({type:'native_checkpoint_failed',code:'CHECKPOINT_WRITE_FAILED'});}catch{}}
+          try{options.onSessionEvent?.({type:'native_cancel_recovery',sessionId:session.sessionId,event:'completed',historyRebuilt:false,toolsReplayed:false});}catch{}
+          return result;
+        }catch(error){if(session.state!=='frozen')await session.freeze(error.code||'CANCEL_RECOVERY_FAILED',{request});throw error;}
+        finally{session.recoveryInProgress=false;}
+      }
       const orphaned=[...sessions].filter(s=>s.affinityHash===affinityHash&&matchesSignature(s)).flatMap(session=>{
         const matchOptions={hashKey:store?.key,allowInstructionUpdates:options.liveInstructionUpdates===true};
         const delta=unrequestedRecoveryDelta(session,request,matchOptions)||unrequestedToolRecoveryDelta(session,request,matchOptions);

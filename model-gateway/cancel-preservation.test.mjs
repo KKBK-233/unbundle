@@ -22,6 +22,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{const v=JSON.pa
  }
  if(v.type!=='user')throw Error('unexpected input');
  turns++;if(turns>1&&!terminalDone)throw Error('old and new turns overlap');uuid=v.uuid;
+ if(mode==='prestart'&&turns===1){send({type:'system',subtype:'synthetic_input_received'});return;}
  send({type:'stream_event',event:{type:'message_start',message:{id:'turn-'+turns,usage:{input_tokens:10,output_tokens:0}}}});
  if(turns===1){
   if(mode==='partial')send({type:'stream_event',event:{type:'content_block_delta',delta:{type:'text_delta',text:'PARTIAL'}}});
@@ -39,7 +40,7 @@ async function setup(mode, extra = {}) {
   let ready; const started = new Promise(resolve => { ready = resolve; });
   const relay = sessionRelay({ cli: 'synthetic', home, model: request.model, maxOutputTokens: 1024, maxSessions: 1,
     preserveCancelledSession: true, cancelAckTimeoutMs: 300, timeoutMs: 3000, onSessionEvent: value => events.push(value),
-    spawnProcess(_cli,_args,options) { const child = spawn(process.execPath, ['--input-type=module','-e',fixture,'--',mode],options); children.push(child); return child; }, ...extra });
+    spawnProcess(_cli,_args,options) { const child = spawn(process.execPath, ['--input-type=module','-e',fixture,'--',mode],options); children.push(child); if(mode==='prestart')child.stdout.on('data',chunk=>{if(chunk.toString().includes('synthetic_input_received'))ready();}); return child; }, ...extra });
   return { relay, children, events, started, timing: { mark: stage => { if (stage === 'upstream_message_start') ready(); } }, async close() {
     await relay.close({discardFrozen:true});
     for (const child of children) assert.ok(child.exitCode !== null || child.signalCode !== null);
@@ -47,7 +48,7 @@ async function setup(mode, extra = {}) {
   } };
 }
 
-for (const mode of ['safe','result-first']) test(`取消确认与终止事件齐全才复用，顺序 ${mode}，新旧轮次不并行`, async () => {
+for (const mode of ['safe','result-first','prestart']) test(`取消确认与终止事件齐全才复用，顺序 ${mode}，新旧轮次不并行`, async () => {
   const s = await setup(mode), controller = new AbortController();
   try {
     const first = s.relay.infer(request, { signal: controller.signal, timing: s.timing });

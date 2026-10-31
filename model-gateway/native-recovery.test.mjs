@@ -41,3 +41,13 @@ test('多次目录通知保持原顺序，含行为指令的 system 消息仍走
  const forward=recoveryInputMessages([...delta,first,{role:'user',content:'first new input'},second,{role:'user',content:'second new input'},instruction]);
  assert.equal(JSON.parse(forward[0].content[0].text).snapshots[0].cwd,'/new');assert.equal(forward[1].content,'first new input');assert.equal(JSON.parse(forward[2].content[0].text).snapshots[0].cwd,'/last');assert.equal(forward[3].content,'second new input');assert.equal(forward[4],instruction);assert.equal(forward[4].role,'system');
 });
+
+test('部分文本取消必须获得同一输入的中断确认，不提交工具结果或模型输入',async()=>{
+ for(const matches of [true,false]){
+  const f=setup();f.session.pendingIds.clear();f.session.pendingHttp.clear();f.session.frozenTurn={inputUuid:'original'};
+  const resume=async()=>f.session.line(JSON.stringify({type:'result',terminal_reason:'aborted_streaming',user_message_uuid:matches?'original':'other'}));
+  if(matches){await settleFrozenTools(f.session,[],{resume,cancelledTurn:true});assert.equal(f.session.state,'idle');assert.equal(f.session.frozenTurn,undefined);assert.equal(f.session.cancelConfirmed,true);}
+  else{await assert.rejects(settleFrozenTools(f.session,[],{resume,cancelledTurn:true}),{code:'RECOVERY_INTERRUPT_UNCONFIRMED'});assert.equal(f.session.state,'frozen');assert(f.session.frozenTurn);}
+  assert.equal(f.frames.length,0);assert.equal(f.session.line,f.original);
+ }
+});
