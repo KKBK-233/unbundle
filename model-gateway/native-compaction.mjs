@@ -73,7 +73,7 @@ export async function hydrateCompactionSource(session){
  record.sourceAssistantHash=saved.sourceAssistantHash;
  if(record.source.at(-1)!==saved.sourceAssistantHash)record.source.push(saved.sourceAssistantHash);
 }
-export function retainedText(boundary){
+function retainedText(boundary){
  const lines=[];
  for(const receipt of boundary.receipts){
   lines.push(`Verified recent Desktop tool result ${receipt.tool_call_id} (is_error=${receipt.is_error===true}); the operation is completed and must not be replayed:`);
