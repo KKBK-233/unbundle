@@ -1,6 +1,6 @@
 {
   "name": "unbundle",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "description": "单用户自部署的实验性 CLI 适配器：云端推理，本地工具与审批",
   "type": "module",
   "scripts": {

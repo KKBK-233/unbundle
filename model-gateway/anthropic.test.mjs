@@ -120,7 +120,7 @@ test('原生接口流式文本、并行工具和缓存三桶保持一致，阶�
 test('原生流心跳经过 SDK 的 ping 过滤后仍有事件，空正文不影响后续工具和用量', { timeout: 18000 }, async () => {
   let complete;
   const pending = new Promise(resolve => { complete = resolve; });
-  const app = await gateway({ token: 'test', port: 0, models: [{ id: body.model }], execute: (_r,_s,_t,timing) => {timing.onUsage({upstream_usage:{input_tokens:7,output_tokens:0,cache_read_input_tokens:13,cache_creation_input_tokens:17}});return pending;} });
+  const app = await gateway({ token: 'test', port: 0, models: [{ id: body.model }], execute: () => pending });
   const controller = new AbortController();
   let reader;
   try {

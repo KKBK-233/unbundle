@@ -118,9 +118,14 @@ export function anthropicContent(execution) {
 // 流式文本即时发送，完整工具在网关确认整条工具消息后返回，保留本地执行边界。
 export function anthropicWriter(res, id, model) {
   let index = 0, openText = false, streamed = false, started = false;
-  const pendingText=[];
   const send = (type, value) => res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...value })}\n\n`);
   const stopText = () => { if (openText) { send('content_block_stop', { index }); index++; openText = false; } };
+  // 优先用真实用量起始；正文或首个心跳先到时立即开始，最终 delta 校正完整用量。
+  const begin = (execution = {}) => {
+    if (started) return;
+    started = true;
+    send('message_start', { message: { id, type: 'message', role: 'assistant', model, content: [], stop_reason: null, stop_sequence: null, usage: { ...anthropicUsage(execution), output_tokens: 0 } } });
+  };
   return {
     start() {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
@@ -128,22 +133,19 @@ export function anthropicWriter(res, id, model) {
     },
     usage(execution) {
       if(started||!execution?.upstream_usage||!Number.isFinite(execution.upstream_usage.input_tokens)||execution.upstream_usage.input_tokens<0)return;
-      started=true;
-      send('message_start', { message: { id, type: 'message', role: 'assistant', model, content: [], stop_reason: null, stop_sequence: null, usage: {...anthropicUsage(execution),output_tokens:0} } });
-      for(const value of pendingText)this.text(value);
-      pendingText.length=0;
+      begin(execution);
     },
     // SDK 会过滤 ping；补一个不含文字的合法内容片段，让解析后的空闲检测也收到事件。
     // 保活不增加正文、工具调用或用量，后续真实文本继续使用同一块。
     ping() {
+      begin();
       send('ping', {});
-      if(!started)return;
       if (!openText) { send('content_block_start', { index, content_block: { type: 'text', text: '' } }); openText = true; }
       send('content_block_delta', { index, delta: { type: 'text_delta', text: '' } });
     },
     text(value) {
       if (!value) return;
-      if(!started){pendingText.push(value);return;}
+      begin();
       if (!openText) { send('content_block_start', { index, content_block: { type: 'text', text: '' } }); openText = true; }
       streamed = true;
       send('content_block_delta', { index, delta: { type: 'text_delta', text: value } });
@@ -161,8 +163,6 @@ export function anthropicWriter(res, id, model) {
       send('message_stop', {}); res.end();
     },
     error(error) {
-      // 上游无起始用量就失败时，仍交付已产生的部分正文，保持明确的错误终止。
-      if(!started&&pendingText.length)this.usage({upstream_usage:anthropicUsage(error.statistics||{})});
       send('error', { error: gatewayError(error).error }); res.end();
     },
   };

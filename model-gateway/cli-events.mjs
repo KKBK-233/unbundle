@@ -16,6 +16,8 @@ export class CliEvents {
     this.onText = onText;
     this.calls = new Map();
     this.aggregateIds = new Set();
+    this.streamValidatedIds = new Set();
+    this.mcpValidationIds = new Set();
     this.preferAggregateWithMcpValidation = preferAggregateWithMcpValidation;
     this.counts = new Map();
     this.text = '';
@@ -114,25 +116,32 @@ export class CliEvents {
     }
   }
 
-  // 消息结束也是工具参数的边界；兼容 CLI 未透出逐块 stop，但不猜补残缺 JSON。
-  finishToolMessage() {
-    // 完整 assistant 已提供最终参数时，不再用尚未收尾的流片段覆盖它。
-    // 最终调用仍须和真实 MCP 的 ID、名称、参数逐项一致才能交付 Desktop。
-    const pending = [...this.blocks.values()].filter(block => {
-      if(!this.aggregateIds.has(block.id))return true;
-      if(this.calls.get(block.id)?.function.name!==this.tools.get(block.name))throw new Error('CLI 工具调用 ID 冲突');
+  // 仅在流式参数完整且一致时免除额外核验；聚合回退必须交给原生 MCP 验证。
+  finishToolBlock(block, requireFragments = false) {
+    const aggregate = this.aggregateIds.has(block.id);
+    let input, parseError;
+    if (requireFragments && !block.fragments.trim()) parseError = new Error('CLI 工具消息不完整：缺少完整参数');
+    else {
+      try { input = block.fragments ? JSON.parse(block.fragments) : block.input; }
+      catch { parseError = new Error('CLI 工具消息不完整：参数 JSON 未完整结束'); }
+    }
+    if (aggregate) {
+      const call = this.calls.get(block.id);
+      if (call?.function.name !== this.tools.get(block.name)) throw new Error('CLI 工具调用 ID 冲突');
+      if (parseError || call.function.arguments !== stableJson(input)) this.mcpValidationIds.add(block.id);
+      else { this.streamValidatedIds.add(block.id); this.mcpValidationIds.delete(block.id); }
       return false;
-    }).map(block => {
-      if (!block.fragments.trim()) throw new Error('CLI 工具消息不完整：缺少完整参数');
-      let input;
-      try { input = JSON.parse(block.fragments); }
-      catch { throw new Error('CLI 工具消息不完整：参数 JSON 未完整结束'); }
-      return { ...block, input };
-    });
-    // 复用正常收尾的工具白名单、对象参数及同 ID 冲突校验，失败不交付部分调用。
-    for (const block of pending) this.addCall(block);
+    }
+    if (parseError) throw parseError;
+    this.addCall({ ...block, input });
+    this.streamValidatedIds.add(block.id);
+    return true;
+  }
+
+  // 消息结束也是工具参数的边界；不能把待 MCP 核验的聚合回退当作已核验流式调用。
+  finishToolMessage() {
+    for (const block of this.blocks.values()) if (this.finishToolBlock(block, true)) this.recoveredToolStops++;
     if (!this.calls.size && !this.messageSearchCalls.size) throw new Error('CLI 工具消息不完整');
-    this.recoveredToolStops += pending.length;
     this.blocks.clear();
     this.toolEnd = this.calls.size > 0;
   }
@@ -173,7 +182,11 @@ export class CliEvents {
         if (this.stopSequence !== undefined) return;
         if (block.type !== 'tool_use' || complete && message.stop_reason === 'refusal') continue;
         this.addCall(block);
-        if(this.preferAggregateWithMcpValidation&&this.calls.has(block.id))this.aggregateIds.add(block.id);
+        if (this.preferAggregateWithMcpValidation && this.calls.has(block.id)) {
+          this.aggregateIds.add(block.id);
+          // 仅完整聚合消息、没有对应流式参数时，也属于须核验的回退。
+          if (complete && !this.streamValidatedIds.has(block.id)) this.mcpValidationIds.add(block.id);
+        }
       }
       if (complete) {
         this.flushText();
@@ -203,9 +216,7 @@ export class CliEvents {
     }
     if (inner.type === 'content_block_stop' && this.blocks.has(inner.index)) {
       const block = this.blocks.get(inner.index);
-      if(this.preferAggregateWithMcpValidation&&this.aggregateIds.has(block.id)){
-        if(this.calls.get(block.id)?.function.name!==this.tools.get(block.name))throw new Error('CLI 工具调用 ID 冲突');
-      }else this.addCall({ ...block, input: block.fragments ? JSON.parse(block.fragments) : block.input });
+      this.finishToolBlock(block);
       this.blocks.delete(inner.index);
     }
     if (inner.type === 'content_block_delta' && inner.delta?.type === 'text_delta') {

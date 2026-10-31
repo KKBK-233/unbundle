@@ -180,6 +180,11 @@ export class NativeCliSession {
         this.fail(Object.assign(new Error('原生工具 ID 与名称/参数不匹配'), { code: 'NATIVE_TOOL_ID_MISMATCH' })); return;
       }
     }
+    // CLI 可串行请求 MCP，不能等待整批而死锁；未核验的回退项也不能提前交付。
+    if ([...turn.events.mcpValidationIds].some(id => this.lastCalls.has(id) && !this.pendingHttp.has(id))) {
+      this.fail(Object.assign(new Error('批量工具包含尚未核验的聚合回退参数，未交付调用方执行'),
+        { code: 'NATIVE_TOOL_FALLBACK_UNVERIFIED', status: 409, retryable: false })); return;
+    }
     turn.waitingHandoff = false;
     this.deliver({ role: 'assistant', content: turn.events.text || null,
       tool_calls: [...this.lastCalls.values()], ...turn.events.usage() }, true);
@@ -474,7 +479,7 @@ export class NativeCliSession {
       ['CLI 工具块索引无效', 'CLI_TOOL_INDEX_INVALID'], ['CLI 工具参数片段无效', 'CLI_TOOL_FRAGMENT_INVALID'],
     ]);
     const allowed = ['NATIVE_TOOL_ID_MISSING', 'NATIVE_TOOL_ID_DUPLICATE', 'NATIVE_TOOL_NOT_ALLOWED', 'NATIVE_TOOL_PROTOCOL_ERROR',
-      'NATIVE_TOOL_ID_MISMATCH', 'CLI_SESSION_EXITED', 'CLI_START_FAILED', 'CLI_OUTPUT_LIMIT', 'CLI_RUN_FAILED',
+      'NATIVE_TOOL_ID_MISMATCH', 'NATIVE_TOOL_FALLBACK_UNVERIFIED', 'CLI_SESSION_EXITED', 'CLI_START_FAILED', 'CLI_OUTPUT_LIMIT', 'CLI_RUN_FAILED',
       'CLI_UNREQUESTED_CONTINUATION', 'CLI_TOOL_HANDOFF_FAILED', 'CLI_TOOL_HANDOFF_TIMEOUT',
       'TOOL_SEARCH_LIMIT', 'REQUEST_CANCELLED', 'INFERENCE_TIMEOUT', 'INFERENCE_IDLE_TIMEOUT', 'SESSION_LIMIT', 'CLI_INSTRUCTION_UPDATE_FAILED', 'CLI_INSTRUCTION_UPDATE_TIMEOUT'];
     const upstreamCodes = ['CLI_MAX_TURNS', 'UPSTREAM_CONTEXT_LIMIT', ...[400, 401, 403, 404, 413, 422, 429, 500, 502, 503, 529].map(status => `UPSTREAM_HTTP_${status}`)];
