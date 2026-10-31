@@ -99,6 +99,7 @@ export function sessionRelay(options, retained) {
           const restored=await allocate(async()=>{
             const saved=await store.takeForCompaction(request,compiled,affinityHash,{consume:false});
             if(!saved)return;
+            if([...sessions].some(s=>s.nativeSessionId===saved.row.id&&s.state!=='closed'))throw recoveryError('NATIVE_SESSION_ALREADY_LIVE','原生会话仍有存活进程；禁止从检查点重复启动');
             await makeRoom();
             const {row,sourceRequest,boundary}=saved;
             const session=new NativeCliSession(sourceRequest,compileContext(sourceRequest,options),{...options,model,outputTokens:row.compactSource.outputTokens,historyHashKey:store.key,resumeNativeId:row.id,resumeDelta:[],resumeForCompaction:true,
@@ -351,6 +352,7 @@ export function sessionRelay(options, retained) {
         }
         selected = await allocate(async () => {
         const restored = await store?.take(request, signature, options.liveInstructionUpdates === true, affinityHash, {consume:false, signatureFor, requestedOutputTokens:outputTokens});
+        if(restored?.id&&[...sessions].some(s=>s.nativeSessionId===restored.id&&s.state!=='closed'))throw recoveryError('NATIVE_SESSION_ALREADY_LIVE','原生会话仍有存活进程；禁止从检查点重复启动');
         if (restored?.mismatch) throw Object.assign(new Error('固定会话的持久检查点不匹配'), {code:'SESSION_HISTORY_MISMATCH',status:409,retryable:false});
         if (restored?.missing) throw Object.assign(new Error('已绑定的原生历史文件缺失；禁止自动重建长历史'), {code:'NATIVE_TRANSCRIPT_MISSING',status:409,retryable:false});
         if (restored?.unsafe) throw Object.assign(new Error('原生会话文件在完成检查点后发生变化；不自动恢复或重新提交历史'),

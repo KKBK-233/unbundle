@@ -6,7 +6,7 @@ import { archiveSession } from './session-quarantine.mjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
-import { continuationDelta,historyKey,sessionHistory } from './session-history.mjs';
+import { continuationDelta,historyKey,sessionHistory,completedRecapBoundary } from './session-history.mjs';
 import {cancellationBoundary,cancelledCheckpointDelta,validCancellationBoundary} from './cancel-checkpoint.mjs';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -35,6 +35,7 @@ export class NativeSessionStore {
       for (const row of rows) if ((row.affinityHash===undefined || hash.test(row.affinityHash)) && uuid.test(row.id) && hash.test(row.signature)
         && (row.interrupted===true?row.expected===undefined&&validCancellationBoundary(row.cancellation,row.history?.length):hash.test(row.expected))
         && Array.isArray(row.history) && row.history.every(value => hash.test(value))
+        && (row.completedRecap===undefined||row.completedRecap===true)
         && (row.verifiedToolResults===undefined || Array.isArray(row.verifiedToolResults)&&row.verifiedToolResults.length>0&&row.verifiedToolResults.length<=32
           &&row.verifiedToolResults.every(v=>v&&typeof v.id==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(v.id)&&hash.test(v.hash))
           &&new Set(row.verifiedToolResults.map(v=>v.id)).size===row.verifiedToolResults.length)
@@ -111,7 +112,8 @@ export class NativeSessionStore {
       conversation:[...sessionHistory(messages).filter(m=>!['system','developer'].includes(m.role)),session.lastAssistant].map(m=>historyKey(m,{hashKey:this.key,toolSchemas:session.request.tools}))}:undefined;
     this.records.set(session.nativeSessionId, { id: session.nativeSessionId, signature: session.signature,outputTokens:sessionOutputTokens(session),compactSource,
       historyNormalization: session.historyNormalization, affinityHash: session.affinityHash, history: [...session.history], expected: session.expected, compaction:session.compaction, snapshot, savedAt: Date.now(),
-      ...(cancellation?{interrupted:true,cancellation}:{}) });
+      ...(cancellation?{interrupted:true,cancellation}:{}),
+      ...(completedRecapBoundary(session,{hashKey:this.key,toolSchemas:session.request.tools})?{completedRecap:true}:{}) });
     await this.persist();
     return true;
   }

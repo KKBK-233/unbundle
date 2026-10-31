@@ -1,4 +1,4 @@
-import {sessionHistory,historyKey} from './session-history.mjs';
+import {sessionHistory,historyKey,cancelledUserTextLength,splitCancelledUserMessage,transientRecap,replacementUserInput} from './session-history.mjs';
 import {callerRuntimeStatus} from './runtime-status.mjs';
 
 // 取消确认只保存索引和 HMAC；不为恢复复制整段用户、工具或思考正文。
@@ -8,6 +8,10 @@ export function cancellationBoundary(session) {
   const receipts=messages.flatMap((m,index)=>m.role==='tool'&&ids.has(m.tool_call_id)?[{index,id:m.tool_call_id}]:[]);
   if(receipts.length>256)return;
   const boundary={version:1,trailingEnvironment:callerRuntimeStatus(messages.at(-1)||{})?.type==='environment',receipts};
+  const lastUserTextLength=cancelledUserTextLength(messages);
+  if(lastUserTextLength!==undefined)boundary.lastUserTextLength=lastUserTextLength;
+  if(transientRecap(messages.at(-1)))boundary.transientRecap=true;
+  if(replacementUserInput(messages.at(-1)))boundary.cancelledUserInput=true;
   const index=messages.findLastIndex(m=>m.role==='assistant'),assistant=messages[index],calls=assistant?.tool_calls||[];
   const callIds=new Set(calls.map(c=>c.id)),tail=messages.slice(index+1),results=tail.filter(m=>m.role==='tool');
   if(index>=0&&calls.length&&callIds.size===calls.length&&calls.every(c=>ids.has(c.id))
@@ -24,19 +28,27 @@ export function validCancellationBoundary(value,length) {
   return value?.version===1&&typeof value.trailingEnvironment==='boolean'&&Array.isArray(value.receipts)&&value.receipts.length<=256
     &&value.receipts.every(v=>Number.isSafeInteger(v.index)&&v.index>=0&&v.index<length&&typeof v.id==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(v.id))
     &&new Set(value.receipts.map(v=>v.index)).size===value.receipts.length
-    &&(value.completedTailStart===undefined||Number.isSafeInteger(value.completedTailStart)&&value.completedTailStart>=0&&value.completedTailStart<length);
+    &&(value.completedTailStart===undefined||Number.isSafeInteger(value.completedTailStart)&&value.completedTailStart>=0&&value.completedTailStart<length)
+    &&(value.lastUserTextLength===undefined||Number.isSafeInteger(value.lastUserTextLength)&&value.lastUserTextLength>0)
+    &&(value.transientRecap===undefined||value.transientRecap===true)
+    &&(value.cancelledUserInput===undefined||value.cancelledUserInput===true);
 }
 
 export function cancelledCheckpointDelta(row,request,{hashKey,allowInstructionUpdates=false}={}) {
   if(row.interrupted!==true||!validCancellationBoundary(row.cancellation,row.history.length))return;
-  const messages=sessionHistory(request.messages),schemas=row.historyNormalization?request.tools:undefined;
+  let messages=sessionHistory(request.messages);const schemas=row.historyNormalization?request.tools:undefined;
   const key=m=>historyKey(m,{hashKey,exact:allowInstructionUpdates,toolSchemas:schemas});
+  messages=splitCancelledUserMessage(messages,row.history,row.cancellation.lastUserTextLength,key);
   const match=(hash,index)=>{
     const actual=messages[index];if(!actual)return false;if(key(actual)===hash)return true;
     const receipt=row.cancellation.receipts.find(r=>r.index===index);
     return receipt&&key({role:'tool',tool_call_id:receipt.id,content:'[Tool result missing due to internal error]',is_error:true})===key(actual);
   };
-  const lengths=[row.history.length,...(row.cancellation.trailingEnvironment?[row.history.length-1]:[]),...(row.cancellation.completedTailStart!==undefined?[row.cancellation.completedTailStart]:[])];
+  const actual=messages[row.history.length-1];
+  if(row.cancellation.cancelledUserInput&&messages.length===row.history.length&&row.history.every(match))return [actual];
+  const replacement=(row.cancellation.cancelledUserInput||row.cancellation.transientRecap||row.cancellation.lastUserTextLength!==undefined)
+    &&replacementUserInput(actual);
+  const lengths=[row.history.length,...(row.cancellation.trailingEnvironment||replacement?[row.history.length-1]:[]),...(row.cancellation.completedTailStart!==undefined?[row.cancellation.completedTailStart]:[])];
   for(const length of lengths){
     if(messages.length<=length||!row.history.slice(0,length).every(match))continue;
     let delta=messages.slice(length);

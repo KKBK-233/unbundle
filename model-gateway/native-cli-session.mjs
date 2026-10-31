@@ -254,6 +254,7 @@ export class NativeCliSession {
     let timer;
     try {
       const supports = this.cliCapabilities || new Set();
+      // 首帧前也可能已提交原生输入；用 UUID、中断回执和终止事件确认边界。
       if (!supports.has('interrupt_receipt_v1') || !supports.has('interrupt_cancel_queued_v1')
         || !turn.inputUuid || turn.events.text.trim() || turn.events.pendingText.trim()
         || turn.events.calls.size || turn.events.blocks.size || this.pendingIds.size || this.pendingHttp.size || this.results.size) throw failure;
