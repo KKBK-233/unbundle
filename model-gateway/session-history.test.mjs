@@ -2,6 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sessionHistory, historyKey, continuationDelta, continuationToolResults, assistantMessage, mcpToolResult } from './session-history.mjs';
 
+test('确认取消后拆分合并到末条 user 的新增文本；旧历史修改或未确认取消仍拒绝',()=>{
+ const hashKey='synthetic-merged-cancel',user={role:'user',content:'原任务保持原样'},answer={role:'assistant',content:'上一轮已完成'},question={role:'user',content:'后来取消的问题'},suffix='\n\n停止后换个问题\n\n继续';
+ const prior=[user,answer,question],session={request:{messages:prior},history:prior.map(m=>historyKey(m,{hashKey,exact:true})),pendingIds:new Set(),interrupted:true,cancelConfirmed:true};
+ const merged={...question,content:question.content+suffix},request={messages:[user,answer,merged]},options={hashKey,allowInstructionUpdates:true};
+ assert.deepEqual(continuationDelta(session,request,options),[{role:'user',content:suffix}]);
+ for(const candidate of [{...session,cancelConfirmed:false},{...session,interrupted:false}])assert.equal(continuationDelta(candidate,request,options),undefined);
+ for(const messages of [[{...user,content:'changed'},answer,merged],[user,{...answer,content:'changed'},merged],
+  [user,answer,{...merged,extra:true}],
+  [user,answer,{...merged,content:question.content+'  '}]])assert.equal(continuationDelta(session,{messages},options),undefined);
+});
+
 test('停止工具续接后允许收据后的新用户消息，保持收据和调用方身份独立',()=>{
  const user={role:'user',content:'原任务'},reply=assistantMessage({tool_calls:[{id:'a',type:'function',function:{name:'Read',arguments:'{}'}}]}),receipt={role:'tool',tool_call_id:'a',content:'真实结果'},next={role:'user',content:'停止旧方向，改为检查结果'};
  const session={history:[historyKey(user)],expected:historyKey(reply),pendingIds:new Set(['a']),options:{allowToolHandoffUserMessages:true}};

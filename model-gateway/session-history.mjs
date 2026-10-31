@@ -12,8 +12,43 @@ export function runtimeStatus(message) {
     && /^\s*(?:<total_tokens>\d+ tokens left<\/total_tokens>\s*)+$/.test(value);
 }
 export function sessionHistory(messages) { return messages.filter(message => !runtimeStatus(message)); }
+// 客户端离开后自动发出的固定回顾请求，不是需要重新执行的用户任务。
+export function transientRecap(message) {
+  return message?.role==='user'&&Object.keys(message).every(k=>['role','content'].includes(k))
+    &&message.content==='The user stepped away and is coming back. Recap in under 40 words, 1-2 plain sentences, no markdown. Lead with the overall goal and current task, then the one next action. Skip root-cause narrative, fix internals, secondary to-dos, and em-dash tangents.';
+}
+export function completedRecapBoundary(session,{hashKey,toolSchemas}={}) {
+  const last=session.request&&sessionHistory(session.request.messages).at(-1),answer=session.lastAssistant;
+  return session.state==='idle'&&!session.turn&&!session.interrupted&&!session.pendingIds.size
+    &&transientRecap(last)&&answer?.role==='assistant'&&typeof answer.content==='string'&&!!answer.content.trim()
+    &&!answer.tool_calls?.length&&session.lastStopReason!=='refusal'
+    &&session.expected===historyKey(answer,{hashKey,toolSchemas});
+}
+// 客户端会合并连续 user 文本；取消边界只记录原文本长度，不保存正文。
+export function cancelledUserTextLength(messages) {
+  const last=messages.at(-1);
+  if(last?.role==='user'&&typeof last.content==='string'&&last.content.length
+    &&Object.keys(last).every(key=>['role','content'].includes(key)))return last.content.length;
+}
+export function replacementUserInput(message) {
+  if(message?.role!=='user'||Object.keys(message).some(k=>!['role','content'].includes(k)))return false;
+  return typeof message.content==='string'?!!message.content.trim():Array.isArray(message.content)&&message.content.length>0
+    &&message.content.every(b=>b?.type==='text'&&typeof b.text==='string'||['image','image_url'].includes(b?.type));
+}
+export function splitCancelledUserMessage(messages,history,length,keyFor) {
+  if(!Number.isSafeInteger(length)||length<=0||!history.length)return messages;
+  const index=history.length-1,actual=messages[index];
+  if(actual?.role!=='user'||typeof actual.content!=='string'||actual.content.length<=length
+    ||Object.keys(actual).some(key=>!['role','content'].includes(key)))return messages;
+  const original={role:'user',content:actual.content.slice(0,length)},suffix=actual.content.slice(length);
+  // 原文本须逐字节匹配已保存的 HMAC，后缀只作为新用户输入，不能重发原任务。
+  if(!suffix.trim()||keyFor(original)!==history[index])return messages;
+  return [...messages.slice(0,index),original,{role:'user',content:suffix},...messages.slice(index+1)];
+}
 export function historyKey(message, { exact = false, hashKey = key, toolSchemas } = {}) {
-  const content = !exact && typeof message.content === 'string' ? message.content.replace(/\r\n/g, '\n').trim() : message.content;
+  // 仅忽略内容块顶层缓存元数据，图片和顺序仍严格比较。
+  const value=Array.isArray(message.content)?message.content.map(block=>{const {cache_control,...content}=block;return content;}):message.content;
+  const content = !exact && typeof value === 'string' ? value.replace(/\r\n/g, '\n').trim() : value;
   // Desktop 可能按工具 schema 重排 input 键；参数字符串内的 JSON 也须规范化。
   // 仅忽略 JSON 对象键顺序，保留 ID、工具名、数组顺序与所有参数值。
   const normalized = { ...message, content: exact ? content : content || null };
@@ -39,10 +74,31 @@ export function assistantMessage(execution) {
 export function continuationDelta(session, request, { allowInstructionUpdates = false, onReject, onAssistantMismatch, onReceiptAlias, onCancelledTailProjection, hashKey } = {}) {
   const reject = reason => { onReject?.(reason); return undefined; };
   const toolSchemas=session.historyNormalization===true ? request.tools : undefined;
-  const messages = sessionHistory(request.messages);
+  let messages = sessionHistory(request.messages);
+  // 已完成的固定临时回顾保留在原生历史；客户端可省略这一对界面消息。
+  if(!session.interrupted&&!session.pendingIds.size
+    &&(session.completedRecap===true||completedRecapBoundary(session,{hashKey,toolSchemas}))){
+    const base=session.history.length-1;
+    if(base>=0&&messages.length>base&&session.history.slice(0,base).every((h,i)=>h===historyKey(messages[i],{exact:allowInstructionUpdates,hashKey,toolSchemas}))){
+      let delta=messages.slice(base);
+      if(historyKey(delta[0],{exact:allowInstructionUpdates,hashKey,toolSchemas})===session.history.at(-1))delta=delta.slice(1);
+      if(delta[0]?.role==='assistant'&&historyKey(delta[0],{hashKey,toolSchemas})===session.expected)delta=delta.slice(1);
+      if(delta.some(m=>m.role==='user')&&delta.every(m=>m.role==='user'||callerRuntimeStatus(m)?.type==='environment'||allowInstructionUpdates&&['system','developer'].includes(m.role)))return delta;
+    }
+  }
   let prefix = session.history;
   const prior=session.interrupted===true&&session.request?sessionHistory(session.request.messages):undefined;
+  if(session.interrupted===true&&session.cancelConfirmed===true&&!session.pendingIds.size
+    &&replacementUserInput(prior?.at(-1))&&messages.length===session.history.length
+    &&session.history.every((h,i)=>h===historyKey(messages[i],{exact:allowInstructionUpdates,hashKey,toolSchemas})))return [messages.at(-1)];
+  if(session.interrupted===true&&session.cancelConfirmed===true&&prior)messages=splitCancelledUserMessage(messages,
+    session.history,cancelledUserTextLength(prior),m=>historyKey(m,{exact:allowInstructionUpdates,hashKey,toolSchemas}));
   if(session.interrupted===true&&session.request){
+    // 已确认中断的末条用户输入可由新任务替换；原生保留取消记录，已完成前缀仍须完整匹配。
+    if(session.cancelConfirmed===true&&prior.length===prefix.length&&replacementUserInput(prior.at(-1))
+      &&replacementUserInput(messages[prefix.length-1])
+      &&(typeof messages[prefix.length-1].content!=='string'||typeof prior.at(-1).content!=='string'||messages[prefix.length-1].content.trim()!==prior.at(-1).content.trim())
+      &&(!messages[prefix.length-1]||historyKey(messages[prefix.length-1],{exact:allowInstructionUpdates,hashKey,toolSchemas})!==prefix.at(-1)))prefix=prefix.slice(0,-1);
     // Send now 可把新消息插到末尾目录快照之前；只移动纯环境事实，不放宽历史正文。
     if(prior.length===prefix.length&&prior.length&&callerRuntimeStatus(prior.at(-1))?.type==='environment')prefix=prefix.slice(0,-1);
   }

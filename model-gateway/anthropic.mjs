@@ -35,8 +35,8 @@ export function fromAnthropic(body, { defaultMaxTokens = 128000 } = {}) {
     };
     for (const block of message.content) {
       if (block?.type === 'text' && typeof block.text === 'string') { pendingText.push(block.text); pendingBlocks.push({ type: 'text', text: block.text }); }
-      // 图片原样透传，由 compileContext 统一校验来源、类型、体积与角色。
-      else if (block?.type === 'image') { hasImage = true; pendingBlocks.push(block); }
+      // 排除顶层缓存元数据；图片来源、类型、体积与角色仍由 compileContext 校验。
+      else if (block?.type === 'image') { hasImage = true; const {cache_control,...image}=block; pendingBlocks.push(image); }
       else if (block?.type === 'tool_use' && message.role === 'assistant') {
         if (typeof block.id !== 'string' || typeof block.name !== 'string' || !block.input || typeof block.input !== 'object' || Array.isArray(block.input)) fail('tool_use 无效');
         recordBashPhase('desktop',block.id,block.name,block.input);
@@ -46,7 +46,7 @@ export function fromAnthropic(body, { defaultMaxTokens = 128000 } = {}) {
         flush();
         // 原正文及块边界保持不变；错误状态单独携带，MCP与原生历史都能直接表达。
         // 不能把错误正文再包JSON，也不能为多个文本块凭空插入换行。
-        const content = Array.isArray(block.content) ? block.content : text(block.content ?? '');
+        const content = Array.isArray(block.content) ? block.content.map(part=>{const {cache_control,...value}=part;return value;}) : text(block.content ?? '');
         messages.push({ role: 'tool', tool_call_id: block.tool_use_id,
           content,
           ...(block.is_error ? { is_error: true } : {}) });
