@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import {constants} from 'node:fs';
 import path from 'node:path';
 import {randomUUID} from 'node:crypto';
-import {SUMMARY_HEADER} from './compaction-boundary.mjs';
+import {SUMMARY_HEADER,stripSummaryTools} from './compaction-boundary.mjs';
 import {cliFailure} from './cli-failure.mjs';
 import {cliOutputAudit} from './cli-output-audit.mjs';
 import {assistantFingerprint} from './assistant-diff.mjs';
@@ -27,8 +27,7 @@ export function nativeSummaryBody(text,file){
  const at=text.indexOf(SUMMARY_HEADER+'\n\n');
  if(at<0||at>2048)throw failure('NATIVE_COMPACT_SUMMARY_INVALID','原生摘要包装无法核验');
  let body=text.slice(at+SUMMARY_HEADER.length+2);
- body=body.replace(/^<([A-Za-z_][A-Za-z0-9_-]*)>[A-Za-z0-9_, .:-]*<\/\1>\n/,'');
- body=body.replace(/^Tools called before this summary: [A-Za-z0-9_, .:-]*\n/,'');
+ body=stripSummaryTools(body);
  const marker='\n\nIf you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: '+file;
  const end=body.lastIndexOf(marker);
  if(end>=0)body=body.slice(0,end);
@@ -74,7 +73,7 @@ export async function hydrateCompactionSource(session){
  record.sourceAssistantHash=saved.sourceAssistantHash;
  if(record.source.at(-1)!==saved.sourceAssistantHash)record.source.push(saved.sourceAssistantHash);
 }
-function retainedText(boundary){
+export function retainedText(boundary){
  const lines=[];
  for(const receipt of boundary.receipts){
   lines.push(`Verified recent Desktop tool result ${receipt.tool_call_id} (is_error=${receipt.is_error===true}); the operation is completed and must not be replayed:`);

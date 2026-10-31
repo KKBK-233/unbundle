@@ -9,6 +9,12 @@ export function summarySystem(value){
  return lines.length===1&&lines[0]===SUMMARY_SYSTEM||lines.length===2&&CLI_IDENTIFIERS.includes(lines[0])&&lines[1]===SUMMARY_SYSTEM;
 }
 export const SUMMARY_HEADER='This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.';
+// 只去掉官方已观察到的工具名元数据，不接受任意 system-reminder 正文。
+export function stripSummaryTools(value){
+ return value.replace(/^<system-reminder>\n<tools-used-before-summary>[A-Za-z0-9_, .:-]*<\/tools-used-before-summary>\n<\/system-reminder>\n/,'')
+  .replace(/^<(tools-used(?:-before-summary)?)>[A-Za-z0-9_, .:-]*<\/\1>\n/,'')
+  .replace(/^Tools called before this summary: [A-Za-z0-9_, .:-]*\n/,'');
+}
 const conversation=messages=>sessionHistory(messages).filter(m=>!['system','developer'].includes(m.role));
 const leading=messages=>messages.slice(0,messages.findIndex(m=>!['system','developer'].includes(m.role))<0?messages.length:messages.findIndex(m=>!['system','developer'].includes(m.role)));
 const text=m=>typeof m?.content==='string'?m.content:Array.isArray(m?.content)&&m.content.every(b=>b.type==='text')?m.content.map(b=>b.text).join('\n'):undefined;
@@ -80,11 +86,7 @@ export function compactedDelta(session,request,{hashKey}={}) {
  const messages=conversation(request.messages),wrapper=messages[0],content=text(wrapper);
  if(wrapper?.role!=='user'||!content?.startsWith(SUMMARY_HEADER+'\n\n'))return;
  let start=SUMMARY_HEADER.length+2;
- // 工具名列表是官方包装的一部分，只接受单个简单 XML 标记，不将其当作调用。
- const tools=content.slice(start).match(/^<([A-Za-z_][A-Za-z0-9_-]*)>[A-Za-z0-9_, .:-]*<\/\1>\n/);
- if(tools)start+=tools[0].length;
- const readableTools=content.slice(start).match(/^Tools called before this summary: [A-Za-z0-9_, .:-]*\n/);
- if(readableTools)start+=readableTools[0].length;
+ start=content.length-stripSummaryTools(content.slice(start)).length;
  const candidate=content.slice(start,start+record.summaryLength);
  if(candidate.length!==record.summaryLength||historyKey({role:'user',content:candidate},{hashKey,exact:true})!==record.summaryHash)return;
  if(content.length>start+record.summaryLength&&!/^\s/.test(content.slice(start+record.summaryLength)))return;
