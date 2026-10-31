@@ -250,7 +250,7 @@ export class NativeCliSession {
     try {
       const supports = this.cliCapabilities || new Set();
       if (!supports.has('interrupt_receipt_v1') || !supports.has('interrupt_cancel_queued_v1')
-        || turn.awaitingStart || !turn.inputUuid || turn.events.text.trim() || turn.events.pendingText.trim()
+        || !turn.inputUuid || turn.events.text.trim() || turn.events.pendingText.trim()
         || turn.events.calls.size || turn.events.blocks.size || this.pendingIds.size || this.pendingHttp.size || this.results.size) throw failure;
       const terminal = new Promise(resolve => { turn.cancelTerminal = resolve; });
       const [receipt, result] = await Promise.race([
