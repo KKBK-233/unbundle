@@ -491,7 +491,7 @@ export class NativeCliSession {
       if(error.code!=='ESRCH')throw error;
     }
   }
-  freeze(reason,{request,partialTurn}={}) {
+  freeze(reason,{request=this.request,partialTurn}={}) {
     if(this.freezing)return this.freezing;
     this.freezePreviousState=this.state;this.frozenRequest=request;this.recoveryArmed=false;
     this.state='frozen';this.freezeReason=reason;clearTimeout(this.expiry);

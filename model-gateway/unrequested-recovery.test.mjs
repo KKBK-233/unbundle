@@ -27,3 +27,13 @@ test('完整回执自动恢复仍严格比较工具参数、ID和结果数量',(
  const options={hashKey:key,allowInstructionUpdates:true},request={messages:[user,assistant,receipt],tools};assert.deepEqual(unrequestedToolRecoveryDelta(s,request,options),[receipt]);
  for(const messages of [[user,assistant],[user,assistant,{...receipt,tool_call_id:'other'}],[user,{...assistant,tool_calls:[{...assistant.tool_calls[0],function:{name:'Bash',arguments:'{"command":"changed"}'}}]},receipt],[user,assistant,receipt,receipt]])assert.equal(unrequestedToolRecoveryDelta(s,{...request,messages},options),undefined);
 });
+import {cancelledGenerationDelta} from './unrequested-recovery.mjs';
+test('部分文本取消只允许原历史后的纯用户增量，拒绝工具和历史改写',()=>{
+ const key=Buffer.alloc(32,7),s=session(key);s.freezeReason='REQUEST_CANCELLED';s.freezePreviousState='cancelling';s.pendingIds.clear();s.frozenTurn={inputUuid:'original',events:{calls:new Map(),blocks:new Map([[0,{type:'text'}]])}};
+ const req={messages:[user,next],tools},options={hashKey:key,allowInstructionUpdates:true};
+ assert.deepEqual(cancelledGenerationDelta(s,req,options),[next]);
+ assert.equal(cancelledGenerationDelta(s,{...req,messages:[{...user,content:'changed'},next]},options),undefined);
+ assert.equal(cancelledGenerationDelta(s,{...req,messages:[user,{role:'tool',tool_call_id:'x',content:'fake'},next]},options),undefined);
+ s.frozenTurn.events.blocks.set(1,{type:'tool_use'});assert.deepEqual(cancelledGenerationDelta(s,req,options),[next]);
+ s.frozenTurn.events.calls.set('completed',{});assert.equal(cancelledGenerationDelta(s,req,options),undefined);
+});

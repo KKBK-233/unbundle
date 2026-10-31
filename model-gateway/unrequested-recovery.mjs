@@ -29,3 +29,14 @@ export function cancelledWaitContext(session){
     calls:[...session.pendingIds].map(id=>({id,name:session.lastCalls?.get(id)?.function?.name})),
     execution:'unknown',note:'Only the native wait was cancelled. The caller supplied no receipt for these calls. Do not assume success or failure; inspect actual state before repeating any operation with side effects.'})};
 }
+
+// 部分文本取消后，必须确认原输入已停止，才能接回新的用户增量。
+export function cancelledGenerationDelta(session,request,options){
+ const turn=session.frozenTurn;
+ if(session.state!=='frozen'||session.freezeReason!=='REQUEST_CANCELLED'||session.freezePreviousState!=='cancelling'
+  ||!turn?.inputUuid||session.turn||session.pendingIds.size||session.pendingHttp.size||session.pendingControls.size||session.results.size
+  ||turn.events.calls.size)return;
+ const delta=continuationDelta({...session,interrupted:true,cancelledReceiptIds:undefined},request,options);
+ if(!delta||delta.some(m=>m.role!=='user'&&callerRuntimeStatus(m)?.type!=='environment'))return;
+ return delta;
+}
