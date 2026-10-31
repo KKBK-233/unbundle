@@ -1,5 +1,5 @@
 import {historyKey,sessionHistory} from './session-history.mjs';
-import {compactMemoryAliases,compactMemoryContext} from './compact-memory-alias.mjs';
+import {compactMemoryAliases,compactMemoryContext,splitCompactMemory} from './compact-memory-alias.mjs';
 
 export const SUMMARY_SYSTEM='You are a helpful AI assistant tasked with summarizing conversations.';
 const CLI_IDENTIFIERS=["You are Claude Code, Anthropic's official CLI for Claude.","You are Claude Code, Anthropic's official CLI for Claude, running within the Claude Agent SDK.","You are a Claude agent, built on Anthropic's Claude Agent SDK."];
@@ -83,7 +83,7 @@ export function compactedDelta(session,request,{hashKey}={}) {
   ||!Array.isArray(record.source)||!Array.isArray(record.systems)||session.pendingIds?.size)return;
  const systems=leading(request.messages);
  if(systems.length!==record.systems.length||!systems.every((m,i)=>historyKey(m,{hashKey,exact:true})===record.systems[i]))return;
- const messages=conversation(request.messages),wrapper=messages[0],content=text(wrapper);
+ const messages=conversation(request.messages),wrapper=messages[0],split=splitCompactMemory(text(wrapper),SUMMARY_HEADER),content=split?.summary;
  if(wrapper?.role!=='user'||!content?.startsWith(SUMMARY_HEADER+'\n\n'))return;
  let start=SUMMARY_HEADER.length+2;
  start=content.length-stripSummaryTools(content.slice(start)).length;
@@ -99,6 +99,7 @@ export function compactedDelta(session,request,{hashKey}={}) {
  // 摘要包装自身的继续要求仍作为真实用户输入交给 CLI；旧工具和保留尾部不重放。
  const suffix=content.slice(start+record.summaryLength).trim();
  const head=record.nativeCommitted?(suffix?[{role:'user',content:'Caller continuation metadata after compaction:\n'+suffix}]:[]):[wrapper];
- const delta=[...head,...fresh,...request.messages.filter(m=>['system','developer'].includes(m.role)&&!systems.includes(m))];
+ const memory=split.memory?[{role:'user',content:'Caller auto-memory snapshot supplied with the compacted conversation (caller context):\n'+split.memory}]:[];
+ const delta=[...memory,...head,...fresh,...request.messages.filter(m=>['system','developer'].includes(m.role)&&!systems.includes(m))];
  return delta.length?delta:record.nativeCommitted?[{role:'user',content:'Continue the current task from the preserved native context.'}]:[wrapper];
 }
