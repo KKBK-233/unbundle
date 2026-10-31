@@ -9,11 +9,11 @@ import { assistantMessage } from './session-history.mjs';
 
 // 仅运行 Node 模拟协议进程，绝不运行官方 Claude CLI 或使用账号。
 const script = `import fs from 'node:fs';import readline from 'node:readline';
-const config=JSON.parse(fs.readFileSync(process.argv[1],'utf8')).mcpServers.omp,mode=process.argv[2];
+const config=JSON.parse(fs.readFileSync(process.argv[1],'utf8')).mcpServers.omp,mode=process.argv[2],mcpDelay=Number(process.argv[3]||0);
 const emit=v=>console.log(JSON.stringify(v));
 const start=id=>emit({type:'stream_event',event:{type:'message_start',message:{id,usage:{input_tokens:1,output_tokens:0}}}});
-const call=(id,name,path)=>fetch(config.url,{method:'POST',headers:{...config.headers,'content-type':'application/json'},
- body:JSON.stringify({jsonrpc:'2.0',id,method:'tools/call',params:{name,arguments:mode==='reordered'?{path,options:{offset:0,limit:5}}:mode==='unicode'||mode==='unicode-mismatch'?{path,content:mode==='unicode'?String.fromCharCode(0x2019):'changed'}:{path},_meta:{'claudecode/toolUseId':id}}})});
+const call=async(id,name,path)=>{if(mcpDelay)await new Promise(resolve=>setTimeout(resolve,mcpDelay));return fetch(config.url,{method:'POST',headers:{...config.headers,'content-type':'application/json'},
+ body:JSON.stringify({jsonrpc:'2.0',id,method:'tools/call',params:{name,arguments:mode==='reordered'?{path,options:{offset:0,limit:5}}:mode==='unicode'||mode==='unicode-mismatch'?{path,content:mode==='unicode'?String.fromCharCode(0x2019):'changed'}:{path},_meta:{'claudecode/toolUseId':id}}})});};
 readline.createInterface({input:process.stdin}).on('line',()=>{
  if(mode==='aggregate')emit({type:'system',subtype:'api_retry',attempt:1});else start('initial');
  const tools=[{type:'tool_use',id:'native_1',name:'mcp__omp__Read',input:mode==='reordered'?{options:{limit:5,offset:0},path:'first'}:{path:'first'}}];
@@ -39,19 +39,20 @@ readline.createInterface({input:process.stdin}).on('line',()=>{
 });`;
 const request = { model: 'claude-opus-5-5', max_tokens: 1024, messages: [{ role: 'user', content: 'synthetic' }],
   tools: ['Read', 'Write'].map(name => ({ type: 'function', function: { name, parameters: { type: 'object' } } })) };
+// Windows CI 的子进程首次 fetch 可能超过 150ms；正常路径留足预算，超时测试单独收窄。
 async function setup(mode, overrides={}) {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'native-handoff-')), records = []; let spawns = 0;
-  const relay = sessionRelay({ home, model: request.model, maxOutputTokens: 1024, timeoutMs: 3000, handoffTimeoutMs: 150,
+  const relay = sessionRelay({ home, model: request.model, maxOutputTokens: 1024, timeoutMs: 10000, handoffTimeoutMs: 2000,
     requireLiveToolContinuation: true, maxSessions: 1, ...overrides,
     onSessionEvent: value => records.push(value),
     spawnProcess: (_cli, args, options) => { spawns++; return spawn(process.execPath,
-      ['--input-type=module', '-e', script, args[args.indexOf('--mcp-config') + 1], mode], options); } });
+      ['--input-type=module', '-e', script, args[args.indexOf('--mcp-config') + 1], mode,String(overrides.mockMcpDelayMs||0)], options); } });
   return { relay, records, spawns: () => spawns, async close() { await relay.close({discardFrozen:true}); await fs.rm(home, { recursive: true, force: true }); } };
 }
 
 test('没有真实 MCP 等待时不向 Desktop 交付虚假可续接工具', async () => {
   for (const [mode, code] of [['timeout', 'CLI_TOOL_HANDOFF_TIMEOUT'], ['internal-error', 'CLI_TOOL_HANDOFF_FAILED']]) {
-    const state = await setup(mode);
+    const state = await setup(mode,{handoffTimeoutMs:150});
     try { await assert.rejects(state.relay.infer(request), { code }); assert.equal(state.relay.size, 0); }
     finally { await state.close({discardFrozen:true}); }
   }
@@ -148,9 +149,9 @@ test('Desktop 重排嵌套工具参数后仍交回原生结果，后续历史重
 });
 
 
-test('审核后原请求重试及直接继续均恢复同一CLI，不重建也不重放工具',async()=>{
+test('审核后原请求重试及直接继续均恢复同一CLI，不重建也不重放工具（延迟 MCP）',async()=>{
  for(const strategy of ['retry','continue']){
- const state=await setup('serial');
+ const state=await setup('serial',{mockMcpDelayMs:350});
  try {
   const first=await state.relay.infer(request);
   const actual={...assistantMessage(first),tool_calls:[...first.tool_calls].reverse()};
