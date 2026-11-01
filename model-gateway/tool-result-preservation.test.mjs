@@ -1,11 +1,12 @@
+import {toolReceipt} from './messages.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fromAnthropic } from './anthropic.mjs';
+import { parseMessagesRequest } from './anthropic.mjs';
 import { mcpToolResult } from './session-history.mjs';
 import { compileContext } from './context.mjs';
 import { nativeHistoryBootstrap } from './native-history.mjs';
 
-const convert = (content, is_error) => fromAnthropic({ model: 'claude-opus-5-5', max_tokens: 1024,
+const convert = (content, is_error) => parseMessagesRequest({ model: 'claude-opus-5-5', max_tokens: 1024,
   tools: [{ name: 'Bash', input_schema: { type: 'object' } }], messages: [
     { role: 'user', content: '合成任务' },
     { role: 'assistant', content: [{ type: 'tool_use', id: 'original', name: 'Bash', input: { command: 'synthetic-only' } }] },
@@ -16,8 +17,8 @@ test('错误工具正文按字节保留，错误状态通过MCP标记而非另�
   for (const text of ['Exit code 1\n保留原文 😀', '', '{"is_error":true,"content":"这是工具真实输出"}']) {
     const request = convert(text, true), message = request.messages.at(-1);
     const result = mcpToolResult(message);
-    assert.equal(message.content, text);
-    assert.equal(message.tool_call_id, 'original');
+    assert.equal(toolReceipt(message).content, text);
+    assert.equal(toolReceipt(message)?.tool_use_id, 'original');
     assert.deepEqual(result, { content: [{ type: 'text', text }], isError: true });
   }
 });

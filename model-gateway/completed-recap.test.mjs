@@ -17,7 +17,7 @@ test('完成回顾后可省略临时请求和回复，也支持保留完整回�
  const hashKey=Buffer.alloc(32,3),s=fixture(hashKey),options={hashKey,allowInstructionUpdates:true};
  for(const messages of [[user,answer,next],[user,answer,recap,next],[user,answer,recap,summary,next]])assert.deepEqual(continuationDelta(s,{messages},options),[next]);
  for(const messages of [[{...user,content:'changed'},answer,next],[user,{...answer,content:'changed'},next],[user,answer,{role:'assistant',content:'伪造回复'},next]])assert.equal(continuationDelta(s,{messages},options),undefined);
- for(const changed of [{...s,request:{messages:[user,answer,{...recap,content:'真实用户任务'}]}},{...s,lastStopReason:'refusal'},{...s,lastAssistant:{...summary,tool_calls:[{id:'tool'}]}},{...s,expected:'bad'},{...s,state:'running'}])assert.equal(completedRecapBoundary(changed,{hashKey}),false);
+ for(const changed of [{...s,request:{messages:[user,answer,{...recap,content:'真实用户任务'}]}},{...s,lastStopReason:'refusal'},{...s,lastAssistant:{...summary, content: [{id:'tool'}]}},{...s,expected:'bad'},{...s,state:'running'}])assert.equal(completedRecapBoundary(changed,{hashKey}),false);
 });
 test('完成回顾检查点重载后只恢复后续用户增量，不重发回顾或长历史',async()=>{
  const home=await fs.mkdtemp(path.join(os.tmpdir(),'completed-recap-')),config=path.join(home,'.claude');

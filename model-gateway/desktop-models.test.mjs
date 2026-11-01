@@ -24,7 +24,7 @@ test('官方型号可被发现，旧会话入口归一化且保留思考档位',
       assert.equal(response.status, 200);
       assert.equal((await response.json()).content[0].text, 'SYNTHETIC_OK');
       assert.equal(received.at(-1).model, modelAliases[model] || model);
-      assert.equal(received.at(-1).reasoning_effort, 'medium');
+      assert.equal(received.at(-1).output_config?.effort, 'medium');
     }
     const response = await fetch(`http://127.0.0.1:${app.port}/v1/messages`, { method: 'POST', headers,
       body: JSON.stringify({ model: 'untrusted-model', max_tokens: 16, messages: [{ role: 'user', content: '合成未知模型' }] }) });

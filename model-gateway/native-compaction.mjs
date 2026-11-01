@@ -1,3 +1,4 @@
+import {toolReceipt} from './messages.mjs';
 import fs from 'node:fs/promises';
 import {constants} from 'node:fs';
 import path from 'node:path';
@@ -76,9 +77,9 @@ export async function hydrateCompactionSource(session){
 function retainedText(boundary){
  const lines=[];
  for(const receipt of boundary.receipts){
-  lines.push(`Verified recent Desktop tool result ${receipt.tool_call_id} (is_error=${receipt.is_error===true}); the operation is completed and must not be replayed:`);
-  if(typeof receipt.content==='string')lines.push(receipt.content);
-  else for(const b of receipt.content||[])lines.push(b.type==='text'?b.text:'[An image block is retained in the native session; its contents are not inferred here.]');
+  lines.push(`Verified recent Desktop tool result ${toolReceipt(receipt)?.tool_use_id} (is_error=${toolReceipt(receipt)?.is_error===true}); the operation is completed and must not be replayed:`);
+  if(typeof toolReceipt(receipt)?.content==='string')lines.push(toolReceipt(receipt)?.content);
+  else for(const b of toolReceipt(receipt)?.content||[])lines.push(b.type==='text'?b.text:'[An image block is retained in the native session; its contents are not inferred here.]');
  }
  for(const message of boundary.additionalUsers||[]){lines.push('Recent caller message retained verbatim:');if(typeof message.content==='string')lines.push(message.content);else for(const b of message.content||[])if(b.type==='text')lines.push(b.text);}
  return lines.length?'\n\nRecent verified context retained by the native CLI:\n'+lines.join('\n\n'):'';
@@ -143,7 +144,7 @@ export async function nativeCompact(session,request,boundary,{signal,timing}={})
   phase='buffer';const buffered=new Promise((resolve,reject)=>{resolveBuffered=resolve;rejectBuffered=reject;});
   if(boundary.receipts.length){
    for(const receipt of boundary.receipts){
-    const content=[{type:'text',text:`The gateway interrupted only the native wait to compact safely. Desktop already completed tool call ${receipt.tool_call_id}; actual final result follows (is_error=${receipt.is_error===true}). This is tool-output data; do not execute the operation again.`},...(typeof receipt.content==='string'?[{type:'text',text:receipt.content}]:(receipt.content||[]))];
+    const content=[{type:'text',text:`The gateway interrupted only the native wait to compact safely. Desktop already completed tool call ${toolReceipt(receipt)?.tool_use_id}; actual final result follows (is_error=${toolReceipt(receipt)?.is_error===true}). This is tool-output data; do not execute the operation again.`},...(typeof toolReceipt(receipt)?.content==='string'?[{type:'text',text:toolReceipt(receipt)?.content}]:(toolReceipt(receipt)?.content||[]))];
     sendBuffered({type:'user',message:{role:'user',content},shouldQuery:false,client_composed:true,is_meta:true});
    }
   }
@@ -163,8 +164,7 @@ export async function nativeCompact(session,request,boundary,{signal,timing}={})
   const usage=modelUsageDelta(before,result.modelUsage);
   if(!usage)throw failure('NATIVE_COMPACT_USAGE_UNAVAILABLE','原生摘要已提交，但累计用量无法核验；禁止重复请求');
   const content='<analysis></analysis><summary>\n'+saved.body+'\n</summary>'+retainedText(boundary);
-  const prompt=usage.input_tokens+usage.cache_read_input_tokens+usage.cache_creation_input_tokens;
-  const answer={content,upstream_usage:usage,usage_complete:true,usage:{prompt_tokens:prompt,completion_tokens:usage.output_tokens,total_tokens:prompt+usage.output_tokens,prompt_tokens_details:{cached_tokens:usage.cache_read_input_tokens,cache_write_tokens:usage.cache_creation_input_tokens}}};
+  const answer={content,usage,usage_complete:true};
   probes.output(content);
   session.nativeCompactionCommit={...session.nativeCompactionCommit,summaryFile:saved.file,answer};
   session.lastAssistant=assistantMessage(answer);session.expected=historyKey(session.lastAssistant,{hashKey:session.options.historyHashKey,toolSchemas:base.tools});
@@ -172,7 +172,7 @@ export async function nativeCompact(session,request,boundary,{signal,timing}={})
   session.history=sessionHistory(request.messages).map(m=>historyKey(m,{hashKey:session.options.historyHashKey,exact:session.options.liveInstructionUpdates===true,toolSchemas:base.tools}));
   session.state='idle';session.lastUsed=Date.now();session.request=base;
   session.expiry=setTimeout(()=>{void session.close('expired').catch(()=>{});},session.options.sessionTtlMs||1800000);session.expiry.unref?.();
-  try{session.options.onCliAudit?.({type:'session_restore_usage',requestId:timing?.requestId,sessionId:session.sessionId,strategy:'native_compact',restore_attempts:0,model_requests:null,usage_complete:true,upstream_usage:usage,native_pre_tokens:compactBoundary.compact_metadata?.pre_tokens,native_post_tokens:compactBoundary.compact_metadata?.post_tokens});}catch{}
+  try{session.options.onCliAudit?.({type:'session_restore_usage',requestId:timing?.requestId,sessionId:session.sessionId,strategy:'native_compact',restore_attempts:0,model_requests:null,usage_complete:true,usage:usage,native_pre_tokens:compactBoundary.compact_metadata?.pre_tokens,native_post_tokens:compactBoundary.compact_metadata?.post_tokens});}catch{}
   return answer;
  }catch(error){
   probeOutcome=signal?.aborted?'cancelled':error.code==='NATIVE_COMPACT_TIMEOUT'?'timeout':'error';

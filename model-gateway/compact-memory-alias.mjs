@@ -1,3 +1,4 @@
+import {isToolReceipt, toolReceipt, toolUses} from './messages.mjs';
 import {sessionHistory,historyKey} from './session-history.mjs';
 const header='<system-reminder>\nCodebase and user instructions are shown below. Be sure to adhere to these instructions. IMPORTANT: These instructions OVERRIDE any default behavior and you MUST follow them exactly as written.\n\nContents of ';
 const suffix=" (user's auto-memory, persists across conversations):\n\n";
@@ -6,13 +7,13 @@ const conversation=messages=>sessionHistory(messages).filter(m=>!['system','deve
 // 只为已成功 Write 的自动记忆快照生成精确别名；不忽略任意工具输出或命令差异。
 export function compactMemoryAliases(messages,{hashKey,toolSchemas}={}){
  const source=conversation(messages),index=source.length-1,last=source[index];
- if(last?.role!=='tool'||!Array.isArray(last.content)||!last.content.length||last.content.some(b=>b.type!=='text'||typeof b.text!=='string'))return [];
- const receipts=new Map(source.filter(m=>m.role==='tool').map(m=>[m.tool_call_id,m])),writes=new Map();
- for(const message of source)for(const call of message.tool_calls||[]){
-  if(call.function?.name!=='Write')continue;let args;try{args=JSON.parse(call.function.arguments);}catch{continue;}
+ if(!isToolReceipt(last)||!Array.isArray(toolReceipt(last)?.content)||!toolReceipt(last)?.content.length||toolReceipt(last)?.content.some(b=>b.type!=='text'||typeof b.text!=='string'))return [];
+ const receipts=new Map(source.filter(m=>isToolReceipt(m)).map(m=>[toolReceipt(m)?.tool_use_id,m])),writes=new Map();
+ for(const message of source)for(const call of toolUses(message)||[]){
+  if(call?.name!=='Write')continue;let args;try{args=call.input;}catch{continue;}
   const file=args.file_path,content=args.content,receipt=receipts.get(call.id);
   if(typeof file!=='string'||!/(?:^|[\\/])\.claude[\\/]projects[\\/][^\\/]+[\\/]memory[\\/]MEMORY\.md$/.test(file)
-    ||typeof content!=='string'||content.length>65536||!receipt||receipt.is_error===true)continue;
+    ||typeof content!=='string'||content.length>65536||!receipt||toolReceipt(receipt)?.is_error===true)continue;
   writes.set(file,content);
  }
  const aliases=[];
@@ -21,8 +22,8 @@ export function compactMemoryAliases(messages,{hashKey,toolSchemas}={}){
   for(const body of new Set(endings)){
    const extra=header+file+suffix+body+'\n</system-reminder>';
    for(const newline of ['', '\n']){
-    const blocks=structuredClone(last.content);blocks[blocks.length-1].text+=newline;blocks.push({type:'text',text:extra});
-    aliases.push({index,hash:historyKey({...last,content:blocks},{hashKey,toolSchemas}),extra});
+    const blocks=structuredClone(toolReceipt(last)?.content);blocks[blocks.length-1].text+=newline;blocks.push({type:'text',text:extra});
+    aliases.push({index,hash:historyKey({...last,content:[{...toolReceipt(last),content:blocks}]},{hashKey,toolSchemas}),extra});
    }
   }
  }

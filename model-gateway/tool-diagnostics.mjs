@@ -1,7 +1,6 @@
-// 工具诊断仅输出固定类别与计数；自由搜索词、路径、参数、结果正文和自定义工具名不入日志。
 const coreTools = new Set(['Read', 'Edit', 'Write', 'Bash', 'Glob', 'Grep', 'NotebookEdit']);
 const category = name => coreTools.has(name) ? name : 'other';
-const referenceCategory = name => category(typeof name === 'string' && name.startsWith('mcp__omp__') ? name.slice(10) : name);
+const referenceCategory = name => category(typeof name === 'string' && name.startsWith('mcp__caller__') ? name.slice('mcp__caller__'.length) : name);
 const categories = names => [...new Set(names)].sort();
 
 // 同一请求内以调用 ID 去重，最多跟踪 256 个；不会跨会话建立读取权限或自动重试。
@@ -50,7 +49,7 @@ export function toolDiagnostics(write, { maxTracked = 256 } = {}) {
       if (!Array.isArray(calls)) return;
       for (const call of calls) {
         counts.toolHandoffCalls++;
-        write('tool_handoff', { toolOrdinal: tracked.get(call?.id)?.ordinal, tool: category(call?.function?.name), phase: 'response_ready' });
+        write('tool_handoff', { toolOrdinal: tracked.get(call?.id)?.ordinal, tool: category(call?.name), phase: 'response_ready' });
       }
     },
     summary() { return { ...counts }; },

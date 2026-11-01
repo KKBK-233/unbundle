@@ -13,7 +13,7 @@ export function inspectUpstream(body, request, previous) {
     assert(!(ttl === '1h' && sawShort), '上游不能在 5m 缓存断点后追加 1h 断点');
     if (ttl === '5m') sawShort = true;
   }
-  const expected = compiled.available.map(tool => `mcp__omp__${tool.name}`).sort();
+  const expected = compiled.available.map(tool => `mcp__caller__${tool.name}`).sort();
   assert.deepEqual((body.tools || []).map(tool => tool.name).sort(), expected, '上游工具集合必须与调用方完全相等');
   const blocks = body.messages?.flatMap(message => Array.isArray(message.content) ? message.content : []) || [];
   const history = JSON.parse(compiled.input).message.content;

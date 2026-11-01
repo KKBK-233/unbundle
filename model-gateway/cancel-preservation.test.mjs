@@ -1,10 +1,11 @@
+import {messageText} from './messages.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
-import {fromAnthropic} from './anthropic.mjs';
+import {parseMessagesRequest} from './anthropic.mjs';
 import { sessionRelay } from './session-relay.mjs';
 
 // 仅 Node 模拟协议，不启动官方 CLI，不访问模型，不执行项目工具。
@@ -27,7 +28,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{const v=JSON.pa
  else send({type:'stream_event',event:{type:'message_start',message:{id:'turn-'+turns,usage:{input_tokens:10,output_tokens:0}}}});
  if(turns===1){
   if(mode==='partial')send({type:'stream_event',event:{type:'content_block_delta',delta:{type:'text_delta',text:'PARTIAL'}}});
-  if(mode==='tool')send({type:'stream_event',event:{type:'content_block_start',index:0,content_block:{type:'tool_use',id:'uncertain',name:'mcp__omp__Bash',input:{}}}});
+  if(mode==='tool')send({type:'stream_event',event:{type:'content_block_start',index:0,content_block:{type:'tool_use',id:'uncertain',name:'mcp__caller__Bash',input:{}}}});
   return;
  }
  send({type:'stream_event',event:{type:'content_block_delta',delta:{type:'text_delta',text:'READY'}}});
@@ -57,7 +58,7 @@ for (const mode of ['safe','result-first','before-start-safe','before-start-resu
     const rejected = assert.rejects(first, { code: 'REQUEST_CANCELLED' });
     await s.started; controller.abort();
     const next = s.relay.infer({ ...request, messages: [...request.messages, { role: 'user', content: '换个思路' }] });
-    await rejected; assert.equal((await next).content, 'READY');
+    await rejected; assert.equal(messageText((await next)), 'READY');
     assert.equal(s.children.length, 1); assert.ok(s.events.some(value => value.event === 'cancel_preserved'));
   } finally { await s.close({discardFrozen:true}); }
 });
@@ -71,7 +72,7 @@ test('取消后客户端合并连续 user 文本，继续复用原进程且仅�
    const first=s.relay.infer(request,{signal:controller.signal,timing:s.timing}),rejected=assert.rejects(first,{code:'REQUEST_CANCELLED'});
    await s.started;controller.abort();await rejected;
    const merged={...request,messages:[{role:'user',content:request.messages[0].content+suffix}]};
-   assert.equal((await s.relay.infer(merged)).content,'READY');
+   assert.equal(messageText((await s.relay.infer(merged))),'READY');
    const users=inputs.filter(frame=>frame.type==='user');assert.equal(users.length,2);
    assert(!JSON.stringify(users[1]).includes(request.messages[0].content));assert(JSON.stringify(users[1]).includes('换个思路'));
    assert(s.events.some(event=>event.event==='cancel_preserved'));
@@ -108,10 +109,10 @@ for(const changed of [false,true])test('图片缓存标记变化后取消并续�
  const image={type:'image',source:{type:'base64',media_type:'image/png',data:'aGVsbG8='}};
  const body={model:request.model,max_tokens:1024,messages:[{role:'user',content:[{type:'text',text:'task'}, {...image,cache_control:{type:'ephemeral'}}]}]};
  try{
-  const first=state.relay.infer(fromAnthropic(body),{signal:controller.signal,timing:state.timing});const rejected=assert.rejects(first,{code:'REQUEST_CANCELLED'});
+  const first=state.relay.infer(parseMessagesRequest(body),{signal:controller.signal,timing:state.timing});const rejected=assert.rejects(first,{code:'REQUEST_CANCELLED'});
   await state.started;controller.abort();await rejected;
   const next=structuredClone(body);if(changed){delete next.messages[0].content[1].cache_control;next.messages[0].content[0].cache_control={type:'ephemeral'};}
   next.messages.push({role:'user',content:'continue'});
-  assert.equal((await state.relay.infer(fromAnthropic(next))).content,'READY');assert.equal(state.children.length,1);
+  assert.equal(messageText((await state.relay.infer(parseMessagesRequest(next)))),'READY');assert.equal(state.children.length,1);
  }finally{await state.close();}
 });

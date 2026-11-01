@@ -1,3 +1,4 @@
+import {isUserInput, isToolReceipt, toolReceipt, toolUses} from './messages.mjs';
 import {callerRuntimeStatus}from './runtime-status.mjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -44,17 +45,17 @@ export async function exportHandoff(home,id){
  if(!row)throw recoveryError('SESSION_NOT_FOUND','没有此会话的归档');
  const file=path.join(row.folder,'handoff-state.json'),st=await fs.lstat(file);
  if(!st.isFile()||st.isSymbolicLink()||st.size>32*1024*1024)throw recoveryError('HANDOFF_EXPORT_UNAVAILABLE','归档大小或文件类型无效');
- const data=JSON.parse(await fs.readFile(file,'utf8')),calls=data.assistant?.tool_calls||data.calls||[];
+ const data=JSON.parse(await fs.readFile(file,'utf8')),calls=toolUses(data.assistant);
  let lines=['# 任务交接（不自动恢复或重建原会话）','','先核验当前文件、进程及备份状态，不要重复执行已完成的编辑、发布或数据库操作。',`归档原因：${row.metadata.reason}`,''];
  let request;try{const requestFile=path.join(row.folder,'desktop-request.json'),stat=await fs.lstat(requestFile);if(stat.isFile()&&!stat.isSymbolicLink()&&stat.size<=32*1024*1024)request=JSON.parse(await fs.readFile(requestFile,'utf8'));}catch(error){if(error.code!=='ENOENT')throw error;}
- if(request){const user=[...(request.messages||[])].reverse().filter(m=>m.role==='user').map(m=>typeof m.content==='string'?m.content:(m.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n')).find(text=>text.trim().length>20&&!/^(继续|continue|resume)$/i.test(text.trim()));
+ if(request){const user=[...(request.messages||[])].reverse().filter(m=>isUserInput(m)).map(m=>typeof m.content==='string'?m.content:(m.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n')).find(text=>text.trim().length>20&&!/^(继续|continue|resume)$/i.test(text.trim()));
   if(user)lines.push('## 最近用户要求（节选，请先核验）',...user.slice(0,1200).split('\n').map(line=>'> '+line),'');
  }
  lines.push('## 最后一批工具');
  for(const call of calls.slice(0,32)){
-  const name=call.function?.name||'未知工具';let input={};try{input=JSON.parse(call.function?.arguments||'{}');}catch{}
-  const receipt=request?.messages?.find(m=>m.role==='tool'&&m.tool_call_id===call.id);
-  lines.push(`- ${name}${typeof input.file_path==='string'?'：'+input.file_path.slice(0,200):''}（${receipt?'已收到结果'+(receipt.is_error?'，标记为错误':'，未标记为错误'):'结果待核验'}）`);
+  const name=call?.name||'未知工具';let input={};try{input=JSON.parse(JSON.stringify(call?.input)||'{}');}catch{}
+  const receipt=request?.messages?.find(m=>isToolReceipt(m)&&toolReceipt(m)?.tool_use_id===call.id);
+  lines.push(`- ${name}${typeof input.file_path==='string'?'：'+input.file_path.slice(0,200):''}（${receipt?'已收到结果'+(toolReceipt(receipt)?.is_error?'，标记为错误':'，未标记为错误'):'结果待核验'}）`);
   if(typeof input.description==='string')lines.push('  工具说明：'+input.description.replace(/[\r\n]/g,' ').slice(0,200));
   const plan=input.plan||input.steps;if(Array.isArray(plan))for(const step of plan.slice(0,20))lines.push(`  - ${String(step.status||'待核验')}：${String(step.step||step.description||step.content||'').slice(0,240)}`);
  }

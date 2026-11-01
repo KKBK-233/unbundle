@@ -1,3 +1,4 @@
+import {toolUses} from './messages.mjs';
 import { createHmac, randomBytes } from 'node:crypto';
 import { stableJson } from './context.mjs';
 
@@ -6,21 +7,20 @@ const without=(object,keys)=>Object.fromEntries(Object.entries(object||{}).filte
 // 仅在内存保存带密钥的字段摘要；日志只写固定差异类别与计数，不写摘要、正文或参数。
 export function assistantFingerprint(message,{hashKey=key}={}) {
   const digest=value=>createHmac('sha256',hashKey).update(stableJson(value)??'undefined').digest('hex');
-  const content=message?.content;
+  const content=Array.isArray(message?.content)?message.content.filter(b=>b.type!=='tool_use'):message?.content;
   const texts=typeof content==='string'?[content]:Array.isArray(content)&&content.every(b=>b?.type==='text'&&typeof b.text==='string')
     ?content.map(b=>b.text):content==null?['']:undefined;
   const normalize=text=>text.replace(/\r\n/g,'\n').trim();
-  const calls=Array.isArray(message?.tool_calls)?message.tool_calls:[];
+  const calls=toolUses(message);
   return {role:digest(message?.role),content:digest(typeof content==='string'?normalize(content)||null:content||null),
     textForms:texts?[...new Set([texts.join(''),texts.join('\n')].map(value=>digest(normalize(value)||null)))]:[],
     textBytes:texts?Buffer.byteLength(texts.join('')):null,
-    extra:digest(without(message,['role','content','tool_calls'])),count:calls.length,truncated:calls.length>256,
+    extra:digest(without(message,['role','content'])),count:calls.length,truncated:calls.length>256,
     calls:calls.slice(0,256).map(call=>{
-      const raw=call?.function?.arguments;let args,valid=false;
-      try {args=JSON.parse(raw);valid=true;} catch {args=raw;}
-      return {id:digest(call?.id),name:digest(call?.function?.name),args:digest(args),raw:digest(raw),valid,
+      const args=call?.input,valid=!!args&&typeof args==='object'&&!Array.isArray(args);
+      return {id:digest(call?.id),name:digest(call?.name),args:digest(args),valid,
         argKeyCount:valid&&args&&typeof args==='object'&&!Array.isArray(args)?Object.keys(args).length:null,
-        extra:digest({call:without(call,['id','function']),function:without(call?.function,['name','arguments'])})};
+        extra:digest(without(call,['id','type','name','input']))};
     })};
 }
 
@@ -40,13 +40,12 @@ export function assistantDifference(expected,message,options) {
     for(const [id,a]of left){const b=right.get(id);
       if(a.name!==b.name)differences.push('tool_name');
       if(a.args!==b.args){differences.push('tool_arguments');if(a.argKeyCount!==b.argKeyCount)differences.push('argument_key_count');}
-      else if(a.raw!==b.raw)differences.push('argument_representation');
       if(!a.valid||!b.valid)differences.push('invalid_arguments');
       if(a.extra!==b.extra)differences.push('tool_metadata');
     }
   }
   const unique=[...new Set(differences)];
-  const representation=new Set(['text_representation','tool_order','argument_representation']);
+  const representation=new Set(['text_representation','tool_order']);
   return {differences:unique.length?unique:['unclassified'],classification:unique.length&&unique.every(value=>representation.has(value))
     ?'representation_candidate':'requires_review',expectedToolCount:expected.count,actualToolCount:actual.count,
     expectedTextBytes:expected.textBytes,actualTextBytes:actual.textBytes};

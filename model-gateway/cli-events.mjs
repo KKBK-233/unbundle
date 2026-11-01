@@ -13,7 +13,7 @@ export function completeAssistant(event) {
 // 汇总官方 CLI 的事件：工具等待整条消息结束，用量按 message.id 去重。
 export class CliEvents {
   constructor(available, onText, stops = [], { allowToolSearch = false, maxToolSearchCalls = 8, preferAggregateWithMcpValidation = false, onStopReason, onToolCall } = {}) {
-    this.tools = new Map(available.map(tool => [`mcp__omp__${tool.name}`, tool.original]));
+    this.tools = new Map(available.map(tool => [`mcp__caller__${tool.name}`, tool.original]));
     this.onText = onText;
     this.calls = new Map();
     this.aggregateIds = new Set();
@@ -22,6 +22,7 @@ export class CliEvents {
     this.preferAggregateWithMcpValidation = preferAggregateWithMcpValidation;
     this.counts = new Map();
     this.text = '';
+    this.layout = [];
     this.sawDelta = false;
     this.toolEnd = false;
     this.outputLimitReached = false;
@@ -81,7 +82,10 @@ export class CliEvents {
   publishText(text) {
     if (!text) return;
     this.text += text;
-    this.onText?.(text);
+    if(this.layout.at(-1)?.type==='text')this.layout.at(-1).text+=text;
+    else this.layout.push({type:'text',text});
+    // 工具必须整轮核验后才交付，其后的文字也要等待，防止流式顺序倒置。
+    if(!this.layout.some(b=>b.type==='tool_use'))this.onText?.(text);
   }
 
   flushText() {
@@ -107,10 +111,11 @@ export class CliEvents {
     const name = this.tools.get(block.name);
     if (!name || typeof block.id !== 'string' || !block.id || !block.input || typeof block.input !== 'object' || Array.isArray(block.input)) throw new Error('CLI 返回了无效的工具调用');
     recordBashPhase('cli',block.id,name,block.input);
-    const call = { id: block.id, type: 'function', function: { name, arguments: stableJson(block.input) } };
+    const call = {id: block.id, type: 'tool_use', name, input: structuredClone(block.input)};
     if (this.calls.has(block.id) && stableJson(this.calls.get(block.id)) !== stableJson(call)) throw new Error('CLI 工具调用 ID 冲突');
     const fresh = !this.calls.has(block.id);
     this.calls.set(block.id, call);
+    if(!this.layout.some(b=>b.type==='tool_use'&&b.id===block.id))this.layout.push({type:'tool_use',id:block.id});
     if (fresh) {
       try { this.onToolCall?.({ id: block.id, kind: 'caller', name,
         ...(name === 'Read' ? { readRange: Object.hasOwn(block.input, 'offset') || Object.hasOwn(block.input, 'limit') ? 'explicit' : 'default' } : {}) }); } catch {}
@@ -128,8 +133,8 @@ export class CliEvents {
     }
     if (aggregate) {
       const call = this.calls.get(block.id);
-      if (call?.function.name !== this.tools.get(block.name)) throw new Error('CLI 工具调用 ID 冲突');
-      if (parseError || call.function.arguments !== stableJson(input)) this.mcpValidationIds.add(block.id);
+      if (call?.name !== this.tools.get(block.name)) throw new Error('CLI 工具调用 ID 冲突');
+      if (parseError || stableJson(call.input) !== stableJson(input)) this.mcpValidationIds.add(block.id);
       else { this.streamValidatedIds.add(block.id); this.mcpValidationIds.delete(block.id); }
       return false;
     }
@@ -183,6 +188,8 @@ export class CliEvents {
         if (block.type === 'text' && !(this.sawDelta && (!message.id || message.id === this.currentId))) this.emit(block.text);
         if (this.stopSequence !== undefined) return;
         if (block.type !== 'tool_use' || complete && message.stop_reason === 'refusal') continue;
+        // 停止串的待定前缀不能越过真实工具块边界。
+        this.flushText();
         this.addCall(block);
         if (this.preferAggregateWithMcpValidation && this.calls.has(block.id)) {
           this.aggregateIds.add(block.id);
@@ -209,6 +216,8 @@ export class CliEvents {
     }
     if (inner.type === 'content_block_start' && inner.content_block?.type === 'tool_use') {
       if (!Number.isInteger(inner.index) || this.blocks.has(inner.index)) throw new Error('CLI 工具块索引无效');
+      this.flushText();
+      if(this.tools.has(inner.content_block.name)&&!this.layout.some(b=>b.type==='tool_use'&&b.id===inner.content_block.id))this.layout.push({type:'tool_use',id:inner.content_block.id});
       this.blocks.set(inner.index, { ...inner.content_block, fragments: '' });
     }
     if (inner.type === 'content_block_delta' && inner.delta?.type === 'input_json_delta') {
@@ -237,6 +246,9 @@ export class CliEvents {
     }
   }
 
+  // 输出布局只引用已核验的工具；拒绝或停止串清除调用后不会泄露未交付参数。
+  content() {return this.layout.flatMap(block=>block.type==='tool_use'?(this.calls.has(block.id)?[this.calls.get(block.id)]:[]):[{...block}]);}
+
   // result 是整次运行统计；工具提前结束时改用流式用量，缺字段时不伪造零值。
   usage() {
     const source = this.result?.usage ? [this.result.usage] : [...this.counts.values()];
@@ -246,10 +258,6 @@ export class CliEvents {
     }
     if (!Object.keys(upstream).length) return {};
     const complete = source.every(value => Number.isFinite(value.input_tokens) && Number.isFinite(value.output_tokens));
-    const prompt = (upstream.input_tokens || 0) + (upstream.cache_read_input_tokens || 0) + (upstream.cache_creation_input_tokens || 0);
-    return { upstream_usage: upstream, usage_complete: complete, ...(complete ? { usage: {
-      prompt_tokens: prompt, completion_tokens: upstream.output_tokens, total_tokens: prompt + upstream.output_tokens,
-      prompt_tokens_details: { cached_tokens: upstream.cache_read_input_tokens || 0, cache_write_tokens: upstream.cache_creation_input_tokens || 0 },
-    } } : {}) };
+    return {usage:upstream,usage_complete:complete};
   }
 }

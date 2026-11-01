@@ -1,3 +1,4 @@
+import {messageText, toolUses} from './messages.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -9,7 +10,7 @@ import {NativeCliSession} from './native-cli-session.mjs';
 import {sessionRelay} from './session-relay.mjs';
 import {assistantMessage} from './session-history.mjs';
 const available=[{name:'Read',original:'Read'}];
-const call={type:'tool_use',id:'tool1',name:'mcp__omp__Read',input:{path:'synthetic.txt'}};
+const call={type:'tool_use',id:'tool1',name:'mcp__caller__Read',input:{path:'synthetic.txt'}};
 const full={type:'assistant',message:{id:'m1',stop_reason:'tool_use',content:[call],usage:{input_tokens:2,output_tokens:3}}};
 
 test('完整工具消息结束与流式调用去重，重复快照不能重复交付或覆盖参数',()=>{
@@ -53,10 +54,10 @@ test('原生入口仅将明确 API 重试视为进展，保留本轮总时限',(
 // 模拟 CLI 仅访问本次测试的回环 MCP；每次工具结果只交回一次，不请求账号模型。
 const fake=String.raw`import fs from 'node:fs';import readline from 'node:readline';
 const args=JSON.parse(process.argv[1]),mode=process.argv[2],emit=x=>console.log(JSON.stringify(x));
-const config=JSON.parse(fs.readFileSync(args[args.indexOf('--mcp-config')+1],'utf8')).mcpServers.omp;
+const config=JSON.parse(fs.readFileSync(args[args.indexOf('--mcp-config')+1],'utf8')).mcpServers.caller;
 readline.createInterface({input:process.stdin}).on('line',async line=>{
  if(JSON.parse(line).type!=='user')return;
- const call={type:'tool_use',id:'tool1',name:'mcp__omp__Read',input:{path:'synthetic.txt'}};
+ const call={type:'tool_use',id:'tool1',name:'mcp__caller__Read',input:{path:'synthetic.txt'}};
  emit({type:'system',subtype:'api_retry'});
  emit({type:'assistant',message:{id:'m1',stop_reason:'tool_use',content:[call],usage:{input_tokens:2,output_tokens:3}}});
  if(mode==='missing')return;
@@ -70,16 +71,16 @@ for(const mode of ['normal','missing','conflict'])test('完整 assistant 的真�
  const home=await fs.mkdtemp(path.join(os.tmpdir(),'assistant-fallback-'));let spawns=0;
  const relay=sessionRelay({home,cli:'synthetic',modelFor:x=>x,maxOutputTokens:8192,timeoutMs:5000,handoffTimeoutMs:500,
   requireLiveToolContinuation:true,spawnProcess:(_c,args,options)=>{spawns++;return spawn(process.execPath,['--input-type=module','-e',fake,JSON.stringify(args),mode],options);}});
- const request={model:'synthetic',max_tokens:1024,messages:[{role:'user',content:'read'}],tools:[{type:'function',function:{name:'Read',parameters:{type:'object',properties:{path:{type:'string'}}}}}]};
+ const request={model:'synthetic',max_tokens:1024,messages:[{role:'user',content:'read'}],tools:[{name:'Read', input_schema: {type:'object',properties:{path:{type:'string'}}}}]};
  try{
   if(mode!=='normal')await assert.rejects(relay.infer(request),{code:mode==='missing'?'CLI_TOOL_HANDOFF_TIMEOUT':'NATIVE_TOOL_ID_MISMATCH'});
   else{
-   const first=await relay.infer(request);assert.equal(first.tool_calls.length,1);assert.equal(first.tool_calls[0].id,'tool1');
-   const continuation={...request,messages:[...request.messages,assistantMessage(first),{role:'tool',tool_call_id:'tool1',content:'ACTUAL_RESULT'}]};
+   const first=await relay.infer(request);assert.equal(toolUses(first).length,1);assert.equal(toolUses(first)[0].id,'tool1');
+   const continuation={...request,messages:[...request.messages,assistantMessage(first),{role:'user', content:[{type:'tool_result', tool_use_id:'tool1', content:'ACTUAL_RESULT'}]}]};
    await assert.rejects(relay.infer({...continuation,max_tokens:512}),{code:'SESSION_OUTPUT_BUDGET_TOO_SMALL'});
    assert.equal(relay.frozenSize,0);
    const second=await relay.infer({...continuation,max_tokens:2048});
-   assert.equal(second.content,'ACTUAL_RESULT');assert.equal(spawns,1);assert.equal(second.usage.completion_tokens,2);
+   assert.equal(messageText(second),'ACTUAL_RESULT');assert.equal(spawns,1);assert.equal(second.usage.output_tokens,2);
   }
  }finally{await relay.close({discardFrozen:true});await fs.rm(home,{recursive:true,force:true});}
 });

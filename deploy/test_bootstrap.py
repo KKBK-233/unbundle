@@ -22,6 +22,19 @@ class BootstrapTests(unittest.TestCase):
         self.addCleanup(self.paths.stop)
         self.addCleanup(self.temporary.cleanup)
 
+    def test_copy_program_without_legacy_src(self):
+        source = self.folder / 'source'
+        source.mkdir()
+        for name in ['model-gateway', 'deploy']:
+            (source / name).mkdir()
+            (source / name / 'synthetic.txt').write_text('current')
+        for name in ['package.json', 'package-lock.json']:
+            (source / name).write_text('{}')
+        bootstrap.copy_program(source, bootstrap.APP)
+        self.assertEqual((bootstrap.APP / 'model-gateway/synthetic.txt').read_text(), 'current')
+        self.assertTrue((bootstrap.APP / 'package-lock.json').exists())
+        self.assertFalse((bootstrap.APP / 'src').exists())
+
     def test_foreign_unit_is_preserved(self):
         bootstrap.UNIT.write_text('OTHER SERVICE')
         with self.assertRaisesRegex(RuntimeError, '非安装器'):

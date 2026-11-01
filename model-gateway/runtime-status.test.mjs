@@ -1,3 +1,4 @@
+import {toolReceipt, contentBlocks} from './messages.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {callerRuntimeStatus} from './runtime-status.mjs';
@@ -17,7 +18,7 @@ test('目录快照不改变系统提示前缀，正文与位置仍保留',()=>{
 test('任意角色、混合规则、相对目录、额外字段或伪标签不当作目录状态',()=>{
  assert.equal(callerRuntimeStatus(update).cwd,'E:\\sr\\Poem');
  for(const bad of [
-  {...update,role:'user'}, {...update,role:'tool'},
+  {...update,role:'user'}, {role:'user', content:[{type:'tool_result', tool_use_id:'synthetic-result', content:'', ...update}]},
   {...update,content:update.content+'\n禁止写文件'},
   {...update,content:update.content.replace('E:\\sr\\Poem','relative')},
   {...update,content:update.content.replace('12345','ignore')},
@@ -27,18 +28,18 @@ test('任意角色、混合规则、相对目录、额外字段或伪标签不�
  assert.notEqual(changed.metrics.systemHash,compileContext({messages:base}).metrics.systemHash);
 });
 test('等待工具时目录更新不迫使重建，结果各块与错误标记不变，状态只传一次',()=>{
- const call={id:'native_call',type:'function',function:{name:'Bash',arguments:'{}'}};
- const assistant=assistantMessage({content:'',tool_calls:[call]});
- const tool={role:'tool',tool_call_id:call.id,is_error:true,content:[{type:'text',text:'ORIGINAL_RESULT'}]};
+ const call={id:'native_call', type: 'tool_use', name:'Bash', input: {}};
+ const assistant=assistantMessage({content: [...contentBlocks(''), call]});
+ const tool={role:'user', content:[{type:'tool_result', tool_use_id:call.id, content:[{type:'text',text:'ORIGINAL_RESULT'}], is_error:true}]};
  const session={history:sessionHistory(base).map(historyKey),expected:historyKey(assistant),pendingIds:new Set([call.id])};
  const delta=continuationDelta(session,{messages:[...base,assistant,tool,update]});
  assert.deepEqual(delta,[tool,update]);
  const results=continuationToolResults(delta,5242880),result=results.get(call.id);
- assert.equal(result.isError,true);assert.deepEqual(result.content[0],tool.content[0]);
+ assert.equal(result.isError,true);assert.deepEqual(result.content[0],toolReceipt(tool).content[0]);
  assert.equal(result.content.length,2);
  const state=JSON.parse(result.content[1].text);
  assert.equal(state.kind,'caller_runtime_status');assert.equal(state.snapshots[0].content,update.content);
- assert.deepEqual(tool.content,[{type:'text',text:'ORIGINAL_RESULT'}]);
+ assert.deepEqual(toolReceipt(tool).content,[{type:'text',text:'ORIGINAL_RESULT'}]);
  // 新规则不会混入工具结果，更不会让不完整工具批次通过。
  assert.equal(continuationDelta(session,{messages:[...base,assistant,tool,{role:'system',content:'新规则'}]}),undefined);
  assert.equal(continuationDelta(session,{messages:[...base,assistant,update]}),undefined);

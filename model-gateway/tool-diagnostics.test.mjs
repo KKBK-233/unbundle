@@ -14,14 +14,14 @@ test('发现目标、真实引用与调用方选择分开记录，片段读取�
   const emit = event => { audit.accept(event); events.accept(event); };
   emit(stream({ type: 'message_start', message: { id: 'msg_search' } }));
   emit(stream({ type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 'PRIVATE_SEARCH_ID', name: 'ToolSearch', input: {} } }));
-  emit(stream({ type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: JSON.stringify({ query: 'select:mcp__omp__Read,mcp__omp__Edit,mcp__omp__PRIVATE_TOOL' }) } }));
+  emit(stream({ type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: JSON.stringify({ query: 'select:mcp__caller__Read,mcp__caller__Edit,mcp__caller__PRIVATE_TOOL' }) } }));
   emit(stream({ type: 'content_block_stop', index: 0 }));
-  emit({ type: 'assistant', message: { id: 'msg_search', content: [{ type: 'tool_use', id: 'PRIVATE_SEARCH_ID', name: 'ToolSearch', input: { query: 'select:mcp__omp__Read,mcp__omp__Edit,mcp__omp__PRIVATE_TOOL' } }] } });
+  emit({ type: 'assistant', message: { id: 'msg_search', content: [{ type: 'tool_use', id: 'PRIVATE_SEARCH_ID', name: 'ToolSearch', input: { query: 'select:mcp__caller__Read,mcp__caller__Edit,mcp__caller__PRIVATE_TOOL' } }] } });
   const result = { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'PRIVATE_SEARCH_ID', content: [
-    { type: 'text', text: 'PRIVATE_RESULT' }, { type: 'tool_reference', tool_name: 'mcp__omp__Edit' },
-    { type: 'tool_reference', tool_name: 'mcp__omp__PRIVATE_TOOL' }] }] } };
+    { type: 'text', text: 'PRIVATE_RESULT' }, { type: 'tool_reference', tool_name: 'mcp__caller__Edit' },
+    { type: 'tool_reference', tool_name: 'mcp__caller__PRIVATE_TOOL' }] }] } };
   emit(result); emit(result);
-  emit({ type: 'assistant', message: { id: 'msg_read', content: [{ type: 'tool_use', id: 'PRIVATE_READ_ID', name: 'mcp__omp__Read', input: { file_path: 'PRIVATE_PATH', offset: 13, limit: 6 } }] } });
+  emit({ type: 'assistant', message: { id: 'msg_read', content: [{ type: 'tool_use', id: 'PRIVATE_READ_ID', name: 'mcp__caller__Read', input: { file_path: 'PRIVATE_PATH', offset: 13, limit: 6 } }] } });
   audit.toolHandoff([...events.calls.values()]); audit.finish('success');
   const search = rows.find(r => r.event === 'tool_call' && r.kind === 'discovery');
   assert.deepEqual(search.targetTools, ['Edit', 'Read', 'other']); assert.equal(search.targetCount, 3);
@@ -51,8 +51,8 @@ test('自由搜索和纯文本结果不猜测已加载工具，诊断异常不�
   assert.equal(found.referenceCount, 0); assert.equal(found.isError, true);
   assert.deepEqual(found.referencedTools, []); assert(!JSON.stringify(rows).includes('PRIVATE'));
   const events = new CliEvents([{ name: 'Read', original: 'Read' }], undefined, [], { onToolCall() { throw new Error('diagnostic failure'); } });
-  events.addCall({ id: 'r', name: 'mcp__omp__Read', input: { file_path: 'x' } });
-  assert.equal(events.calls.get('r').function.name, 'Read');
+  events.addCall({ id: 'r', name: 'mcp__caller__Read', input: { file_path: 'x' } });
+  assert.equal(events.calls.get('r').name, 'Read');
 });
 
 test('工具跟踪与记录有上限，溢出可见且摘要仍然保留', () => {

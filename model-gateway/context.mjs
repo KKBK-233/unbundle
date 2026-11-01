@@ -1,3 +1,4 @@
+import {contentBlocks, toolUses} from './messages.mjs';
 import {cacheEnvironment, DEFAULT_CACHE_BREAKPOINT} from './cache-policy.mjs';
 import { createHash } from 'node:crypto';
 import { callerRuntimeStatus } from './runtime-status.mjs';
@@ -13,25 +14,18 @@ export const RELAY_PROMPT = '\nCaller MCP tools execute on the caller computer, 
 const IMAGE_MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
 const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-const isImageBlock = block => block?.type === 'image' || block?.type === 'image_url';
+const isImageBlock = block => block?.type === 'image';
 // base64 每 4 字符对应 3 字节，末尾补位字符不计入原始体积。
 const decodedBytes = data => Math.floor(data.length * 3 / 4) - (data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0);
 
-// 归一化调用方两种图片写法；无法兑现的来源一律拒绝，不静默丢弃也不代为抓取。
+// 校验原生内联图片；无法兑现的来源一律拒绝，不代为抓取。
 export function normalizeImage(block, maxImageBytes) {
-  let mediaType, data;
-  if (block.type === 'image') {
-    const source = block.source;
-    if (!source || typeof source !== 'object' || Array.isArray(source)) throw new Error('图片来源无效');
-    if (source.type !== 'base64') throw new Error(`暂不支持 ${String(source.type)} 图片来源；请改为 base64 内联`);
-    mediaType = source.media_type; data = source.data;
-  } else {
-    const url = block.image_url?.url;
-    if (typeof url !== 'string') throw new Error('image_url 无效');
-    const match = /^data:([^;,]+);base64,([\s\S]*)$/.exec(url);
-    if (!match) throw new Error('image_url 仅支持 data:<media-type>;base64 内联图片；网关不抓取远程地址');
-    mediaType = match[1]; data = match[2];
-  }
+  if (block?.type !== 'image') throw new Error('仅支持原生 image 内容块');
+  const source = block.source;
+  if (!source || typeof source !== 'object' || Array.isArray(source)) throw new Error('图片来源无效');
+  if (source.type !== 'base64') throw new Error(`暂不支持 ${String(source.type)} 图片来源；请改为 base64 内联`);
+  let mediaType = source.media_type;
+  const data = source.data;
   if (!IMAGE_MEDIA_TYPES.includes(mediaType)) throw new Error(`暂不支持图片类型 ${String(mediaType)}；可用：${IMAGE_MEDIA_TYPES.join(', ')}`);
   // 严格检查补位与末尾未使用的位，避免 Buffer 的宽松解码接受损坏数据。
   if (typeof data !== 'string' || !data || data.length % 4 !== 0 || !BASE64.test(data)
@@ -71,22 +65,19 @@ export function compileContext(request, { cacheBreakpoint = DEFAULT_CACHE_BREAKP
   if (!Number.isSafeInteger(maxTools) || maxTools < 0) throw new Error('工具数量上限无效');
   if (!Array.isArray(request.messages) || !request.messages.length) throw new Error('messages 不能为空');
   for (const message of request.messages) {
-    if (!message || !['system', 'developer', 'user', 'assistant', 'tool'].includes(message.role)) throw new Error('消息角色无效');
+    if (!message || !['system', 'developer', 'user', 'assistant'].includes(message.role)) throw new Error('消息角色无效');
     if (message.content != null && typeof message.content !== 'string' && !Array.isArray(message.content)) throw new Error('消息内容无效');
-    if (!Array.isArray(message.content)) continue;
-    for (const block of message.content) {
-      if (!block || typeof block !== 'object' || Array.isArray(block)) throw new Error('消息内容无效');
-      if (block.type === 'text') {
-        if (typeof block.text !== 'string') throw new Error('文本块缺少 text 字符串');
-        continue;
+    const validateBlocks=(blocks,role)=>{
+      for(const block of contentBlocks(blocks)){
+        if(!block||typeof block!=='object'||Array.isArray(block))throw new Error('消息内容无效');
+        if(block.type==='text'&&typeof block.text==='string')continue;
+        if(block.type==='tool_use'&&role==='assistant'&&typeof block.id==='string'&&typeof block.name==='string'&&block.input&&typeof block.input==='object'&&!Array.isArray(block.input))continue;
+        if(block.type==='tool_result'&&role==='user'&&typeof block.tool_use_id==='string'){validateBlocks(block.content,'user');continue;}
+        if(isImageBlock(block)&&role==='user'){normalizeImage(block,maxImageBytes);continue;}
+        throw new Error(`暂不支持 ${role} 内容块 ${String(block.type)}`);
       }
-      // 用户附件和本地工具的读图、截图结果均保留原生图片；指令和助手不能插入图片。
-      if (isImageBlock(block)) {
-        if (!['user', 'tool'].includes(message.role)) throw new Error(`暂不支持 ${message.role} 消息中的图片，只支持 user/tool 消息`);
-        continue;
-      }
-      throw new Error(`暂不支持内容块 ${String(block.type)}；只支持文本与 user/tool 消息图片`);
-    }
+    };
+    validateBlocks(message.content,message.role);
   }
   const policy = toolChoice(request);
   const tools = request.tools || [];
@@ -94,27 +85,24 @@ export function compileContext(request, { cacheBreakpoint = DEFAULT_CACHE_BREAKP
   if (maxTools > 0 && tools.length > maxTools) throw Object.assign(new Error(`工具数量超过网关上限：收到 ${tools.length} 个，最多允许 ${maxTools} 个`), { status: 400, code: 'TOOL_LIMIT_EXCEEDED' });
   const seen = new Set();
   const mapped = tools.map(tool => {
-    if (tool?.type !== 'function' || typeof tool.function?.name !== 'string' || !tool.function.name || !tool.function.parameters) throw new Error('仅支持 function tools');
-    const original = tool.function.name;
+    if (!tool || typeof tool?.name !== 'string' || !tool.name || !tool.input_schema) throw new Error('工具必须包含 name 和 input_schema');
+    const original = tool.name;
     if (seen.has(original)) throw new Error('工具名称重复');
     seen.add(original);
     const name = /^[A-Za-z0-9_-]{1,48}$/.test(original) ? original : `alias_${createHash('sha256').update(original).digest('hex').slice(0,32)}`;
-    return { name, original, description: `${name === original ? '' : original + ': '}${tool.function.description || ''}`, inputSchema: JSON.parse(stableJson(tool.function.parameters)) };
+    return { name, original, description: `${name === original ? '' : original + ': '}${tool.description || ''}`, inputSchema: JSON.parse(stableJson(tool.input_schema)) };
   }).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
   if (new Set(mapped.map(tool => tool.name)).size !== mapped.length) throw new Error('工具别名冲突');
   const available = policy.mode === 'none' ? [] : policy.name ? mapped.filter(tool => tool.original === policy.name) : mapped;
   const exposedTools = available.map(({ original, ...tool }) => tool);
   // 仅改写真实 assistant 工具调用字段，原请求、正文、参数及结果保持不变。
   // 历史名称与当前 MCP 定义一致，避免把已执行的本地工具误认作云端内置工具。
-  const historyToolNames = new Map(mapped.map(tool => [tool.original, `mcp__omp__${tool.name}`]));
-  const mapHistoryTools = message => message.role === 'assistant' && Array.isArray(message.tool_calls)
-    ? { ...message, tool_calls: message.tool_calls.map(call => {
-      const name = historyToolNames.get(call?.function?.name);
-      return name ? { ...call, function: { ...call.function, name } } : call;
-    }) } : message;
+  const historyToolNames = new Map(mapped.map(tool => [tool.original, `mcp__caller__${tool.name}`]));
+  const mapHistoryTools = message => message.role==='assistant' && toolUses(message).length ? {...message,content:contentBlocks(message.content).map(block=>
+    block.type==='tool_use'&&historyToolNames.has(block.name)?{...block,name:historyToolNames.get(block.name)}:block)} : message;
   let start = 0;
   while (start < request.messages.length && ['system', 'developer'].includes(request.messages[start].role)) start++;
-  const instructions = request.messages.slice(0, start);
+  const instructions = [...(request.system==null?[]:[{role:'system',content:request.system}]),...request.messages.slice(0, start)];
   const updates = [];
   let runtimeStatusCount = 0;
   const history = request.messages.slice(start).map((message, offset) => {
@@ -139,27 +127,19 @@ export function compileContext(request, { cacheBreakpoint = DEFAULT_CACHE_BREAKP
   const blocks = [];
   const imageBlocks = [];
   let imageBytes = 0;
-  history.forEach((message, offset) => {
-    const content = message.content;
-    if (!Array.isArray(content) || !content.some(isImageBlock)) {
-      blocks.push({ type: 'text', text: stableJson(message) });
-      return;
-    }
-    const pending = [];
-    const referenced = content.map((block, index) => {
-      if (!isImageBlock(block)) return block;
-      const { native, bytes } = normalizeImage(block, maxImageBytes);
-      imageBytes += bytes;
-      if (imageBlocks.length + pending.length >= 100) throw new Error('每次请求最多支持 100 张图片');
-      pending.push(native);
-      return { type: 'image_ref', ref: `image_${start + offset}_${index}` };
+  history.forEach((message,offset)=>{
+    if(!Object.hasOwn(message,'content')){blocks.push({type:'text',text:stableJson(message)});return;}
+    const pending=[];
+    const images=content=>contentBlocks(content).map((block,index)=>{
+      if(block.type==='tool_result')return {...block,content:typeof block.content==='string'?block.content:images(block.content)};
+      if(!isImageBlock(block))return block;
+      const {native,bytes}=normalizeImage(block,maxImageBytes);imageBytes+=bytes;
+      if(imageBlocks.length+pending.length>=100)throw new Error('每次请求最多支持 100 张图片');
+      const ref=`image_${start+offset}_${pending.length}`;pending.push(native);return {type:'image_ref',ref};
     });
-    blocks.push({ type: 'text', text: stableJson({ ...message, content: referenced }) });
-    blocks.push(...pending);
-    // 官方 CLI 会移除 image 上的缓存标记；固定结束块将整组图片纳入文本断点。
-    // 每个含图消息都加结束块，追加后续消息时旧前缀保持不变。
-    blocks.push({ type: 'text', text: stableJson({ image_end: `message_${start + offset}` }) });
-    imageBlocks.push(...pending);
+    const content=images(message.content);
+    blocks.push({type:'text',text:stableJson({...message,content:typeof message.content==='string'?message.content:content})});
+    if(pending.length){blocks.push(...pending,{type:'text',text:stableJson({image_end:`message_${start+offset}`})});imageBlocks.push(...pending);}
   });
   if (!blocks.length) throw new Error('至少需要一条非开头指令消息');
   // 末尾图片已附固定文本结束块，覆盖完整图片前缀并兼容 CLI 的断点处理。

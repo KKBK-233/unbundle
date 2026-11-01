@@ -152,6 +152,16 @@ WantedBy=multi-user.target
 '''
 
 
+def copy_program(source, target):
+    """只复制当前程序清单，旧部署的 src 不再是新安装源的必需目录。"""
+    for name in ['model-gateway', 'deploy', 'package.json', 'package-lock.json']:
+        origin = source / name
+        if origin.is_dir():
+            shutil.copytree(origin, target / name, dirs_exist_ok=True)
+        else:
+            shutil.copy2(origin, target / name)
+
+
 def install(source, token_file):
     if os.geteuid() != 0 or platform.system() != 'Linux' or platform.machine() not in ['x86_64', 'amd64']:
         raise RuntimeError('首次安装需要 Linux x64 和 root/sudo 权限')
@@ -197,12 +207,7 @@ def install(source, token_file):
         if UNIT.exists():
             shutil.copy2(UNIT, backup / 'gateway.service')
         emit('backup', path=str(backup))
-    for name in ['model-gateway', 'deploy', 'src', 'package.json', 'package-lock.json']:
-        origin = source / name
-        if origin.is_dir():
-            shutil.copytree(origin, APP / name, dirs_exist_ok=True)
-        else:
-            shutil.copy2(origin, APP / name)
+    copy_program(source, APP)
     emit('node', version=install_node())
     node_next = pathlib.Path('/usr/local/bin/velella-node.install-next')
     shutil.copy2(APP / 'node/bin/node', node_next)

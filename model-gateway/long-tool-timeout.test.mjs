@@ -9,12 +9,12 @@ import {compileContext} from './context.mjs';
 
 test('真实启动路径向模拟CLI传递半小时总等待、空闲等待和MCP服务阈值',async()=>{
  const home=await fs.mkdtemp(path.join(os.tmpdir(),'long-tool-timeout-'));let captured;
- const request={model:'claude-opus-5-5',max_tokens:1024,messages:[{role:'user',content:'synthetic'}],tools:[{type:'function',function:{name:'Bash',parameters:{type:'object'}}}]};
+ const request={model:'claude-opus-5-5',max_tokens:1024,messages:[{role:'user',content:'synthetic'}],tools:[{name:'Bash', input_schema: {type:'object'}}]};
  const options={home,model:request.model,outputTokens:1024,spawnProcess:(_cli,args,opts)=>{captured={args,env:opts.env};return spawn(process.execPath,['-e','setInterval(()=>{},1000)'],opts);}};
  const session=new NativeCliSession(request,compileContext(request,options),options);
  try{
   await session.start();assert.equal(captured.env.MCP_TOOL_TIMEOUT,'1800000');assert.equal(captured.env.CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT,'1800000');
-  const config=JSON.parse(await fs.readFile(captured.args[captured.args.indexOf('--mcp-config')+1],'utf8'));assert.equal(config.mcpServers.omp.timeout,1800000);
+  const config=JSON.parse(await fs.readFile(captured.args[captured.args.indexOf('--mcp-config')+1],'utf8'));assert.equal(config.mcpServers.caller.timeout,1800000);
  }finally{await session.close('test-cleanup',{discardFrozen:true});await fs.rm(home,{recursive:true,force:true});}
 });
 test('闲置回收不结束正在等待工具的会话，容量挤占明确拒绝',async()=>{
