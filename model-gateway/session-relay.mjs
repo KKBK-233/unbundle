@@ -123,7 +123,7 @@ export function sessionRelay(options, retained) {
         if(session.compacting)throw Object.assign(new Error('原生会话正在压缩'),{code:'SESSION_BUSY',status:409,retryable:false});
         session.compacting=true;
         try {
-          const sourceAssistantHash=boundary.sourceAssistantHash||(session.state==='idle'&&!session.pendingIds.size&&session.lastAssistant&&!toolUses(session.lastAssistant)?.length
+          const sourceAssistantHash=boundary.sourceAssistantHash||(session.state==='idle'&&!session.pendingIds.size&&session.lastAssistant&&!toolUses(session.lastAssistant).length
             ?historyKey(session.lastAssistant,{hashKey:store?.key,toolSchemas:session.request.tools}):undefined);
           await store?.checkAffinity(affinityHash);
           await store?.forget(session.nativeSessionId);

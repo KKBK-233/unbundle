@@ -17,7 +17,7 @@ const stream = event => ({ type: 'stream_event', event });
 const assistant = (id, name = 'mcp__caller__read') => ({ type: 'assistant', message: { id: 'msg_1', content: [{ type: 'tool_use', id, name, input: { path: id } }] } });
 
 // 用进程模拟 CLI 达到输出上限后的续写，验证立即停止及两种 HTTP 响应的结束原因。
-test('文本截断返回 length，停止续写且不暴露 CLI 错误消息', async () => {
+test('文本截断返回 max_tokens，停止续写且不暴露 CLI 错误消息', async () => {
  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'relay-limit-'));
  const fake = `for await (const c of process.stdin) {};
   const emit = x => console.log(JSON.stringify(x));

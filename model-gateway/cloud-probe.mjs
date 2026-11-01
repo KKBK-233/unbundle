@@ -125,7 +125,7 @@ try {
       return {role: result.role, content: result.content};
     };
     const first = await invoke();
-    assert.equal(toolUses(first)?.length, 1);
+    assert.equal(toolUses(first).length, 1);
     request.messages.push(first, {role:'user', content:[{type:'tool_result', tool_use_id:toolUses(first)[0].id, content:'UNBUNDLE_PROOF'}]});
     if (images) toolReceipt(request.messages.at(-1)).content = [{ type: 'text', text: 'UNBUNDLE_PROOF' },
       { type: 'image', source: { type: 'base64', media_type: 'image/png', data: PROBE_PNG } }];

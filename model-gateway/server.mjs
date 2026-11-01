@@ -225,7 +225,7 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
         timing.mark('empty_output_limit_stopped');
         throw guardFailure(messageText(execution), 'EMPTY_OUTPUT_LIMIT', original);
       } else if (messageText(execution)) timing.mark('first_text');
-      if (toolUses(execution)?.length) timing.mark('first_tool');
+      if (toolUses(execution).length) timing.mark('first_tool');
       if (controller.signal.aborted) return;
       // 仅表示准备发回客户端，不声称客户端已收到或已执行工具。
       timing.toolHandoff(toolUses(execution));

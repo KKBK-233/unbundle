@@ -9,8 +9,9 @@ export function compactMemoryAliases(messages,{hashKey,toolSchemas}={}){
  const source=conversation(messages),index=source.length-1,last=source[index];
  if(!isToolReceipt(last)||!Array.isArray(toolReceipt(last)?.content)||!toolReceipt(last)?.content.length||toolReceipt(last)?.content.some(b=>b.type!=='text'||typeof b.text!=='string'))return [];
  const receipts=new Map(source.filter(m=>isToolReceipt(m)).map(m=>[toolReceipt(m)?.tool_use_id,m])),writes=new Map();
- for(const message of source)for(const call of toolUses(message)||[]){
-  if(call?.name!=='Write')continue;let args;try{args=call.input;}catch{continue;}
+ for(const message of source)for(const call of toolUses(message)){
+  if(call?.name!=='Write')continue;const args=call.input;
+  if(!args||typeof args!=='object'||Array.isArray(args))continue;
   const file=args.file_path,content=args.content,receipt=receipts.get(call.id);
   if(typeof file!=='string'||!/(?:^|[\\/])\.claude[\\/]projects[\\/][^\\/]+[\\/]memory[\\/]MEMORY\.md$/.test(file)
     ||typeof content!=='string'||content.length>65536||!receipt||toolReceipt(receipt)?.is_error===true)continue;

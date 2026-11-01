@@ -1,4 +1,4 @@
-import {contentBlocks, toolUses} from './messages.mjs';
+import {contentBlocks, toolUses, pureText} from './messages.mjs';
 import {cacheEnvironment, DEFAULT_CACHE_BREAKPOINT} from './cache-policy.mjs';
 import { createHash } from 'node:crypto';
 import { callerRuntimeStatus } from './runtime-status.mjs';
@@ -102,7 +102,9 @@ export function compileContext(request, { cacheBreakpoint = DEFAULT_CACHE_BREAKP
     block.type==='tool_use'&&historyToolNames.has(block.name)?{...block,name:historyToolNames.get(block.name)}:block)} : message;
   let start = 0;
   while (start < request.messages.length && ['system', 'developer'].includes(request.messages[start].role)) start++;
-  const instructions = [...(request.system==null?[]:[{role:'system',content:request.system}]),...request.messages.slice(0, start)];
+  // 缓存控制是传输元数据，不能进入系统提示正文或会话身份。
+  const instructionView=message=>({...message,content:Array.isArray(message.content)?message.content.map(({cache_control,...block})=>block):message.content});
+  const instructions = [...(request.system==null?[]:[{role:'system',content:pureText({content:request.system})}]),...request.messages.slice(0, start)].map(instructionView);
   const updates = [];
   let runtimeStatusCount = 0;
   const history = request.messages.slice(start).map((message, offset) => {
@@ -113,7 +115,7 @@ export function compileContext(request, { cacheBreakpoint = DEFAULT_CACHE_BREAKP
     if (!['system', 'developer'].includes(message.role)) return mapHistoryTools(message);
     const messageIndex = start + offset;
     const id = `message_${messageIndex}`;
-    updates.push({ id, messageIndex, message });
+    updates.push({ id, messageIndex, message:instructionView(message) });
     return { role: message.role, instruction_ref: id };
   });
   const instructionJson = instructions.length ? stableJson(instructions) : '';

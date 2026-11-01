@@ -13,7 +13,7 @@ export function cancellationBoundary(session) {
   if(lastUserTextLength!==undefined)boundary.lastUserTextLength=lastUserTextLength;
   if(transientRecap(messages.at(-1)))boundary.transientRecap=true;
   if(replacementUserInput(messages.at(-1)))boundary.cancelledUserInput=true;
-  const index=messages.findLastIndex(m=>m.role==='assistant'),assistant=messages[index],calls=toolUses(assistant)||[];
+  const index=messages.findLastIndex(m=>m.role==='assistant'),assistant=messages[index],calls=toolUses(assistant);
   const callIds=new Set(calls.map(c=>c.id)),tail=messages.slice(index+1),results=tail.filter(m=>isToolReceipt(m));
   if(index>=0&&calls.length&&callIds.size===calls.length&&calls.every(c=>ids.has(c.id))
     &&!messageText(assistant).trim()

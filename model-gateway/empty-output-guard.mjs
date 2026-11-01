@@ -21,7 +21,7 @@ export function emptyAutoResume(messages) {
   if (last?.role !== 'user' || pureText(last)?.trim() !== AUTO_RESUME_PROMPT || !previous) return false;
   // 重复的固定自动提示仍需止损；普通用户前文不能冒充空助手回复。
   if (previous.role === 'user') return pureText(previous)?.trim() === AUTO_RESUME_PROMPT;
-  if (previous.role !== 'assistant' || toolUses(previous)?.length) return false;
+  if (previous.role !== 'assistant' || toolUses(previous).length) return false;
   const text = pureText(previous);
   return text !== undefined && (!text.trim() || [EMPTY_OUTPUT_NOTICE, AUTO_RESUME_NOTICE].includes(text.trim()));
 }
@@ -48,7 +48,7 @@ export function emptyOutputGuard({ ttlMs = 3600000, capacity = 256, now = Date.n
       return failures.has(id) ? EMPTY_OUTPUT_NOTICE : undefined;
     },
     finish(id, execution, visibleText, body) {
-      if (execution.stop_reason !== 'max_tokens' || visibleText || messageText(execution).trim() || toolUses(execution)?.length) return execution;
+      if (execution.stop_reason !== 'max_tokens' || visibleText || messageText(execution).trim() || toolUses(execution).length) return execution;
       if (minimalConnectionProbe(body)) return execution;
       prune();
       // 有界保存失败请求；旧指纹被淘汰或重启后，自动续接仍由历史结构检测拦截。

@@ -450,7 +450,7 @@ export class NativeCliSession {
     this.expectedFingerprint = assistantFingerprint(assistantMessage(result), {hashKey:this.options.historyHashKey});
     this.lastAssistant=assistantMessage(result);
     this.lastStopReason=result.stop_reason;
-    this.state = toolUses(result)?.length ? 'waiting-tool' : 'idle';
+    this.state = toolUses(result).length ? 'waiting-tool' : 'idle';
     void turn.probeFinished.then(()=>turn.resolve(result));
     if (!reusable) void this.close();
     else { this.expiry = setTimeout(() => { void this.close('expired').catch(() => {}); }, this.options.sessionTtlMs || 1800000); this.expiry.unref?.(); }

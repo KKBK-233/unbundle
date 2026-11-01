@@ -71,7 +71,7 @@ test('默认接受超过旧工具数量上限，显式限额仍可配置', async
 test('小输出上限原样传递，非法额度仍返回 400', async () => {
  const limits = [];
  const server = await gateway({ token: 'probe-test', port: 0, execute: async body => {
-  limits.push(body.max_tokens ?? body.max_completion_tokens);
+  limits.push(body.max_tokens);
   return { role: 'assistant', content: 'OK' };
  }});
  const invoke = body => fetch(`http://127.0.0.1:${server.port}/v1/messages`, {

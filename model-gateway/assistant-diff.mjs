@@ -19,7 +19,7 @@ export function assistantFingerprint(message,{hashKey=key}={}) {
     calls:calls.slice(0,256).map(call=>{
       const args=call?.input,valid=!!args&&typeof args==='object'&&!Array.isArray(args);
       return {id:digest(call?.id),name:digest(call?.name),args:digest(args),valid,
-        argKeyCount:valid&&args&&typeof args==='object'&&!Array.isArray(args)?Object.keys(args).length:null,
+        argKeyCount:valid?Object.keys(args).length:null,
         extra:digest(without(call,['id','type','name','input']))};
     })};
 }

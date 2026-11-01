@@ -178,8 +178,10 @@ test('真实正文截断、工具调用、引用和人工继续仍执行，手�
       [...base.messages, {role:'user',content:[{type:'text',text:AUTO_RESUME_PROMPT}]}],
       [...base.messages, { role: 'assistant', content: '' }, { role: 'user', content: '继续，先只处理一个文件' }],
     ]) assert.equal(messageText((await (await invoke(app, { ...base, messages })).json())), '有效正文');
-    await invoke(app, {...base, output_config: {effort:'max'}});
-    await invoke(app, {...base, output_config: {effort:'medium'}});
+    const high=await invoke(app, {...base, output_config: {effort:'max'}});
+    assert.equal(high.status,422);assert.equal((await high.json()).error.code,'EMPTY_OUTPUT_LIMIT');
+    const lower=await invoke(app, {...base, output_config: {effort:'medium'}});
+    assert.equal(lower.status,422);assert.equal((await lower.json()).error.code,'EMPTY_OUTPUT_LIMIT');
     assert.equal(calls.length, 9); assert.equal(calls.at(-1).output_config?.effort, 'medium');
   } finally { await app.close({discardFrozen:true}); }
 });

@@ -61,3 +61,20 @@ test('持久压缩入口核验顶层系统，旧索引与新索引隔离',async(
   const restored=await restarted.takeForCompaction(summary,compiled,undefined,{consume:false});assert.equal(restored.row.id,id);assert.deepEqual(restored.sourceRequest.system,base.system);
  }finally{await fs.rm(home,{recursive:true,force:true});}
 });
+
+for(const liveInstructionUpdates of [false,true])test(`系统缓存断点添加、移动或TTL变化不改变提示和续接，动态追加=${liveInstructionUpdates}`,async()=>{
+ const home=await fs.mkdtemp(path.join(os.tmpdir(),'native-system-cache-'));let spawns=0;
+ const relay=sessionRelay({home,model:'synthetic',maxOutputTokens:1024,liveInstructionUpdates,timeoutMs:3000,
+  spawnProcess:(_c,_a,opts)=>{spawns++;return spawn(process.execPath,['--input-type=module','-e',fake],opts);}});
+ try{
+  let base={...request(),system:[...text('FIRST_RULE'),...text('SECOND_RULE')]};
+  const initial=compileContext(base);let result=await relay.infer(base);
+  for(const [index,ttl]of [[0,'1h'],[1,'1h'],[1,'5m']]){
+   const system=base.system.map(({cache_control,...block},i)=>i===index?{...block,cache_control:{type:'ephemeral',ttl}}:block);
+   base=parseMessagesRequest({...base,system,messages:[...base.messages,assistantMessage(result),{role:'user',content:text('next')}]});
+   const compiled=compileContext(base);assert.equal(compiled.systemPrompt,initial.systemPrompt);assert.equal(compiled.metrics.systemHash,initial.metrics.systemHash);
+   assert.equal(base.system[index].cache_control.ttl,ttl);
+   result=await relay.infer(base);assert.equal(spawns,1);
+  }
+ }finally{await relay.close({discardFrozen:true});await fs.rm(home,{recursive:true,force:true});}
+});

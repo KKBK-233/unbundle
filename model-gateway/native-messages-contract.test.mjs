@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseMessagesRequest} from './anthropic.mjs';
+import {parseMessagesRequest,anthropicWriter} from './anthropic.mjs';
 import {CliEvents} from './cli-events.mjs';
 import {gateway} from './server.mjs';
 import {compileContext} from './context.mjs';
-import {historyKey} from './session-history.mjs';
+import {historyKey,continuationDelta} from './session-history.mjs';
 
 const call = {type:'tool_use',id:'edit-1',name:'Edit',input:{file_path:'probe.txt',old_string:'0',new_string:'1'}};
 const content = [{type:'text',text:'读取完毕。'}, call, {type:'text',text:'随后说明。'}];
@@ -105,4 +105,24 @@ test('聚合与流式事件的停止串待定前缀都留在工具之前',()=>{
   }
   assert.deepEqual(events.content(),[blocks[0],call,blocks[2]]);assert.equal(events.stopSequence,undefined);
  }
+});
+
+// 重建客户端实际收到的 SSE，再通过原生请求解析器回传工具收据。
+test('心跳后的纯工具回复可原样回传续接，非空文本仍参与身份校验',()=>{
+ const writes=[],writer=anthropicWriter({writeHead(){},write:v=>writes.push(v),end(){}},'heartbeat','synthetic');
+ writer.start();writer.ping();writer.finish({content:[call]},'tool_use');
+ const blocks=[];
+ for(const frame of writes.flatMap(w=>w.split('\n').filter(l=>l.startsWith('data: ')).map(l=>JSON.parse(l.slice(6))))){
+  if(frame.type==='content_block_start')blocks[frame.index]=structuredClone(frame.content_block);
+  if(frame.type==='content_block_delta'){
+   if(frame.delta.type==='text_delta')blocks[frame.index].text+=frame.delta.text;
+   else blocks[frame.index].input=JSON.parse(frame.delta.partial_json);
+  }
+ }
+ assert.deepEqual(blocks,[{type:'text',text:''},call]);
+ const session={history:base.messages.map(m=>historyKey(m)),expected:historyKey({role:'assistant',content:[call]}),pendingIds:new Set([call.id])};
+ const receipt={role:'user',content:[{type:'tool_result',tool_use_id:call.id,content:'edited'}]};
+ const body=parseMessagesRequest({...base,messages:[...base.messages,{role:'assistant',content:blocks},receipt]});
+ assert.deepEqual(continuationDelta(session,body),[receipt]);
+ assert.equal(continuationDelta(session,{...body,messages:[...base.messages,{role:'assistant',content:[{type:'text',text:'changed'},call]},receipt]}),undefined);
 });

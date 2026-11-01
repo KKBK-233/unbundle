@@ -53,7 +53,7 @@ export async function exportHandoff(home,id){
  }
  lines.push('## 最后一批工具');
  for(const call of calls.slice(0,32)){
-  const name=call?.name||'未知工具';let input={};try{input=JSON.parse(JSON.stringify(call?.input)||'{}');}catch{}
+  const name=call?.name||'未知工具',input=call?.input&&typeof call.input==='object'&&!Array.isArray(call.input)?call.input:{};
   const receipt=request?.messages?.find(m=>isToolReceipt(m)&&toolReceipt(m)?.tool_use_id===call.id);
   lines.push(`- ${name}${typeof input.file_path==='string'?'：'+input.file_path.slice(0,200):''}（${receipt?'已收到结果'+(toolReceipt(receipt)?.is_error?'，标记为错误':'，未标记为错误'):'结果待核验'}）`);
   if(typeof input.description==='string')lines.push('  工具说明：'+input.description.replace(/[\r\n]/g,' ').slice(0,200));

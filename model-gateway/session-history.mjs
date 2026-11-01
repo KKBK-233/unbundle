@@ -22,7 +22,7 @@ export function completedRecapBoundary(session,{hashKey,toolSchemas}={}) {
   const last=session.request&&sessionHistory(session.request.messages).at(-1),answer=session.lastAssistant;
   return session.state==='idle'&&!session.turn&&!session.interrupted&&!session.pendingIds.size
     &&transientRecap(last)&&answer?.role==='assistant'&&!!pureText(answer)?.trim()
-    &&!toolUses(answer)?.length&&session.lastStopReason!=='refusal'
+    &&!toolUses(answer).length&&session.lastStopReason!=='refusal'
     &&session.expected===historyKey(answer,{hashKey,toolSchemas});
 }
 // 客户端会合并连续 user 文本；取消边界只记录原文本长度，不保存正文。
@@ -62,7 +62,9 @@ export function splitCancelledUserMessage(messages,history,length,keyFor) {
 
 export function historyKey(message, { exact = false, hashKey = key, toolSchemas } = {}) {
   // 字符串和单文本块采用相同的历史指纹；多块及工具相对顺序保持严格。
-  const clean=blocks=>contentBlocks(blocks).map(block=>{
+  // SSE 保活可能生成空文本块；只忽略无附加语义的真正空块，保留其他块的顺序。
+  const clean=blocks=>contentBlocks(blocks).filter(block=>!(block?.type==='text'&&block.text===''
+    &&Object.keys(block).every(key=>['type','text','cache_control'].includes(key)))).map(block=>{
     const {cache_control,...value}=block;
     if(value.type==='text'&&!exact)value.text=value.text.replace(/\r\n/g,'\n').trim();
     if(value.type==='tool_result')value.content=clean(value.content);
@@ -129,7 +131,7 @@ export function continuationDelta(session, request, { allowInstructionUpdates = 
   let matches=messages.length>prefix.length&&prefix.every(matchPrefix);
   if(!matches&&prior?.length===session.history.length&&session.cancelledReceiptIds?.size){
     const assistantIndex=prior.findLastIndex(m=>m.role==='assistant'),assistant=prior[assistantIndex];
-    const calls=toolUses(assistant)||[],ids=new Set(calls.map(c=>c.id));
+    const calls=toolUses(assistant),ids=new Set(calls.map(c=>c.id));
     let base=assistantIndex;
     while(base>0&&callerRuntimeStatus(prior[base-1])?.type==='environment')base--;
     const tail=prior.slice(base),receipts=tail.filter(m=>isToolReceipt(m));
