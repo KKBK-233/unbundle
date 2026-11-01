@@ -1,5 +1,6 @@
 import {recordBashPhase} from './tool-boundary-trace.mjs';
 import { gatewayError } from './gateway-error.mjs';
+import { refusalDetails } from './refusal-details.mjs';
 
 const fail = message => { throw Object.assign(new Error(message), { status: 400, code: 'UNSUPPORTED_PARAMETER' }); };
 
@@ -159,7 +160,8 @@ export function anthropicWriter(res, id, model) {
         send('content_block_delta', { index, delta: { type: 'input_json_delta', partial_json: JSON.stringify(block.input) } });
         send('content_block_stop', { index }); index++;
       }
-      send('message_delta', { delta: { stop_reason: reason, stop_sequence: execution.stop_sequence ?? null }, usage: anthropicUsage(execution) });
+      send('message_delta', { delta: { stop_reason: reason, stop_sequence: execution.stop_sequence ?? null,
+        ...(reason === 'refusal' && execution.stop_details !== undefined ? { stop_details: refusalDetails(execution.stop_details) } : {}) }, usage: anthropicUsage(execution) });
       send('message_stop', {}); res.end();
     },
     error(error) {

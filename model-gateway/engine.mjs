@@ -169,7 +169,7 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     if (timedOut) throw Object.assign(new Error(`推理达到总时限（${timeoutMs / 1000} 秒）`), { code: 'INFERENCE_TIMEOUT' });
     if (idleTimedOut) throw Object.assign(new Error(`上游连续 ${idleTimeoutMs / 1000} 秒没有推理进展`), { code: 'INFERENCE_IDLE_TIMEOUT' });
     if (protocolError) throw protocolError;
-    if (events.refused) return { role: 'assistant', content: events.text, stop_reason: 'refusal', ...events.usage() };
+    if (events.refused) return { role: 'assistant', content: events.text, stop_reason: 'refusal', stop_details: events.stopDetails, ...events.usage() };
     if (events.stopSequence !== undefined || events.outputLimitReached || events.toolEnd) enforceToolChoice(policy, [...events.calls.values()], events.usage());
     if (events.stopSequence !== undefined) return { role: 'assistant', content: events.text, stop_sequence: events.stopSequence, ...events.usage() };
     events.flushText();

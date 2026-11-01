@@ -417,7 +417,7 @@ export class NativeCliSession {
       if (inner?.type === 'content_block_delta' && inner.delta?.type === 'thinking_delta') turn.timing?.mark('first_thinking');
       if (inner?.type === 'content_block_start' && inner.content_block?.type === 'tool_use') turn.timing?.mark('first_tool');
       if (turn.events.refused) {
-        this.deliver({ role: 'assistant', content: turn.events.text, stop_reason: 'refusal', ...turn.events.usage() }, false); return;
+        this.deliver({ role: 'assistant', content: turn.events.text, stop_reason: 'refusal', stop_details: turn.events.stopDetails, ...turn.events.usage() }, false); return;
       }
       if (turn.events.outputLimitReached || turn.events.stopSequence !== undefined) {
         const result = { role: 'assistant', content: turn.events.text, finish_reason: 'length', ...turn.events.usage() };

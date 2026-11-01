@@ -7,6 +7,12 @@
 - 强制工具选择不能把明确拒绝改写成 `TOOL_CHOICE_UNSATISFIED`。
 - 正文中的“不能回答”“被安全机制拦截”等措辞不会被推断成协议拒绝。
 
+## 拒绝原因交付
+
+1.0.11 起，两种 CLI 路线均保留上游 `stop_details.category` 和 `stop_details.explanation`。Anthropic 非流式响应放在顶层，流式放在 `message_delta.delta.stop_details`；兼容 Chat Completions 放在响应顶层或结束 SSE 帧顶层，不混入 assistant 正文或历史。仅明确 refusal 交付这些字段，缺失时不补猜，显式 null 保留。
+
+原因说明沿用诊断脱敏规则，最多 512 字符；不转发恢复信用令牌、账号凭据或未知嵌套字段，不自动切换模型或重试拒绝。此前客户端显示空值，可能只是转换链路没有传递原因；先核对同一请求的 `gateway_cli_event.message_end`，不能由本地空值认定上游未提供分类。
+
 ## 网关日志
 
 默认开启的耗时诊断通过 stderr 进入服务日志；设置 `GATEWAY_TIMING_DIAGNOSTICS=0` 会关闭这些记录。日志不新增正文、工具参数或认证信息。

@@ -1,5 +1,6 @@
 import {recordBashPhase} from './tool-boundary-trace.mjs';
 import { stableJson } from './context.mjs';
+import { refusalDetails } from './refusal-details.mjs';
 
 // 完整正常消息可作为非流式回退边界；错误占位和未结束快照不能提前交付工具。
 export function completeAssistant(event) {
@@ -147,11 +148,12 @@ export class CliEvents {
   }
 
   // 拒绝是正常的终止原因；封存当前回复，丢弃未交付工具，避免 CLI 续写覆盖拒绝。
-  acceptStop(reason) {
+  acceptStop(reason, details) {
     if (typeof reason !== 'string' || !reason) return;
     try { this.onStopReason?.(reason); } catch {}
     if (reason === 'refusal') {
       this.refused = true;
+      this.stopDetails = refusalDetails(details);
       this.blocks.clear();
       this.calls.clear();
       this.toolEnd = false;
@@ -190,7 +192,7 @@ export class CliEvents {
       }
       if (complete) {
         this.flushText();
-        this.acceptStop(message.stop_reason);
+        this.acceptStop(message.stop_reason, message.stop_details);
         if (message.stop_reason === 'tool_use') this.finishToolMessage();
         else if (this.blocks.size || this.calls.size) throw new Error('CLI 工具消息缺少有效结束信号');
         if (message.stop_reason === 'max_tokens') this.outputLimitReached = true;
@@ -226,7 +228,7 @@ export class CliEvents {
     if (inner.type === 'message_delta') {
       this.flushText();
       this.count(this.currentId, inner.usage);
-      this.acceptStop(inner.delta?.stop_reason);
+      this.acceptStop(inner.delta?.stop_reason, inner.delta?.stop_details);
       if (inner.delta?.stop_reason === 'max_tokens') {
         if (this.blocks.size || this.calls.size) throw new Error('输出截断时工具消息不完整');
         this.outputLimitReached = true;
