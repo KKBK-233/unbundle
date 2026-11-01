@@ -1,4 +1,4 @@
-# 安装 Unbundle 1.0
+# 安装 Unbundle
 
 准备一台能访问官方 Claude 服务的 Debian/Ubuntu x64 VPS，以及能运行 Node.js 22+、OpenSSH 和 tar 的本机。VPS 需要 root 或免交互 sudo；SSH 使用本机已有配置、密钥或 agent。首次连接时先通过可信渠道核实主机指纹并完成一次普通 SSH 登录。账号持有人需要自己的 Claude 订阅；授权由本人在官方浏览器流程完成。每台 VPS 只使用一个账号，只服务账号持有人的一台固定本机；同账号、同设备可以并发多个会话。日常推理建议只使用 Claude Code 桌面版（Claude Desktop 的 Code 工作区），不建议使用 OMP、OpenCode 或其他第三方 Harness。
 
@@ -54,7 +54,7 @@ Desktop 使用独立的第三方推理配置；导出的 `claude-code.settings.j
 claude --settings .local/profiles/default/claude-code.settings.json
 ```
 
-不建议通过 OMP、OpenCode 或其他第三方 Harness 使用本项目推理。仓库保留的历史兼容代码和接口不代表当前推荐或已验收的使用方式。Responses API 尚未实现；部署助手可执行安装，不代表它可直接把此网关作为推理供应商。
+不建议通过 OMP、OpenCode 或其他第三方 Harness 使用本项目推理。2.0 仅提供 `/v1/messages` 推理入口，旧 Chat Completions、OMP 导入和 FRP 部署路径已移除。Responses API 尚未实现；部署助手可执行安装，不代表它可直接把此网关作为推理供应商。
 
 这是使用建议，当前不通过客户端名称强制阻止请求，也未实现设备绑定。使用官方桌面版仍会经过网关的提示词转换，不能据此保证与官方直连行为一致或避免账号限制；详见[系统提示词对比](docs/system-prompt-comparison.md)。
 
@@ -76,6 +76,10 @@ npm stop
 
 小于 2 GiB 的 VPS 首次默认单路推理；资源限额根据内存生成。通过 `/etc/unbundle/gateway.env` 设置运行参数，参考 `config/gateway-limits.example.env`，然后在服务空闲时重启网关。重跑安装保留该配置和 OAuth 文件。
 
-工具数量、累计 CLI 输出和整轮时限默认不额外限制；请求体仍默认 32 MiB，在场体积 64 MiB，单图 5 MiB，最多 100 张图片。普通文本与工具兼容不等于完整 API 透传；不支持精确思考预算、采样控制、PDF/音频/视频原生块等功能。详细接口限制见 `docs` 分支。
+工具数量、累计 CLI 输出和整轮时限默认不额外限制；请求体仍默认 32 MiB，在场体积 64 MiB，单图 5 MiB，最多 100 张图片。普通文本与工具兼容不等于完整 API 透传；不支持精确思考预算、采样控制、PDF/音频/视频原生块等功能。本版接口限制与升级要求见 [架构清理说明](docs/architecture-cleanup.md)。
 
 VPS 仍需满足官方服务访问条件和账户权限。本项目面向单用户自部署，尚未添加开源许可证。
+
+## 从 1.x 升级到 2.0
+
+先结束旧版活动会话和等待中的工具，再升级网关，并在桌面版新建会话。2.0 使用 `native-session-index-v2`，不会读取或改写旧 `native-session-index` 中的会话指纹，也不跨版本导入历史。旧目录保留供回退；不能把结束旧会话理解为自动删除其归档。代码合入 `dev` 不代表 VPS 已升级。

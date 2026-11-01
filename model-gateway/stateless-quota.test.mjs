@@ -1,3 +1,4 @@
+import {messageText} from './messages.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -14,7 +15,7 @@ test('启动探针额度耗尽后仍返回额度错误；同样请求不会变�
  try{
   for(let i=0;i<2;i++)await assert.rejects(relay.infer(request),{code:'SESSION_LIMIT'});
   assert.equal(calls,2);assert.equal(relay.frozenSize,0);
-  await assert.rejects(fs.access(path.join(home,'native-session-index/quarantined-history.json')),{code:'ENOENT'});
+  await assert.rejects(fs.access(path.join(home,'native-session-index-v2/quarantined-history.json')),{code:'ENOENT'});
  }finally{await relay.close({discardFrozen:true});await fs.rm(home,{recursive:true,force:true});}
 });
 test('真实历史、工具或固定会话中的额度错误不能借此绕过封存',()=>{
@@ -31,7 +32,7 @@ test('首次无工具请求在模型响应前取消后，重复启动测试不�
  const home=await fs.mkdtemp(path.join(os.tmpdir(),'probe-cancel-'));let calls=0;
  const relay=sessionRelay({home,modelFor:x=>x,maxOutputTokens:1024,persistentSessions:true,spawnProcess:(_cli,_args,opts)=>{calls++;return spawn(process.execPath,['--input-type=module','-e',calls===1?"process.stdin.resume();":"import readline from 'node:readline';readline.createInterface({input:process.stdin}).on('line',()=>console.log(JSON.stringify({type:'result',is_error:false,result:'OK'})));"],opts);}});
  const request={model:'claude-haiku-5-5',max_tokens:16,tools:[],messages:[{role:'user',content:'.'}]},controller=new AbortController();
- try{const pending=relay.infer(request,{signal:controller.signal});const rejected=assert.rejects(pending,{code:'REQUEST_CANCELLED'});for(let i=0;i<200&&calls===0;i++)await new Promise(r=>setTimeout(r,5));await new Promise(r=>setTimeout(r,20));controller.abort();await rejected;assert.equal(relay.frozenSize,0);assert.equal((await relay.infer(request)).content,'OK');assert.equal(calls,2);await assert.rejects(fs.access(path.join(home,'native-session-index/quarantined-history.json')),{code:'ENOENT'});}finally{await relay.close({discardFrozen:true});await fs.rm(home,{recursive:true,force:true});}
+ try{const pending=relay.infer(request,{signal:controller.signal});const rejected=assert.rejects(pending,{code:'REQUEST_CANCELLED'});for(let i=0;i<200&&calls===0;i++)await new Promise(r=>setTimeout(r,5));await new Promise(r=>setTimeout(r,20));controller.abort();await rejected;assert.equal(relay.frozenSize,0);assert.equal(messageText((await relay.infer(request))),'OK');assert.equal(calls,2);await assert.rejects(fs.access(path.join(home,'native-session-index-v2/quarantined-history.json')),{code:'ENOENT'});}finally{await relay.close({discardFrozen:true});await fs.rm(home,{recursive:true,force:true});}
 });
 
 test('已有模型消息、历史、工具或固定会话的取消不按空启动测试释放',()=>{

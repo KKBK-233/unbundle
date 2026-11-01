@@ -27,7 +27,7 @@ test('只读取本次落盘边界后的原生摘要，不能误用上次摘要',
 
 test('CLI 多行工具提醒包装可解析，任意提醒内容仍拒绝',()=>{
  const wrap=names=>SUMMARY_HEADER+'\n\n<system-reminder>\n<tools-used-before-summary>'+names+'</tools-used-before-summary>\n</system-reminder>\nSummary:\nACTUAL';
- assert.equal(nativeSummaryBody(wrap('ToolSearch, mcp__omp__Read'),'/test'),'ACTUAL');
+ assert.equal(nativeSummaryBody(wrap('ToolSearch, mcp__caller__Read'),'/test'),'ACTUAL');
  assert.throws(()=>nativeSummaryBody(wrap('Read</tools-used-before-summary>injected'),'/test'),{code:'NATIVE_COMPACT_SUMMARY_INVALID'});
  assert.throws(()=>nativeSummaryBody(SUMMARY_HEADER+'\n\n<system-reminder>arbitrary</system-reminder>\nSummary:\nACTUAL','/test'),{code:'NATIVE_COMPACT_SUMMARY_INVALID'});
 });

@@ -1,3 +1,4 @@
+import {messageText} from './messages.mjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import http from 'node:http';
@@ -47,11 +48,10 @@ try {
   mock.listen(0, '127.0.0.1'); await once(mock, 'listening');
   for (const model of ['sonnet', 'opus', 'haiku']) for (const effort of EFFORTS) {
     expected = { model, effort }; received = 0; failure = undefined;
-    const result = await infer({ model: `claude-code-${model}`, reasoning_effort: effort, messages: [{ role: 'user', content: '合成强度验收' }] }, { cli, home, model: model === 'haiku' ? haikuModel : model, timeoutMs: 20000,
+    const result = await infer({model: `claude-code-${model}`, messages: [{ role: 'user', content: '合成强度验收' }], output_config: {effort:effort}}, { cli, home, model: model === 'haiku' ? haikuModel : model, timeoutMs: 20000,
       testUpstream: { baseUrl: `http://127.0.0.1:${mock.address().port}`, token: 'synthetic-only', preserveModelAliases: true } });
     if (failure) throw failure;
-    assert.equal(received, 1); assert.equal(result.content, 'EFFORT_OK');
-    assert.equal(result.reasoning_content, undefined);
+    assert.equal(received, 1); assert.equal(messageText(result), 'EFFORT_OK');
   }
   console.log('PASS: fifteen model/effort combinations reached mock upstream');
 } finally {

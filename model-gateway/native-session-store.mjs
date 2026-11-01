@@ -1,5 +1,6 @@
+import {isToolReceipt, toolReceipt, isUserInput, pureText} from './messages.mjs';
 import {sessionOutputTokens,assertOutputBudget,outputBudgetError} from './session-budget.mjs';
-import {compactedDelta,compactionIntent} from './compaction-boundary.mjs';
+import {compactedDelta,compactionIntent,leadingInstructions,instructionHistory} from './compaction-boundary.mjs';
 import {hydrateCompactionSource} from './native-compaction.mjs';
 import {compactMemoryAliases,compactMemoryContext} from './compact-memory-alias.mjs';
 import { archiveSession } from './session-quarantine.mjs';
@@ -14,7 +15,7 @@ const hash = /^[0-9a-f]{64}$/;
 // 索引仅存 HMAC 和原生 ID；正文由官方 CLI 自己持久化，不合成或改写 transcript。
 export class NativeSessionStore {
   constructor(home, configDir) {
-    this.home = home; this.folder = path.join(home, 'native-session-index'); this.configDir = configDir;
+    this.home = home; this.folder = path.join(home, 'native-session-index-v2'); this.configDir = configDir;
     this.records = new Map(); this.blocked = []; this.writes = Promise.resolve(); this.ready = this.initialize();
   }
   async initialize() {
@@ -104,10 +105,10 @@ export class NativeSessionStore {
     if(session.interrupted?!cancellation:!session.expected)return;
     const snapshot = await this.transcriptSnapshot(session.nativeSessionId);
     if (!snapshot) return;
-    const messages=session.request?.messages||[],first=messages.findIndex(m=>!['system','developer'].includes(m.role));
+    const messages=session.request?.messages||[];
     const compactSource=session.interrupted?{outputTokens:session.options.outputTokens}:session.lastAssistant?{model:session.request.model,outputTokens:session.options.outputTokens,toolsHash:session.compiled.metrics.toolsHash,
-      systems:messages.slice(0,first<0?messages.length:first).map(m=>historyKey(m,{hashKey:this.key,exact:true})),
-      instructions:sessionHistory(messages).filter(m=>['system','developer'].includes(m.role)).map(m=>historyKey(m,{hashKey:this.key,exact:true})),
+      systems:leadingInstructions(session.request).map(m=>historyKey(m,{hashKey:this.key,exact:true})),
+      instructions:instructionHistory(session.request).map(m=>historyKey(m,{hashKey:this.key,exact:true})),
       memoryAliases:compactMemoryAliases(messages,{hashKey:this.key,toolSchemas:session.request.tools}).map(({index,hash})=>({index,hash})),
       conversation:[...sessionHistory(messages).filter(m=>!['system','developer'].includes(m.role)),session.lastAssistant].map(m=>historyKey(m,{hashKey:this.key,toolSchemas:session.request.tools}))}:undefined;
     this.records.set(session.nativeSessionId, { id: session.nativeSessionId, signature: session.signature,outputTokens:sessionOutputTokens(session),compactSource,
@@ -133,7 +134,7 @@ export class NativeSessionStore {
   async takeForCompaction(request,compiled,affinityHash,{consume=true}={}) {
     await this.ready;const intent=compactionIntent(request);if(!intent?.ordinary)return;
     const promptIndex=request.messages.findLastIndex(m=>m.role==='user'),sourceMessages=request.messages.slice(0,promptIndex);
-    const instructions=sessionHistory(sourceMessages).filter(m=>['system','developer'].includes(m.role));
+    const instructions=instructionHistory({...request,messages:sourceMessages});
     const matches=[...this.records.values()].flatMap(row=>{
       const source=row.compactSource;
       if(row.affinityHash!==affinityHash||!source||source.model!==request.model||source.toolsHash!==compiled.metrics.toolsHash
@@ -146,7 +147,7 @@ export class NativeSessionStore {
         const value=historyKey(intent.messages[i],{hashKey:this.key,toolSchemas:request.tools});
         return h===value||(alias=(source.memoryAliases||[]).find(a=>a.index===i&&a.hash===value));
        }))continue;
-       if(intent.messages.slice(length).some(m=>m.role!=='user'||typeof m.content!=='string'))continue;
+       if(intent.messages.slice(length).some(m=>!isUserInput(m)||typeof pureText(m)!=='string'))continue;
        const extra=alias?compactMemoryContext(intent.messages[alias.index]):undefined;if(alias&&!extra)continue;
        return [{row,length,extra}];
       }
@@ -204,10 +205,10 @@ export class NativeSessionStore {
       if(row.verifiedToolResults){
         // 仅管理员在原生副本离线核验、真实结果已写入后建立此检查点；普通请求不创建它。
         // 已持久化的结果只核对 HMAC，不再交给 CLI，也不自动重跑对应工具。
-        const results=delta.filter(m=>m.role==='tool');
-        if(row.verifiedToolResults.some(v=>!results.some(m=>m.tool_call_id===v.id&&historyKey(m,{hashKey:this.key,exact:true})===v.hash)))
+        const results=delta.filter(m=>isToolReceipt(m));
+        if(row.verifiedToolResults.some(v=>!results.some(m=>toolReceipt(m)?.tool_use_id===v.id&&historyKey(m,{hashKey:this.key,exact:true})===v.hash)))
           return this.rejectRestore(row,request,{unsafe:true},'VERIFIED_TOOL_RESULT_CHANGED');
-        delta=delta.filter(m=>m.role!=='tool');
+        delta=delta.filter(m=>!isToolReceipt(m));
         if(!delta.some(m=>m.role==='user'))return {unsafe:true};
       }
       const snapshot = await this.transcriptSnapshot(row.id);

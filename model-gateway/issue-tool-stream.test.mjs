@@ -16,20 +16,20 @@ test('工具结束原因不能在没有结构化工具块时成立（#3338）',(
 test('Read 参数在缺逐块 stop 时仍由消息边界完整收尾（#4114）',()=>{
  const events=new CliEvents(tools);
  events.accept(stream({type:'message_start',message:{id:'test'}}));
- events.accept(stream({type:'content_block_start',index:4,content_block:{type:'tool_use',id:'read_1',name:'mcp__omp__Read',input:{}}}));
+ events.accept(stream({type:'content_block_start',index:4,content_block:{type:'tool_use',id:'read_1',name:'mcp__caller__Read',input:{}}}));
  const args=JSON.stringify({file_path:'E:\\项目\\qa\\截图.png',offset:10});
  for(const piece of [args.slice(0,17),args.slice(17)])events.accept(stream({type:'content_block_delta',index:4,delta:{type:'input_json_delta',partial_json:piece}}));
  events.accept(stream({type:'message_delta',delta:{stop_reason:'tool_use'}}));
- assert.deepEqual(JSON.parse(events.calls.get('read_1').function.arguments),JSON.parse(args));
+ assert.deepEqual(events.calls.get('read_1').input,JSON.parse(args));
  assert.equal(events.blocks.size,0);
 });
 
 test('并行工具重建 SSE 时每个 delta 均有未关闭的 start，参数不会串块（#4193）',()=>{
- const calls=[{id:'r',type:'function',function:{name:'Read',arguments:JSON.stringify({file_path:'read.txt'})}},
-  {id:'w',type:'function',function:{name:'Write',arguments:JSON.stringify({file_path:'write.txt',content:'内容'})}}];
+ const calls=[{id:'r', type: 'tool_use', name:'Read', input: {file_path:'read.txt'}},
+  {id:'w', type: 'tool_use', name:'Write', input: {file_path:'write.txt',content:'内容'}}];
  for(const keepalive of [false,true]){
   let raw='';const writer=anthropicWriter({writeHead(){},write(s){raw+=s;},end(){}},'test','claude-opus-5-5');
-  writer.start();if(keepalive)writer.ping();writer.text('准备执行');writer.finish({tool_calls:calls},'tool_use');
+  writer.start();if(keepalive)writer.ping();writer.text('准备执行');writer.finish({content: [...(calls || [])]},'tool_use');
   const events=raw.split('\n\n').flatMap(frame=>{const line=frame.split('\n').find(l=>l.startsWith('data: '));return line?[JSON.parse(line.slice(6))]:[];});
   const active=new Map(),complete=[];let terminal=0;
   for(const e of events){
@@ -39,7 +39,7 @@ test('并行工具重建 SSE 时每个 delta 均有未关闭的 start，参数�
    if(e.type==='message_stop')terminal++;
   }
   assert.equal(active.size,0);assert.equal(terminal,1);
-  assert.deepEqual(complete.filter(b=>b.type==='tool_use').map(b=>({id:b.id,name:b.name,input:JSON.parse(b.json)})),calls.map(c=>({id:c.id,name:c.function.name,input:JSON.parse(c.function.arguments)})));
+  assert.deepEqual(complete.filter(b=>b.type==='tool_use').map(b=>({id:b.id,name:b.name,input:JSON.parse(b.json)})),calls.map(c=>({id:c.id,name:c.name,input:c.input})));
   assert.equal(events.find(e=>e.type==='message_delta').delta.stop_reason,'tool_use');
  }
 });

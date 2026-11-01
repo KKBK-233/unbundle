@@ -1,3 +1,4 @@
+import {messageText} from './messages.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -10,7 +11,7 @@ import {historyKey} from './session-history.mjs';
 import {cancelledCheckpointDelta,cancellationBoundary,validCancellationBoundary} from './cancel-checkpoint.mjs';
 
 const env={role:'system',content:'# Environment update\n - Primary working directory: E:\\demo (was E:\\)\n'},user={role:'user',content:'PRIVATE_SYNTHETIC_TASK'},next={role:'user',content:'继续新任务'};
-const call={role:'assistant',content:null,tool_calls:[{id:'completed',type:'function',function:{name:'Bash',arguments:'{"command":"synthetic-only"}'}}]},receipt={role:'tool',tool_call_id:'completed',content:'ACTUAL_RESULT'};
+const call={role:'assistant', content: [{id:'completed', type: 'tool_use', name:'Bash', input: {"command":"synthetic-only"}}]},receipt={role:'user', content:[{type:'tool_result', tool_use_id:'completed', content:'ACTUAL_RESULT'}]};
 const ack=[{role:'user',content:'[Request interrupted by user]'},{role:'assistant',content:'No response requested.'}];
 function cancelled(messages=[user,call,receipt,env],ids=['completed']){
  const s={state:'idle',nativeConfirmed:true,nativeSessionId:'00000000-0000-4000-8000-000000000001',signature:'a'.repeat(64),options:{outputTokens:1024},historyNormalization:true,interrupted:true,cancelConfirmed:true,cancelledReceiptIds:new Set(ids),request:{messages,tools:[]},pendingIds:new Set(),pendingHttp:new Map(),results:new Map(),pendingControls:new Map()};
@@ -31,7 +32,7 @@ test('取消后的目录重排、已确认收据缺失及已完成尾部省略�
  const s=cancelled(),hashKey=Buffer.alloc(32,2);s.history=s.request.messages.map(m=>historyKey(m,{hashKey,exact:true}));const row={...s,cancellation:cancellationBoundary(s)};
  const check=messages=>cancelledCheckpointDelta(row,{messages,tools:[]},{hashKey,allowInstructionUpdates:true});
  assert.deepEqual(check([user,call,receipt,next,env]),[next,env]);
- const missing={role:'tool',tool_call_id:'completed',content:'[Tool result missing due to internal error]',is_error:true};
+ const missing={role:'user', content:[{type:'tool_result', tool_use_id:'completed', content:'[Tool result missing due to internal error]', is_error:true}]};
  assert.deepEqual(check([user,call,missing,env,...ack,next]),[next]);assert.deepEqual(check([user,next,env]),[next,env]);
  for(const messages of [[{...user,content:'changed'},next],[user,call,{...receipt,content:'changed'},env,next],[user,call,{...missing,is_error:false},env,next],[user,call,receipt,env,ack[1],next],[user,call,receipt,env,ack[0],{...ack[1],content:'different'},next]])assert.equal(check(messages),undefined);
  const unknown=cancelled(undefined,[]);unknown.history=s.history;assert.equal(cancelledCheckpointDelta({...unknown,cancellation:cancellationBoundary(unknown)},{messages:[user,call,missing,env,next],tools:[]},{hashKey,allowInstructionUpdates:true}),undefined);
@@ -55,7 +56,7 @@ for(const beforeStart of [false,true])for(const merged of [false,true,'replace',
  const request={model:'synthetic',max_tokens:1024,messages:[user]},controller=new AbortController();
  try{
   relay=sessionRelay(options);const run=relay.infer(request,{signal:controller.signal,timing:{mark:p=>{if(p==='upstream_message_start')ready();},cliEvent:e=>{if(e.type==='system'&&e.subtype==='synthetic_input_accepted')ready();}}}),rejected=assert.rejects(run,{code:'REQUEST_CANCELLED'});await started;controller.abort();await rejected;
-  await relay.close();relay=sessionRelay(options);const result=await relay.infer({...request,messages:merged==='image'?[{role:'user',content:[{type:'text',text:next.content},{type:'image',source:{type:'base64',media_type:'image/png',data:Buffer.from('89504e470d0a1a0a','hex').toString('base64')}}]}]:merged==='replace'?[next]:merged?[{role:'user',content:user.content+'\n\n'+next.content}]:[user,...ack,next]});assert.equal(result.content,'RESUMED');assert.equal(argumentsSeen.length,2);const original=argumentsSeen[0][argumentsSeen[0].indexOf('--session-id')+1];assert.equal(argumentsSeen[1][argumentsSeen[1].indexOf('--resume')+1],original);
+  await relay.close();relay=sessionRelay(options);const result=await relay.infer({...request,messages:merged==='image'?[{role:'user',content:[{type:'text',text:next.content},{type:'image',source:{type:'base64',media_type:'image/png',data:Buffer.from('89504e470d0a1a0a','hex').toString('base64')}}]}]:merged==='replace'?[next]:merged?[{role:'user',content:user.content+'\n\n'+next.content}]:[user,...ack,next]});assert.equal(messageText(result),'RESUMED');assert.equal(argumentsSeen.length,2);const original=argumentsSeen[0][argumentsSeen[0].indexOf('--session-id')+1];assert.equal(argumentsSeen[1][argumentsSeen[1].indexOf('--resume')+1],original);
   const users=frames.filter(f=>f.type==='user');assert.equal(users.length,2);if(merged==='image')assert(users[1].message.content.some(b=>b.type==='image'&&b.source.data===Buffer.from('89504e470d0a1a0a','hex').toString('base64')));assert(!JSON.stringify(users[1]).includes(user.content));assert(!JSON.stringify(users[1]).includes('No response requested.'));
  }finally{await relay?.close({discardFrozen:true});for(const c of children)if(c.exitCode===null&&c.signalCode===null)c.kill('SIGKILL');await fs.rm(home,{recursive:true,force:true});}
 });

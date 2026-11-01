@@ -1,3 +1,4 @@
+import {isUserInput} from './messages.mjs';
 import {createHmac,randomBytes} from 'node:crypto';
 const attemptKey=randomBytes(32);
 import {withoutOutputBudget} from './session-budget.mjs';
@@ -12,7 +13,7 @@ export function automaticRecoveryRequest(session,request,{allowBudgetChange=fals
  if(session.state!=='frozen'||!session.frozenRequest)return;
  const saved=sessionHistory(session.frozenRequest.messages),incoming=sessionHistory(request.messages);
  const tail=incoming.slice(saved.length);
- if(!tail.some(m=>m.role==='user')||!tail.every(m=>['user','system','developer'].includes(m.role)))return;
+ if(!tail.some(isUserInput)||!tail.every(m=>isUserInput(m)||['system','developer'].includes(m.role)))return;
  const envelope=({messages,stream,...rest})=>allowBudgetChange?withoutOutputBudget(rest):rest;
  if(stableJson(envelope(request))!==stableJson(envelope(session.frozenRequest)))return;
  if(saved.some((m,i)=>stableJson(m)!==stableJson(incoming[i])))return;

@@ -130,8 +130,8 @@ def probe(candidate, version, models):
             model = models[key]
             if not re.fullmatch(r'claude-[a-z0-9-]+(?:\[1m\])?', model):
                 raise ValueError('invalid upstream model')
-            output = run(prefix + [folder / 'cloud-probe.mjs', '--self-test', '--anthropic',
-                                  '--images', '--instruction-updates', '--output-tokens=64000',
+            output = run(prefix + [folder / 'cloud-probe.mjs', '--self-test',
+                                  '--images', '--output-tokens=64000',
                                   '--cache-ttl=1h', '--upstream-model=' + model], timeout=130)
             if 'PASS: cloud CLI protocol and stable prompt prefix' not in output:
                 raise RuntimeError('model protocol validation failed')

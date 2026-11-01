@@ -1,3 +1,4 @@
+import {messageText} from './messages.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -32,14 +33,14 @@ for(const persisted of [false,true])for(const sticky of [false,true])test('预�
  try{
   let relay=f.make();const first=await relay.infer(base,context),request=next(first),id=[...f.sessions][0].nativeSessionId;
   if(persisted){await relay.close();relay=f.make();}
-  const index=path.join(f.home,'native-session-index/index.json'),before=await fs.readFile(index,'utf8');
+  const index=path.join(f.home,'native-session-index-v2/index.json'),before=await fs.readFile(index,'utf8');
   await assert.rejects(relay.infer({...request,max_tokens:512},context),{code:'SESSION_OUTPUT_BUDGET_TOO_SMALL'});
   assert.equal(await fs.readFile(index,'utf8'),before);assert.equal(relay.frozenSize,0);
   const second=await relay.infer({...request,max_tokens:2048},context);
-  assert.equal(second.content,'READY');assert.equal([...f.sessions][0].nativeSessionId,id);
+  assert.equal(messageText(second),'READY');assert.equal([...f.sessions][0].nativeSessionId,id);
   assert.deepEqual(f.calls.map(c=>c.budget),persisted?['1024','1024']:['1024']);
   const rows=JSON.parse(await fs.readFile(index,'utf8'));assert.equal(rows[0].outputTokens,1024);
-  await relay.infer({...request,max_tokens:512,max_completion_tokens:4096,messages:[...request.messages,assistantMessage(second),{role:'user',content:'third'}]},context);
+  await relay.infer({...request,max_tokens:4096,messages:[...request.messages,assistantMessage(second),{role:'user',content:'third'}]},context);
   assert.equal(f.calls.length,persisted?2:1);
  }finally{await f.close();}
 });
@@ -48,11 +49,11 @@ test('旧检查点使用 compactSource 预算迁移；预算全缺失时拒绝�
  for(const missing of [false,true]){
   const f=await setup();try{
    let relay=f.make();const first=await relay.infer(base),request=next(first);await relay.close();
-   const file=path.join(f.home,'native-session-index/index.json'),rows=JSON.parse(await fs.readFile(file,'utf8'));
+   const file=path.join(f.home,'native-session-index-v2/index.json'),rows=JSON.parse(await fs.readFile(file,'utf8'));
    delete rows[0].outputTokens;if(missing)delete rows[0].compactSource.outputTokens;
    await fs.writeFile(file,JSON.stringify(rows));const original=await fs.readFile(file,'utf8');relay=f.make();
    if(missing){await assert.rejects(relay.infer({...request,max_tokens:2048}),{code:'SESSION_OUTPUT_BUDGET_UNKNOWN'});assert.equal(await fs.readFile(file,'utf8'),original);}
-   assert.equal((await relay.infer({...request,max_tokens:missing?1024:2048})).content,'READY');
+   assert.equal(messageText((await relay.infer({...request,max_tokens:missing?1024:2048}))),'READY');
    assert.deepEqual(f.calls.map(c=>c.budget),['1024','1024']);
   }finally{await f.close();}
  }
@@ -63,7 +64,7 @@ test('预算提高不绕过模型和旧历史核验',async()=>{
   const relay=f.make(),first=await relay.infer(base),request={...next(first),max_tokens:2048};
   await assert.rejects(relay.infer({...request,model:'different'}));assert.equal(f.calls.length,1);
   await assert.rejects(relay.infer({...request,messages:[{role:'user',content:'changed'},...request.messages.slice(1)]}));assert.equal(f.calls.length,1);
-  assert.equal((await relay.infer(request)).content,'READY');
+  assert.equal(messageText((await relay.infer(request))),'READY');
  }finally{await f.close();}
 });
 
@@ -77,7 +78,7 @@ for(const automatic of [false,true])test('冻结恢复预算拒绝可重试且�
   const request=automatic?{...failed,messages:[...failed.messages,{role:'user',content:'continue'}]}:failed;
   await assert.rejects(relay.infer({...request,max_tokens:512}),{code:'SESSION_OUTPUT_BUDGET_TOO_SMALL'});
   assert.equal(session.state,'frozen');assert.equal(session.automaticRecoveryAttempt,undefined);
-  assert.equal((await relay.infer({...request,max_tokens:2048})).content,'READY');
+  assert.equal(messageText((await relay.infer({...request,max_tokens:2048}))),'READY');
   assert.equal(session.child.pid,pid);assert.equal(session.options.outputTokens,1024);assert.equal(f.calls.length,1);
  }finally{await f.close();}
 });

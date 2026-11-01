@@ -2,8 +2,8 @@ import test from 'node:test';import assert from 'node:assert/strict';import {gat
 const MAX_TOOLS = 512; // 仅用于验证显式部署上限，默认不限制工具数量。
 import { validateRequest } from './request.mjs';
 
-// 通过真实 HTTP 入口核对双字段优先级和两种协议的缺省预算，不调用模型。
-test('输出预算对齐 Sub2API 路径默认值，优先新字段且尊重部署上限', async () => {
+// 通过真实 HTTP 入口核对原生缺省预算和旧字段拒绝，不调用模型。
+test('Messages 输出预算默认值与部署上限一致，拒绝旧协议字段', async () => {
  for (const ceiling of [4096, 128000]) {
   const received = [];
   const server = await gateway({token:'budget-compat',port:0,maxOutputTokens:ceiling,execute:async body=>{
@@ -18,16 +18,16 @@ test('输出预算对齐 Sub2API 路径默认值，优先新字段且尊重部�
    const response = await invoke(route,extra); assert.equal(response.status,status); await response.json();
   };
   try {
-   await check('/v1/chat/completions',{},200);
    await check('/v1/messages',{},200);
-   await check('/v1/chat/completions',{max_tokens:999999,max_completion_tokens:16},200);
+   await check('/v1/messages',{},200);
+   await check('/v1/messages',{max_tokens:999999,max_completion_tokens:16},400);
    await check('/v1/messages',{max_tokens:1},200);
    await check('/v1/messages',{max_tokens:ceiling+1},400);
    await check('/v1/messages',{max_tokens:null},400);
    await check('/v1/messages',{max_tokens:0},400);
-   await check('/v1/chat/completions',{max_tokens:16,max_completion_tokens:ceiling+1},400);
-   await check('/v1/chat/completions',{max_tokens:16,max_completion_tokens:0},400);
-   assert.deepEqual(received,[Math.min(8192,ceiling),ceiling,16,1]);
+   await check('/v1/messages',{max_tokens:16,max_completion_tokens:ceiling+1},400);
+   await check('/v1/messages',{max_tokens:16,max_completion_tokens:0},400);
+   assert.deepEqual(received,[ceiling,ceiling,1]);
    assert.equal(server.activeRequests,0);assert.equal(server.queuedRequests,0);assert.equal(server.inflightBytes,0);
   } finally {await server.close({discardFrozen:true});}
  }
@@ -53,13 +53,13 @@ test('原生入口接受大 MCP 工具集合，超限错误显示实际数量', 
 
 // 默认不再以工具数量拦截连接器；体积限制及名称冲突检查仍生效。
 test('默认接受超过旧工具数量上限，显式限额仍可配置', async () => {
- const tools=Array.from({length:1025},(_,i)=>({type:'function',function:{name:`synthetic_${i}`,parameters:{type:'object'}}}));
+ const tools=Array.from({length:1025},(_,i)=>({name:`synthetic_${i}`, input_schema: {type:'object'}}));
  const received=[];
  const server=await gateway({token:'unlimited-tools',port:0,execute:async body=>{
   received.push(body.tools.length);return {role:'assistant',content:'OK'};
  }});
  try {
-  const response=await fetch(`http://127.0.0.1:${server.port}/v1/chat/completions`,{method:'POST',
+  const response=await fetch(`http://127.0.0.1:${server.port}/v1/messages`,{method:'POST',
    headers:{Authorization:'Bearer unlimited-tools','content-type':'application/json'},
    body:JSON.stringify({model:'claude-code-sonnet',tools,messages:[{role:'user',content:'合成工具集合'}]})});
   assert.equal(response.status,200);await response.json();assert.deepEqual(received,[1025]);
@@ -71,19 +71,19 @@ test('默认接受超过旧工具数量上限，显式限额仍可配置', async
 test('小输出上限原样传递，非法额度仍返回 400', async () => {
  const limits = [];
  const server = await gateway({ token: 'probe-test', port: 0, execute: async body => {
-  limits.push(body.max_tokens ?? body.max_completion_tokens);
+  limits.push(body.max_tokens);
   return { role: 'assistant', content: 'OK' };
  }});
- const invoke = body => fetch(`http://127.0.0.1:${server.port}/v1/chat/completions`, {
+ const invoke = body => fetch(`http://127.0.0.1:${server.port}/v1/messages`, {
   method: 'POST', headers: { Authorization: 'Bearer probe-test', 'content-type': 'application/json' },
   body: JSON.stringify({ model: 'claude-code-sonnet', messages: [{ role: 'user', content: 'probe' }], ...body }),
  });
  try {
-  for (const field of ['max_tokens', 'max_completion_tokens']) {
+  for (const field of ['max_tokens']) {
    for (const limit of [1, 16, 255, 8192]) assert.equal((await invoke({ [field]: limit })).status, 200);
    for (const limit of [0, -1, 1.5, '1', 8193]) assert.equal((await invoke({ [field]: limit })).status, 400);
   }
-  assert.deepEqual(limits, [1, 16, 255, 8192, 1, 16, 255, 8192]);
+  assert.deepEqual(limits, [1, 16, 255, 8192]);
  } finally { await server.close({discardFrozen:true}); }
 });
 test('模型入口认证、显式关闭队列与断线取消',async()=>{
@@ -98,14 +98,14 @@ test('模型入口认证、显式关闭队列与断线取消',async()=>{
   assert.equal((await fetch(base+'/v1/models',{headers:{...headers,Origin:'https://untrusted.invalid'}})).status,403);
   assert.equal((await fetch(base+'/v1/models',{headers})).status,200);
   const body=JSON.stringify({model:'claude-code-sonnet',messages:[{role:'user',content:'hi'}]});
-  const controller=new AbortController();const pending=fetch(base+'/v1/chat/completions',{method:'POST',headers,body,signal:controller.signal});
+  const controller=new AbortController();const pending=fetch(base+'/v1/messages',{method:'POST',headers,body,signal:controller.signal});
   const rejection=assert.rejects(pending,/abort/i);await began;
-  assert.equal((await fetch(base+'/v1/chat/completions',{method:'POST',headers,body})).status,429);
+  assert.equal((await fetch(base+'/v1/messages',{method:'POST',headers,body})).status,429);
   controller.abort();await rejection;await stopped;
   // 打断后必须释放执行槽；下一条插话请求不能被旧请求永久占住。
   for (let i = 0; i < 100 && server.activeRequests; i++) await new Promise(resolve => setTimeout(resolve, 5));
   assert.equal(server.activeRequests, 0);
-  assert.equal((await fetch(base+'/v1/chat/completions',{method:'POST',headers,body})).status, 200);
+  assert.equal((await fetch(base+'/v1/messages',{method:'POST',headers,body})).status, 200);
  }finally{await server.close({discardFrozen:true});}
 });
 
@@ -116,7 +116,7 @@ test('超限请求体返回 413，在场字节总量超额返回 429，且额度
   const server = await gateway({ token: 'bytes', port: 0, maxConcurrent: 2, maxQueued: 2,
     maxRequestBytes: 64 * 1024, maxImageBytes: 32 * 1024, maxInflightBytes: 96 * 1024,
     execute: async () => { started++; await gate; return { role: 'assistant', content: 'OK' }; } });
-  const call = size => fetch(`http://127.0.0.1:${server.port}/v1/chat/completions`, {
+  const call = size => fetch(`http://127.0.0.1:${server.port}/v1/messages`, {
     method: 'POST', headers: { authorization: 'Bearer bytes', 'content-type': 'application/json' },
     body: JSON.stringify({ model: 'claude-code-sonnet', messages: [{ role: 'user', content: 'x'.repeat(size) }] }),
   });
@@ -163,12 +163,12 @@ test('登录错误先返回状态码，流式片段在执行完成前到达且�
  const headers={Authorization:'Bearer stream-test','content-type':'application/json'},base=`http://127.0.0.1:${server.port}`;
  const body=content=>JSON.stringify({model:'claude-code-sonnet',messages:[{role:'user',content}],stream:true});
  try{
-  const denied=await fetch(base+'/v1/chat/completions',{method:'POST',headers,body:body('auth')});
+  const denied=await fetch(base+'/v1/messages',{method:'POST',headers,body:body('auth')});
   assert.equal(denied.status,401);assert.equal((await denied.json()).error.code,'AUTH_REQUIRED');
-  const response=await fetch(base+'/v1/chat/completions',{method:'POST',headers,body:body('stream')});await began;
+  const response=await fetch(base+'/v1/messages',{method:'POST',headers,body:body('stream')});await began;
   const reader=response.body.getReader();let output='';
   while(!output.includes('FIRST')){const part=await reader.read();assert(!part.done);output+=new TextDecoder().decode(part.value);}
   release();while(true){const part=await reader.read();if(part.done)break;output+=new TextDecoder().decode(part.value);}
-  assert.equal(output.split('FIRST').length-1,1);assert(output.includes('[DONE]'));
+  assert.equal(output.split('FIRST').length-1,1);assert(output.includes('event: message_stop'));
  }finally{release();await server.close({discardFrozen:true});}
 });

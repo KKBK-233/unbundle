@@ -4,7 +4,7 @@
 
 Unbundle 是实验性 CLI 适配器：在自己控制的服务器上运行官方 Claude Code CLI，通过加密隧道连接本机的 Claude Code 桌面版（Claude Desktop 的 Code 工作区）。本地工作区、工具执行与审批由调用方掌握，云端网关负责推理请求和协议桥接。
 
-## 1.0 快速安装
+## 快速安装
 
 准备：Debian/Ubuntu x64 VPS、自己的 Claude 订阅、本机 Node.js 22+、OpenSSH 和 tar。复用已有 SSH 密钥或 Host 配置。
 
@@ -33,6 +33,8 @@ npm run doctor
 上述内容说明项目使用建议与支持范围，不代表已经实现客户端识别或设备绑定，也不保证上游账号不会受限，不是新的许可证条款。项目仍处于实验阶段，尚未添加开源许可证。
 
 ## 说明文档
+
+[2.0 架构清理与升级](docs/architecture-cleanup.md)：仅保留 Messages 推理入口，删除旧协议转换和 FRP/OMP 部署路径；升级需结束旧会话并新建会话。此文描述开发分支，稳定安装仍以 `main` 为准。
 
 [系统提示词对比与暂停信息分析](docs/system-prompt-comparison.md)：记录 Unbundle 与 Magpie 默认、Lean 模式的差别及目前能确认的证据范围。
 

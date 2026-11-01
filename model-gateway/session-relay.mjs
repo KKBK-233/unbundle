@@ -1,3 +1,4 @@
+import {isUserInput, isToolReceipt, toolReceipt, toolUses} from './messages.mjs';
 import {reclaimSessionCapacity} from './session-capacity.mjs';
 import {sessionOutputTokens,assertOutputBudget,withoutOutputBudget} from './session-budget.mjs';
 import {automaticRecoveryRequest,automaticRecoveryIdentity} from './automatic-recovery.mjs';
@@ -74,9 +75,11 @@ export function sessionRelay(options, retained) {
       const signatureFor = (outputTokens,toolsHash=compiled.metrics.toolsHash) => createHmac('sha256', matchKey).update(stableJson({ model, outputTokens,
         // 候选仅允许追加指令；旧前缀须逐字节匹配，旧规则修改仍不能复用。
         system: options.liveInstructionUpdates === true ? null : compiled.metrics.systemHash,
-        tools: toolsHash, policy: compiled.policy, effort: request.reasoning_effort || 'auto', stop: request.stop,
+        // 顶层规则属于固定前缀，不能借动态追加模式静默替换。
+        callerSystem: historyKey({role:'system',content:request.system ?? ''},{hashKey:matchKey,exact:true}),
+        tools: toolsHash, policy: compiled.policy, effort: request.output_config?.effort || 'auto', stop: request.stop_sequences,
         cliVersion: store ? options.cliVersion || null : null })).digest('hex');
-      // 保持旧签名算法，用候选 CLI 的实际预算验证身份，再单独检查本轮上限。
+      // 用候选 CLI 的实际预算验证身份，再单独检查本轮上限。
       const signature = signatureFor(outputTokens);
       const matchesSignature = session => session.signature === signatureFor(sessionOutputTokens(session) ?? outputTokens);
       const checkBudget = session => assertOutputBudget(sessionOutputTokens(session) ?? (session.signature === signature ? outputTokens : undefined), outputTokens);
@@ -86,7 +89,7 @@ export function sessionRelay(options, retained) {
         const replay=[...sessions].find(s=>s.affinityHash===affinityHash&&s.state==='idle'&&s.nativeCompactionCommit?.requestKey===replayKey&&s.nativeCompactionCommit.answer);
         if(replay){
           try{options.onSessionEvent?.({type:'native_compaction',event:'summary_replayed',sessionId:replay.sessionId,requestId:timing?.requestId,model_requests:0});}catch{}
-          return {...replay.nativeCompactionCommit.answer,usage:{prompt_tokens:0,completion_tokens:0,total_tokens:0},upstream_usage:{input_tokens:0,output_tokens:0,cache_read_input_tokens:0,cache_creation_input_tokens:0}};
+          return {...replay.nativeCompactionCommit.answer,usage:{input_tokens:0,output_tokens:0,cache_read_input_tokens:0,cache_creation_input_tokens:0}};
         }
         const rejected=[];
         const candidates=[...sessions].filter(s=>s.affinityHash===affinityHash).map(session=>{
@@ -120,7 +123,7 @@ export function sessionRelay(options, retained) {
         if(session.compacting)throw Object.assign(new Error('原生会话正在压缩'),{code:'SESSION_BUSY',status:409,retryable:false});
         session.compacting=true;
         try {
-          const sourceAssistantHash=boundary.sourceAssistantHash||(session.state==='idle'&&!session.pendingIds.size&&session.lastAssistant&&!session.lastAssistant.tool_calls?.length
+          const sourceAssistantHash=boundary.sourceAssistantHash||(session.state==='idle'&&!session.pendingIds.size&&session.lastAssistant&&!toolUses(session.lastAssistant).length
             ?historyKey(session.lastAssistant,{hashKey:store?.key,toolSchemas:session.request.tools}):undefined);
           await store?.checkAffinity(affinityHash);
           await store?.forget(session.nativeSessionId);
@@ -141,7 +144,7 @@ export function sessionRelay(options, retained) {
       if(replay){
         checkBudget(replay);
         try{options.onSessionEvent?.({type:'native_automatic_recovery',sessionId:replay.sessionId,event:'replayed',model_requests:0});}catch{}
-        return {...structuredClone(replay.automaticRecoveryResult.result),usage_complete:true,upstream_usage:{input_tokens:0,output_tokens:0,cache_creation_input_tokens:0,cache_read_input_tokens:0},usage:{prompt_tokens:0,completion_tokens:0,total_tokens:0}};
+        return {...structuredClone(replay.automaticRecoveryResult.result),usage_complete:true,usage:{input_tokens:0,output_tokens:0,cache_creation_input_tokens:0,cache_read_input_tokens:0}};
       }
       if([...sessions].some(s=>s.recoveryInProgress&&s.affinityHash===affinityHash&&(s.recoveryIdentity===retryIdentity(request)||automaticRecoveryRequest({state:'frozen',frozenRequest:s.frozenRequest},request,{allowBudgetChange:true}))))throw recoveryError('SESSION_BUSY','同一会话的恢复仍在进行');
       const cancelled=[...sessions].filter(s=>s.affinityHash===affinityHash&&matchesSignature(s)).flatMap(session=>{
@@ -180,7 +183,7 @@ export function sessionRelay(options, retained) {
         try{
           if(!quarantine||!await session.verifySuspended())throw recoveryError('NATIVE_PROCESS_GONE','原工具等待进程不可确认');
           // 不把缺少回传当作未执行；明确保留执行状态未知，不伪造工具结果。
-          const receipts=delta.filter(m=>m.role==='tool'),context=receipts.length?{role:'user',content:stableJson({kind:'caller_completed_tool_handoff',ids:receipts.map(m=>m.tool_call_id),note:'The actual caller results were saved above. Continue the original caller task from those results; do not repeat completed operations.'})}:cancelledWaitContext(session);
+          const receipts=delta.filter(m=>isToolReceipt(m)),context=receipts.length?{role:'user',content:stableJson({kind:'caller_completed_tool_handoff',ids:receipts.map(m=>toolReceipt(m)?.tool_use_id),note:'The actual caller results were saved above. Continue the original caller task from those results; do not repeat completed operations.'})}:cancelledWaitContext(session);
           await settleFrozenTools(session,receipts,{signal});
           const result=await session.run(request,[context,...recoveryInputMessages(delta)],{signal,onText,timing});
           await store?.releaseQuarantine(quarantine);
@@ -225,7 +228,7 @@ export function sessionRelay(options, retained) {
         const automatic=automaticRecoveryRequest(session,request,{allowBudgetChange:true});
         if(automatic){
           const control=continueRecoveryRequest({state:'frozen',recoveryArmed:true,frozenRequest:session.frozenRequest},request,{allowBudgetChange:true});
-          const tail=control?automatic.tail.filter(m=>m.role!=='user'):automatic.tail;
+          const tail=control?automatic.tail.filter(m=>!isUserInput(m)):automatic.tail;
           return [{session,recoveryRequest:automatic.request,tail,attemptIdentity:automatic.identity,automatic:true}];
         }
         if(session.recoveryArmed&&(session.recoveryIdentity===retryIdentity(request)
@@ -251,7 +254,7 @@ export function sessionRelay(options, retained) {
           if(!await recovering.verifySuspended())throw recoveryError('NATIVE_PROCESS_GONE','原 CLI 已退出或暂停状态不可确认，未重建历史');
           const delta=recoveryDelta(recovering,recoveryRequest,{hashKey:store?.key,allowInstructionUpdates:options.liveInstructionUpdates===true});
           let forward=[...delta,...tail],resumeFrozen=true;
-          if(tail.some(m=>m.role==='user')&&recovering.pendingIds.size){await settleFrozenTools(recovering,delta,{signal});forward=recoveryInputMessages(forward);resumeFrozen=false;}
+          if(tail.some(m=>isUserInput(m))&&recovering.pendingIds.size){await settleFrozenTools(recovering,delta,{signal});forward=recoveryInputMessages(forward);resumeFrozen=false;}
           recovering.recoveryArmed=false;
           const result=await recovering.run(request,forward,{signal,onText,timing,resumeFrozen});
           // 成功交接后才清除原封存记录；失败不能留下已解封却未恢复的状态。
@@ -261,7 +264,7 @@ export function sessionRelay(options, retained) {
           try{await store?.checkpoint(recovering);}catch{try{options.onSessionEvent?.({type:'native_checkpoint_failed',code:'CHECKPOINT_WRITE_FAILED'});}catch{}}
           if(automatic)recovering.automaticRecoveryResult={identity:attemptIdentity,result:structuredClone(result),history:recovering.history,expected:recovering.expected};
           recovering.freezeReason=undefined;recovering.frozenRequest=undefined;
-          try{options.onSessionEvent?.({type:'native_automatic_recovery',sessionId:recovering.sessionId,event:'completed',automatic,historyRebuilt:false,toolsReplayed:false,newUserMessages:tail.filter(m=>m.role==='user').length});}catch{}
+          try{options.onSessionEvent?.({type:'native_automatic_recovery',sessionId:recovering.sessionId,event:'completed',automatic,historyRebuilt:false,toolsReplayed:false,newUserMessages:tail.filter(m=>isUserInput(m)).length});}catch{}
           return result;
         }catch(error){
           if(recovering.state!=='frozen')await recovering.freeze(error.code||'RECOVERY_FAILED',{request});
@@ -339,9 +342,9 @@ export function sessionRelay(options, retained) {
         }
         // 没有可验证的原生等待者时，不把已执行的工具结果交给重建会话猜测续跑。
         const tail = request.messages.filter(message => !['system', 'developer'].includes(message.role));
-        if (options.requireLiveToolContinuation === true && tail.at(-1)?.role === 'tool') {
+        if (options.requireLiveToolContinuation === true && isToolReceipt(tail.at(-1))) {
           const incomingIds=new Set();
-          for(let index=tail.length-1;index>=0&&tail[index].role==='tool';index--)incomingIds.add(tail[index].tool_call_id);
+          for(let index=tail.length-1;index>=0&&isToolReceipt(tail[index]);index--)incomingIds.add(toolReceipt(tail[index])?.tool_use_id);
           const unsafe=[...sessions].filter(session=>session.state==='waiting-tool'&&
             (rejectedBoundarySessions.has(session)||[...session.pendingIds].some(id=>incomingIds.has(id))));
           const archived=await Promise.all(unsafe.map(session=>session.freeze('TOOL_CONTINUATION_UNCERTAIN',{request})));

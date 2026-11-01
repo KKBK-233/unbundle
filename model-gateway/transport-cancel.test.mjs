@@ -51,7 +51,7 @@ for (const native of [false, true]) for (const phase of ['before-text', 'partial
         });
       },
     });
-    const endpoint = native ? '/v1/messages' : '/v1/chat/completions';
+    const endpoint = native ? '/v1/messages' : '/v1/messages';
     const body = messages => JSON.stringify({ model: 'claude-code-sonnet', max_tokens: 256, stream: true, messages });
     const headers = { authorization: 'Bearer synthetic-cancel', 'content-type': 'application/json' };
     try {

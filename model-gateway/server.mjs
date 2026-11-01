@@ -1,9 +1,10 @@
+import {messageText, toolUses} from './messages.mjs';
 import { sessionAffinity } from './session-affinity.mjs';
 import http from 'node:http';
 import { refusalDetails } from './refusal-details.mjs';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { validateRequest } from './request.mjs';
-import { fromAnthropic, anthropicContent, anthropicUsage, anthropicWriter } from './anthropic.mjs';
+import { parseMessagesRequest, anthropicContent, anthropicUsage, anthropicWriter } from './anthropic.mjs';
 import { createTiming } from './timing.mjs';
 import { scheduler } from './scheduler.mjs';
 import { readRequestBody } from './request-body.mjs';
@@ -101,7 +102,7 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
       catch { json(503, { error: { code: 'STATUS_UNAVAILABLE', message: '无法检查云端登录状态' } }); }
       return;
     }
-    if (req.method !== 'POST' || (!anthropic && pathname !== '/v1/chat/completions')) {
+    if (req.method !== 'POST' || !anthropic) {
       json(404, { error: { message: 'Not found', code: 'ROUTE_NOT_FOUND' } });
       return;
     }
@@ -152,7 +153,7 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
         body = JSON.parse(raw);
         raw = '';
       } catch { buffer = undefined; json(400, { error: { message: 'Invalid JSON', code: 'INVALID_JSON' } }); return; }
-      if (anthropic) body = fromAnthropic(body, { defaultMaxTokens: Math.min(128000, maxOutputTokens) });
+      body = parseMessagesRequest(body, { defaultMaxTokens: Math.min(128000, maxOutputTokens) });
       // 在参数验证与执行前统一官方 ID，旧会话仍可沿用原入口。
       if (body && Object.hasOwn(modelAliases, body.model)) body = { ...body, model: modelAliases[body.model] };
       const affinity = sessionAffinity(req.headers);
@@ -166,11 +167,8 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
         return;
       }
 
-      const id = `chatcmpl-${randomUUID()}`;
       const nativeId = `msg_${randomUUID().replaceAll('-', '')}`;
-      timing.bindResponse(anthropic ? nativeId : id, anthropic ? 'anthropic' : 'chat_completions');
-      const created = Math.floor(Date.now() / 1000);
-      const chunk = (delta, finish = null, metadata = {}) => res.write(`data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created, model: body.model, choices: [{ index: 0, delta, finish_reason: finish }], ...metadata })}\n\n`);
+      timing.bindResponse(nativeId, 'anthropic');
       timing.mark('request_validated');
       const requestFingerprint = outputGuard.fingerprint(body, outputTokens);
       let quotaBlocked = quotaGuard.check();
@@ -198,24 +196,15 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
 
       let streamed = false, visibleText = false;
       if (body.stream) {
-        if (anthropic) { nativeWriter = anthropicWriter(res, nativeId, body.model); nativeWriter.start(); timing.onUsage=usage=>nativeWriter.usage(usage); }
-        else {
-          res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
-          chunk({ role: 'assistant' });
-        }
-        // Anthropic 入口发送原生 ping，长思考期间也能被客户端空闲检测识别。
-        heartbeat = setInterval(() => {
-          if (nativeWriter) nativeWriter.ping();
-          else res.write(': heartbeat\n\n');
-        }, 10000);
+        nativeWriter=anthropicWriter(res,nativeId,body.model);nativeWriter.start();timing.onUsage=usage=>nativeWriter.usage(usage);
+        heartbeat=setInterval(()=>nativeWriter.ping(),10000);
       }
       const emitText = text => {
         if (text?.trim()) visibleText = true;
         if (text) timing.mark('first_text');
         if (body.stream && !controller.signal.aborted && text) {
           streamed = true;
-          if (nativeWriter) nativeWriter.text(text);
-          else chunk({ content: text });
+          nativeWriter.text(text);
         }
       };
       let execution;
@@ -234,32 +223,19 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
       const stoppedEmpty = execution !== original;
       if (stoppedEmpty) {
         timing.mark('empty_output_limit_stopped');
-        throw guardFailure(execution.content, 'EMPTY_OUTPUT_LIMIT', original);
-      } else if (execution.content) timing.mark('first_text');
-      if (execution.tool_calls?.length) timing.mark('first_tool');
+        throw guardFailure(messageText(execution), 'EMPTY_OUTPUT_LIMIT', original);
+      } else if (messageText(execution)) timing.mark('first_text');
+      if (toolUses(execution).length) timing.mark('first_tool');
       if (controller.signal.aborted) return;
       // 仅表示准备发回客户端，不声称客户端已收到或已执行工具。
-      timing.toolHandoff(execution.tool_calls);
+      timing.toolHandoff(toolUses(execution));
       // 用量放在响应顶层，避免 Harness 把统计字段写进 assistant 历史。
-      const { usage, upstream_usage, usage_complete, finish_reason, stop_sequence, stop_reason, stop_details, ...message } = execution;
-      const details = stop_reason === 'refusal' ? refusalDetails(stop_details) : undefined;
-      const refusalMetadata = details === undefined ? {} : { stop_details: details };
-      const statistics = { ...(usage ? { usage } : {}), ...(upstream_usage ? { upstream_usage, usage_complete } : {}) };
-
-      const finish = stop_reason === 'refusal' ? 'content_filter' : finish_reason === 'length' ? 'length' : message.tool_calls?.length ? 'tool_calls' : 'stop';
-      if (anthropic) {
-        const reason = stop_reason === 'refusal' ? 'refusal' : stop_sequence !== undefined ? 'stop_sequence' : finish === 'length' ? 'max_tokens' : finish === 'tool_calls' ? 'tool_use' : 'end_turn';
-        if (body.stream) nativeWriter.finish(execution, reason);
-        else json(200, { id: nativeId, type: 'message', role: 'assistant', model: body.model, content: anthropicContent(execution), stop_reason: reason, stop_sequence: stop_sequence ?? null, ...refusalMetadata, usage: anthropicUsage(execution) });
-      } else if (body.stream) {
-        if (message.content && !streamed) chunk({ content: message.content });
-        if (message.tool_calls) chunk({ tool_calls: message.tool_calls.map((call, index) => ({ index, ...call })) });
-        chunk({}, finish, refusalMetadata);
-        if (body.stream_options?.include_usage && usage) res.write(`data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created, model: body.model, choices: [], ...statistics })}\n\n`);
-        res.end('data: [DONE]\n\n');
-      } else {
-        json(200, { id, object: 'chat.completion', created, model: body.model, choices: [{ index: 0, message, finish_reason: finish }], ...refusalMetadata, ...statistics });
-      }
+      const {stop_reason,stop_sequence,stop_details}=execution;
+      const details=stop_reason==='refusal'?refusalDetails(stop_details):undefined;
+      const reason=stop_reason==='refusal'?'refusal':stop_sequence!==undefined?'stop_sequence':stop_reason==='max_tokens'?'max_tokens':toolUses(execution).length?'tool_use':'end_turn';
+      if(body.stream)nativeWriter.finish(execution,reason);
+      else json(200,{id:nativeId,type:'message',role:'assistant',model:body.model,content:anthropicContent(execution),stop_reason:reason,stop_sequence:stop_sequence??null,
+        ...(details===undefined?{}:{stop_details:details}),usage:anthropicUsage(execution)});
       outcome = 'success';
       if (stop_reason === 'refusal') timing.mark('response_refusal');
       timing.mark('response_complete');
@@ -279,7 +255,7 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
         if (!res.headersSent && error.retryable === false) res.setHeader('x-should-retry', 'false');
         if (res.headersSent) {
           if (nativeWriter) nativeWriter.error(error);
-          else { res.write(`data: ${JSON.stringify({ error: failure.error })}\n\n`); res.end(); }
+          else res.end();
         } else json(failure.status, { error: failure.error });
       }
     } finally {

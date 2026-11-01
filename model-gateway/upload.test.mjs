@@ -8,7 +8,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 function open(server, length) {
   let resolve, reject;
   const response = new Promise((yes, no) => { resolve = yes; reject = no; });
-  const req = http.request({ hostname: '127.0.0.1', port: server.port, path: '/v1/chat/completions', method: 'POST',
+  const req = http.request({ hostname: '127.0.0.1', port: server.port, path: '/v1/messages', method: 'POST',
     headers: { authorization: 'Bearer upload-test', 'content-type': 'application/json', 'content-length': length } }, res => {
     let raw = ''; res.on('data', chunk => raw += chunk); res.on('error', reject);
     res.on('end', () => resolve({ status: res.statusCode, raw, headers: res.headers }));

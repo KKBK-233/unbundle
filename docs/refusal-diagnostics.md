@@ -1,15 +1,15 @@
 # 拒绝响应与日志排查
 
-本分支移植上游 1.0.7/1.0.8 的修复，逐轮 CLI 与原生会话均识别流式 `message_delta.delta.stop_reason` 和完整 `assistant.message.stop_reason` 中的 `refusal`。拒绝作为正常终止响应交付，保留正文和已收到的用量；没有正文时也保留拒绝状态。网关不会自行重试拒绝，未交付的工具调用不交付，排队的后续输出不覆盖拒绝。原生会话结束该 CLI 进程，不复用尚未完成结果事件的进程。启用原生持久化时，正常退出落盘后为已交付的拒绝保存检查点；下一条消息使用同一 UUID 原生恢复，只发送新增输入。
+网关自 1.0.7/1.0.8 起保留拒绝响应，逐轮 CLI 与原生会话均识别流式 `message_delta.delta.stop_reason` 和完整 `assistant.message.stop_reason` 中的 `refusal`。拒绝作为正常终止响应交付，保留正文和已收到的用量；没有正文时也保留拒绝状态。网关不会自行重试拒绝，未交付的工具调用不交付，排队的后续输出不覆盖拒绝。原生会话结束该 CLI 进程，不复用尚未完成结果事件的进程。启用原生持久化时，正常退出落盘后为已交付的拒绝保存检查点；下一条消息使用同一 UUID 原生恢复，只发送新增输入。
 
 - Anthropic `/v1/messages`：HTTP 200，非流式顶层或 SSE `message_delta.delta` 返回 `stop_reason: "refusal"`。
-- 兼容 `/v1/chat/completions`：流式和非流式均映射为 `finish_reason: "content_filter"`，不在 assistant 消息内附加内部状态字段。
+- 2.0 已移除 `/v1/chat/completions`；不再生成另一套停止原因。
 - 强制工具选择不能把明确拒绝改写成 `TOOL_CHOICE_UNSATISFIED`。
 - 正文中的“不能回答”“被安全机制拦截”等措辞不会被推断成协议拒绝。
 
 ## 拒绝原因交付
 
-1.0.11 起，两种 CLI 路线均保留上游 `stop_details.category` 和 `stop_details.explanation`。Anthropic 非流式响应放在顶层，流式放在 `message_delta.delta.stop_details`；兼容 Chat Completions 放在响应顶层或结束 SSE 帧顶层，不混入 assistant 正文或历史。仅明确 refusal 交付这些字段，缺失时不补猜，显式 null 保留。
+1.0.11 起，两种 CLI 路线均保留上游 `stop_details.category` 和 `stop_details.explanation`。Anthropic 非流式响应放在顶层，流式放在 `message_delta.delta.stop_details`，不混入 assistant 正文或历史。仅明确 refusal 交付这些字段，缺失时不补猜，显式 null 保留。
 
 原因说明沿用诊断脱敏规则，最多 512 字符；不转发恢复信用令牌、账号凭据或未知嵌套字段，不自动切换模型或重试拒绝。此前客户端显示空值，可能只是转换链路没有传递原因；先核对同一请求的 `gateway_cli_event.message_end`，不能由本地空值认定上游未提供分类。
 

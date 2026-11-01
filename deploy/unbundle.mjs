@@ -132,12 +132,17 @@ async function prepare(options) {
   return profile;
 }
 
+// 打包当前安装源；固定清单避免夹带本地配置和登录文件。
+export async function packageSource(archive) {
+  await execute('tar', ['-czf', archive, '--exclude=__pycache__', '--exclude=*.pyc', 'model-gateway', 'deploy', 'package.json', 'package-lock.json']);
+}
+
 async function install(options) {
   const profile = await prepare(options);
   const folder = profileDir(options.profile);
   // 只打包明确列出的程序，不上传 .local、用户配置、SSH 私钥或 Claude 登录文件。
   const archive = path.join(folder, 'source.tar.gz');
-  await execute('tar', ['-czf', archive, '--exclude=__pycache__', '--exclude=*.pyc', 'model-gateway', 'src', 'deploy', 'package.json', 'package-lock.json']);
+  await packageSource(archive);
   const remote = (command, extra) => sshCommand(profile, command, extra);
   const stateFile = path.join(folder, 'install-state.json');
   const saved = await exists(stateFile) ? JSON.parse(await fs.readFile(stateFile, 'utf8')) : {};

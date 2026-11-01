@@ -1,3 +1,4 @@
+import {messageText} from './messages.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -123,7 +124,7 @@ test('落盘失败只报告错误，观察器仍正常结束', async t => {
 test('infer 自动落盘且等待合成异常输出完成，不修改 CLI 参数或输入', async t => {
   const { root, directory } = await setup(t);
   const output = [];
-  const result = await infer({ model: 'claude-code-opus', reasoning_effort: 'high', messages: [{ role: 'user', content: 'SYNTHETIC_USER' }] },
+  const result = await infer({model: 'claude-code-opus', messages: [{ role: 'user', content: 'SYNTHETIC_USER' }], output_config: {effort:'high'}},
     { home: path.join(root, 'home'), cli: 'mock', model: 'mock', anomalyDir: directory, cliVersion: '2.1.291', onText: value => output.push(value),
       spawnProcess(_cli, args, options) {
         assert.equal(args[args.indexOf('--effort') + 1], 'high');
@@ -143,8 +144,8 @@ test('infer 自动落盘且等待合成异常输出完成，不修改 CLI 参数
           },50);
         `], options);
       } });
-  assert.equal(result.content, '<thinking>SYNTHETIC_COMPLETED</thinking>');
-  assert.equal(output.join(''), result.content);
+  assert.equal(messageText(result), '<thinking>SYNTHETIC_COMPLETED</thinking>');
+  assert.equal(output.join(''), messageText(result));
   const files = await fs.readdir(directory); assert.equal(files.length, 1);
   const record = JSON.parse(await fs.readFile(path.join(directory, files[0]), 'utf8'));
   assert.equal(record.summary.outcome, 'completed'); assert.equal(record.context.effort, 'high');

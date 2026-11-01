@@ -1,3 +1,4 @@
+import {messageText, isUserInput, isToolReceipt, toolReceipt, toolUses, pureText} from './messages.mjs';
 import {sessionHistory,historyKey,cancelledUserTextLength,splitCancelledUserMessage,transientRecap,replacementUserInput} from './session-history.mjs';
 import {callerRuntimeStatus} from './runtime-status.mjs';
 
@@ -5,19 +6,19 @@ import {callerRuntimeStatus} from './runtime-status.mjs';
 export function cancellationBoundary(session) {
   if(session.interrupted!==true||session.cancelConfirmed!==true)return;
   const messages=sessionHistory(session.request.messages),ids=session.cancelledReceiptIds||new Set();
-  const receipts=messages.flatMap((m,index)=>m.role==='tool'&&ids.has(m.tool_call_id)?[{index,id:m.tool_call_id}]:[]);
+  const receipts=messages.flatMap((m,index)=>isToolReceipt(m)&&ids.has(toolReceipt(m)?.tool_use_id)?[{index,id:toolReceipt(m)?.tool_use_id}]:[]);
   if(receipts.length>256)return;
   const boundary={version:1,trailingEnvironment:callerRuntimeStatus(messages.at(-1)||{})?.type==='environment',receipts};
   const lastUserTextLength=cancelledUserTextLength(messages);
   if(lastUserTextLength!==undefined)boundary.lastUserTextLength=lastUserTextLength;
   if(transientRecap(messages.at(-1)))boundary.transientRecap=true;
   if(replacementUserInput(messages.at(-1)))boundary.cancelledUserInput=true;
-  const index=messages.findLastIndex(m=>m.role==='assistant'),assistant=messages[index],calls=assistant?.tool_calls||[];
-  const callIds=new Set(calls.map(c=>c.id)),tail=messages.slice(index+1),results=tail.filter(m=>m.role==='tool');
+  const index=messages.findLastIndex(m=>m.role==='assistant'),assistant=messages[index],calls=toolUses(assistant);
+  const callIds=new Set(calls.map(c=>c.id)),tail=messages.slice(index+1),results=tail.filter(m=>isToolReceipt(m));
   if(index>=0&&calls.length&&callIds.size===calls.length&&calls.every(c=>ids.has(c.id))
-    &&(assistant.content==null||typeof assistant.content==='string'&&!assistant.content.trim())
-    &&results.length===callIds.size&&new Set(results.map(m=>m.tool_call_id)).size===callIds.size
-    &&tail.every(m=>m.role==='tool'&&callIds.has(m.tool_call_id)||callerRuntimeStatus(m)?.type==='environment')){
+    &&!messageText(assistant).trim()
+    &&results.length===callIds.size&&new Set(results.map(m=>toolReceipt(m)?.tool_use_id)).size===callIds.size
+    &&tail.every(m=>isToolReceipt(m)&&callIds.has(toolReceipt(m)?.tool_use_id)||callerRuntimeStatus(m)?.type==='environment')){
     let start=index;while(start>0&&callerRuntimeStatus(messages[start-1])?.type==='environment')start--;
     boundary.completedTailStart=start;
   }
@@ -42,7 +43,7 @@ export function cancelledCheckpointDelta(row,request,{hashKey,allowInstructionUp
   const match=(hash,index)=>{
     const actual=messages[index];if(!actual)return false;if(key(actual)===hash)return true;
     const receipt=row.cancellation.receipts.find(r=>r.index===index);
-    return receipt&&key({role:'tool',tool_call_id:receipt.id,content:'[Tool result missing due to internal error]',is_error:true})===key(actual);
+    return receipt&&key({role:'user', content:[{type:'tool_result', tool_use_id:receipt.id, content:'[Tool result missing due to internal error]', is_error:true}]})===key(actual);
   };
   const actual=messages[row.history.length-1];
   if(row.cancellation.cancelledUserInput&&messages.length===row.history.length&&row.history.every(match))return [actual];
@@ -53,8 +54,8 @@ export function cancelledCheckpointDelta(row,request,{hashKey,allowInstructionUp
     if(messages.length<=length||!row.history.slice(0,length).every(match))continue;
     let delta=messages.slice(length);
     // Desktop 的本地停止回执不是模型回复；只在已经确认取消的边界接受完整固定二元组。
-    const plain=(m,role,text)=>m?.role===role&&m.content===text&&Object.keys(m).every(k=>['role','content'].includes(k));
+    const plain=(m,role,text)=>m?.role===role&&pureText(m)===text&&Object.keys(m).every(k=>['role','content'].includes(k));
     if(plain(delta[0],'user','[Request interrupted by user]')&&plain(delta[1],'assistant','No response requested.'))delta=delta.slice(2);
-    if(delta.some(m=>m.role==='user')&&delta.every(m=>m.role==='user'||callerRuntimeStatus(m)?.type==='environment'||allowInstructionUpdates&&['system','developer'].includes(m.role)))return delta;
+    if(delta.some(m=>isUserInput(m))&&delta.every(m=>isUserInput(m)||callerRuntimeStatus(m)?.type==='environment'||allowInstructionUpdates&&['system','developer'].includes(m.role)))return delta;
   }
 }

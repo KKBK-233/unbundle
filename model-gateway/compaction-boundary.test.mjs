@@ -1,3 +1,4 @@
+import {toolReceipt} from './messages.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {compactionBoundary,compactionIntent} from './compaction-boundary.mjs';
@@ -17,11 +18,11 @@ test('普通用户摘要要求、外来历史、模型变化和冻结会话均�
 });
 test('等待工具的摘要请求必须带齐对应真实结果，重复和错配结果拒绝',()=>{
  const s={...session,state:'waiting-tool',pendingIds:new Set(['tool'])};
- const receipt={role:'tool',tool_call_id:'tool',content:'actual receipt'};
+ const receipt={role:'user', content:[{type:'tool_result', tool_use_id:'tool', content:'actual receipt'}]};
  assert.equal(compactionBoundary(s,request),undefined);
  assert.deepEqual(compactionBoundary(s,{...request,messages:[system,user,assistant,receipt,prompt]}),{prompt,receipts:[receipt]});
  assert.equal(compactionBoundary(s,{...request,messages:[system,user,assistant,receipt,receipt,prompt]}),undefined);
- assert.equal(compactionBoundary(s,{...request,messages:[system,user,assistant,{...receipt,tool_call_id:'other'},prompt]}),undefined);
+ assert.equal(compactionBoundary(s,{...request,messages:[system,user,assistant,{...receipt, content:[{...toolReceipt(receipt),tool_use_id:'other'}]},prompt]}),undefined);
 });
 
 test('真实 Desktop 压缩形态保留原系统与工具，末尾状态消息不遮住摘要要求',()=>{
