@@ -9,9 +9,12 @@ import { infer } from './engine.mjs';
 import { sessionRelay } from './session-relay.mjs';
 import { gateway } from './server.mjs';
 import { createTiming } from './timing.mjs';
+import { refusalDetails } from './refusal-details.mjs';
 
 const stream = event => ({ type: 'stream_event', event });
-const refusal = { type: 'assistant', message: { id: 'refused', content: [{ type: 'text', text: 'DECLINED' }], stop_reason: 'refusal', usage: { input_tokens: 10, output_tokens: 2 } } };
+const details = { category: 'cyber', explanation: 'Synthetic policy explanation' };
+const refusal = { type: 'assistant', message: { id: 'refused', content: [{ type: 'text', text: 'DECLINED' }], stop_reason: 'refusal',
+  stop_details: { ...details, fallback_credit_token: 'PRIVATE_CREDIT', nested: { token: 'PRIVATE_TOKEN' } }, usage: { input_tokens: 10, output_tokens: 2 } } };
 const tool = { type: 'function', function: { name: 'read', parameters: { type: 'object', properties: {} } } };
 
 // 覆盖拒绝终止、错误占位、空正文与已收集工具，禁止将拒绝后的续写混入回复。
@@ -26,11 +29,12 @@ test('拒绝封存文本和用量、取消未交付工具；正文拒绝不冒�
   events.accept(stream({ type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'call', name: 'mcp__omp__read', input: {} } }));
   events.accept(stream({ type: 'content_block_stop', index: 1 }));
   events.accept(stream({ type: 'content_block_start', index: 2, content_block: { type: 'tool_use', id: 'partial', name: 'mcp__omp__read' } }));
-  events.accept(stream({ type: 'message_delta', delta: { stop_reason: 'refusal' }, usage: { output_tokens: 2 } }));
+  events.accept(stream({ type: 'message_delta', delta: { stop_reason: 'refusal', stop_details: refusal.message.stop_details }, usage: { output_tokens: 2 } }));
   events.accept(refusal);
   events.accept(stream({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'LEAK' } }));
   events.accept(stream({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 99 } }));
   assert.equal(events.refused, true);
+  assert.deepEqual(events.stopDetails, details);
   assert.equal(events.text, 'DECLINED');
   assert.equal(events.calls.size, 0); assert.equal(events.blocks.size, 0); assert.equal(events.toolEnd, false);
   assert.equal(events.usage().usage.completion_tokens, 2);
@@ -38,9 +42,24 @@ test('拒绝封存文本和用量、取消未交付工具；正文拒绝不冒�
   const plain = new CliEvents([]);
   plain.accept({ ...refusal, message: { ...refusal.message, stop_reason: 'end_turn' } });
   assert.equal(plain.refused, false);
+  assert.equal(plain.stopDetails, undefined);
   const empty = new CliEvents([]);
   empty.accept({ ...refusal, message: { ...refusal.message, content: [] } });
   assert.equal(empty.refused, true); assert.equal(empty.text, '');
+});
+
+// 缺失原因不补猜，显式空值保留，凭据及恢复信用字段不能借诊断对象泄露。
+test('拒绝原因保留空值和未来类别，校验对象并过滤敏感或未知字段', () => {
+  assert.equal(refusalDetails(undefined), undefined);
+  assert.equal(refusalDetails(null), null);
+  for (const value of [[], 'cyber', {}, { fallback_credit_token: 'PRIVATE' }, { category: {} }]) assert.equal(refusalDetails(value), undefined);
+  assert.deepEqual(refusalDetails({ category: null, explanation: null }), { category: null, explanation: null });
+  assert.deepEqual(refusalDetails({ category: 'future_category', explanation: 'Bearer PRIVATE_SECRET https://example.invalid/private', other: 'PRIVATE' }),
+    { category: 'future_category', explanation: '[REDACTED] [URL]' });
+  const events = new CliEvents([]);
+  events.accept(stream({ type: 'message_delta', delta: { stop_reason: 'refusal' } }));
+  events.accept(refusal);
+  assert.equal(events.stopDetails, undefined);
 });
 
 test('拒绝诊断立即输出并保留到完成记录，未知字段不进入日志', () => {
@@ -64,7 +83,7 @@ for (const native of [false, true]) for (const full of [false, true]) {
         ${full ? `emit(${JSON.stringify(refusal)});` : `
         emit({type:'stream_event',event:{type:'message_start',message:{id:'refused',usage:{input_tokens:10,output_tokens:0}}}});
         emit({type:'stream_event',event:{type:'content_block_delta',delta:{type:'text_delta',text:'DECLINED'}}});
-        emit({type:'stream_event',event:{type:'message_delta',delta:{stop_reason:'refusal'},usage:{output_tokens:2}}});`}
+        emit({type:'stream_event',event:{type:'message_delta',delta:{stop_reason:'refusal',stop_details:${JSON.stringify(refusal.message.stop_details)}},usage:{output_tokens:2}}});`}
         emit({type:'stream_event',event:{type:'content_block_delta',delta:{type:'text_delta',text:'LEAK'}}});
         emit({type:'stream_event',event:{type:'message_delta',delta:{stop_reason:'end_turn'},usage:{output_tokens:99}}});
       }); setInterval(()=>{},1000);`;
@@ -82,14 +101,19 @@ for (const native of [false, true]) for (const full of [false, true]) {
         const wire = await response.text();
         assert.equal(response.status, 200, wire);
         assert(wire.includes('DECLINED')); assert(!wire.includes('LEAK')); assert(!wire.includes('TOOL_CHOICE_UNSATISFIED'));
+        assert(!wire.includes('PRIVATE')); assert(!wire.includes('fallback_credit_token'));
         if (streaming) {
           assert(wire.includes(anthropic ? '"stop_reason":"refusal"' : '"finish_reason":"content_filter"'));
           assert(wire.includes(anthropic ? 'event: message_stop' : 'data: [DONE]'));
+          const frames = wire.split('\n').filter(line => line.startsWith('data: {')).map(line => JSON.parse(line.slice(6)));
+          const last = frames.find(frame => anthropic ? frame.type === 'message_delta' : frame.choices?.[0]?.finish_reason === 'content_filter');
+          assert.deepEqual(anthropic ? last.delta.stop_details : last.stop_details, details);
         } else {
           const value = JSON.parse(wire);
           assert.equal(anthropic ? value.stop_reason : value.choices[0].finish_reason, anthropic ? 'refusal' : 'content_filter');
           assert.equal(anthropic ? value.usage.output_tokens : value.usage.completion_tokens, 2);
-          if (!anthropic) assert.equal(value.choices[0].message.stop_reason, undefined);
+          assert.deepEqual(value.stop_details, details);
+          if (!anthropic) { assert.equal(value.choices[0].message.stop_reason, undefined); assert.equal(value.choices[0].message.stop_details, undefined); }
         }
       }
       const finished = rows.filter(row => row.stage === 'finished');

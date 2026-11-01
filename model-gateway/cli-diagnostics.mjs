@@ -1,5 +1,7 @@
 import { performance } from 'node:perf_hooks';
 import { toolDiagnostics } from './tool-diagnostics.mjs';
+import { refusalExplanation } from './refusal-details.mjs';
+export { refusalExplanation } from './refusal-details.mjs';
 
 const stops = new Set(['end_turn', 'max_tokens', 'stop_sequence', 'tool_use', 'pause_turn', 'refusal', 'model_context_window_exceeded']);
 const lifecycle = new Set(['refusal_continuation', 'refusal_no_fallback', 'fallback_request', 'server_fallback', 'query_model_change', 'streaming_fallback_began', 'tombstone']);
@@ -11,20 +13,6 @@ const label = value => typeof value === 'string' && /^[a-z][a-z0-9_]{0,63}$/.tes
 const integer = value => Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 const defined = value => Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined));
 const enumValue = (value, values) => values.includes(value) ? value : undefined;
-
-// 原因说明是上游诊断字段，不读取正文；限长并移除常见凭据、URL、控制字符及长编码串。
-export function refusalExplanation(value) {
-  if (typeof value !== 'string') return undefined;
-  const text = value.slice(0, 8192)
-    .replace(/-----BEGIN[\s\S]*?(?:-----END[^\r\n]*|$)/g, '[REDACTED]')
-    .replace(/(?:https?|wss?):\/\/[^\s<>"']+/gi, '[URL]')
-    .replace(/\b(?:Bearer|Basic)\s+[^\s,;"']+/gi, '[REDACTED]')
-    .replace(/\b(?:sk-ant-[A-Za-z0-9_-]+|sk-[A-Za-z0-9_-]{12,}|eyJ[A-Za-z0-9_.-]{20,})/g, '[REDACTED]')
-    .replace(/\b(?:authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|fallback_credit_token|creditCode|password)\b["']?\s*[:=]\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;]+)/gi, '[REDACTED]')
-    .replace(/[A-Za-z0-9_+/=-]{64,}/g, '[REDACTED]')
-    .replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ');
-  return text.slice(0, 512);
-}
 
 // 独立观察 CLI 原始事件；不改变回复、会话状态或重试，只保留诊断白名单。
 export function cliDiagnostics({ requestId, sink, maxRecords = 256, maxPriorityRecords = 64 } = {}) {
