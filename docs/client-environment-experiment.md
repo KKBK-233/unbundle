@@ -119,3 +119,8 @@ GATEWAY_SESSION_RELAY=0
 详细日志和普通元数据日志增加 `cli_environment_adjusted`，只记移除字段数、前后字节数与哈希。响应 SSE、429 等上游状态和取消信号保持传递。适配器在请求结束/取消时关闭；CLI 原二进制不修改。
 
 模拟验收入口：`node model-gateway/prompt-environment-probe.mjs --self-test --client-environment --output=/独立目录`。它使用真实 CLI 与合成输入，检查最终请求不含云端 cwd，历史和规则保持完整，并验证工具调用及续接。
+
+
+修正后的真实 CLI 模拟上游验收：standard/minimal 各测试工具调用与续接，共四次，最终请求均无云端 cwd。GLM 候选服务另外通过文本、工具及续接三轮；初始 Windows 目录与会话内目录更新两例均只返回一次正确的 Read（offset=1、limit=3），没有发起环境探查命令。两个短任务不能用于量化此前复杂审计任务的 token 浪费。
+
+适配器保留实际 CLI 的 User-Agent，只替换出口认证；未知 CLI 版本在服务启动时拒绝启用修正。回环入口不监听公网，取消时关闭正在进行的上游请求。

@@ -76,7 +76,7 @@ export async function createGlmEnvironmentAdapter({upstream, cwd, model, signal,
       const adjusted = removeCliMachineFacts(input, {cwd, model, required:route.pathname === '/v1/messages'});
       if (adjusted.observation) {try {onAdjustment?.(adjusted.observation);} catch {}}
       const headers = {'content-type':'application/json', authorization:`Bearer ${upstream.token}`};
-      for (const name of ['anthropic-version', 'anthropic-beta', 'accept']) if (typeof req.headers[name] === 'string') headers[name] = req.headers[name];
+      for (const name of ['anthropic-version', 'anthropic-beta', 'accept', 'user-agent']) if (typeof req.headers[name] === 'string') headers[name] = req.headers[name];
       const response = await fetch(target.href.replace(/\/$/, '') + route.pathname + route.search,
         {method:'POST', headers, body:JSON.stringify(adjusted.body), signal:controller.signal, redirect:'error'});
       // 不透传 hop-by-hop 或压缩长度头；fetch 已经解压响应，SSE 内容保持原样。

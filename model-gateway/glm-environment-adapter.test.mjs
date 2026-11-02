@@ -42,17 +42,17 @@ test('GLM 适配器鉴权并保留 SSE、工具结果、上游错误和计数路
  const seen=[],observations=[];let mode='stream';
  const upstream=await fixture(async(req,res)=>{
   let raw='';for await(const chunk of req)raw+=chunk;
-  seen.push({url:req.url,authorization:req.headers.authorization,body:JSON.parse(raw)});
+  seen.push({url:req.url,authorization:req.headers.authorization,userAgent:req.headers['user-agent'],body:JSON.parse(raw)});
   if(mode==='error'){res.writeHead(429,{'content-type':'application/json','retry-after':'3'}).end('{"error":{"type":"rate_limit_error","message":"fixture limit"}}');return;}
   if(req.url.startsWith('/v1/messages/count_tokens')){res.end('{"input_tokens":123}');return;}
   res.writeHead(200,{'content-type':'text/event-stream'});res.write('event: message_start\ndata: {"type":"message_start"}\n\n');res.end('event: message_stop\ndata: {"type":"message_stop"}\n\n');
  });
  const adapter=await createGlmEnvironmentAdapter({upstream:{...upstream,token:'synthetic-upstream-key'},cwd,model,testOnly:true,onAdjustment:o=>observations.push(o)});
- const invoke=(url='/v1/messages?beta=true',token=adapter.token,body=request())=>fetch(adapter.baseUrl+url,{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify(body)});
+ const invoke=(url='/v1/messages?beta=true',token=adapter.token,body=request())=>fetch(adapter.baseUrl+url,{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json','user-agent':'claude-code/synthetic'},body:JSON.stringify(body)});
  try{
   const denied=await invoke('/v1/messages','wrong');assert.equal(denied.status,401);await denied.text();assert.equal(seen.length,0);
   const response=await invoke();assert.equal(response.status,200);assert.equal(await response.text(),'event: message_start\ndata: {"type":"message_start"}\n\nevent: message_stop\ndata: {"type":"message_stop"}\n\n');
-  assert.equal(seen[0].authorization,'Bearer synthetic-upstream-key');assert.equal(seen[0].url,'/v1/messages?beta=true');
+  assert.equal(seen[0].authorization,'Bearer synthetic-upstream-key');assert.equal(seen[0].userAgent,'claude-code/synthetic');assert.equal(seen[0].url,'/v1/messages?beta=true');
   assert(!seen[0].body.messages.at(-1).content[0].text.includes(cwd));assert.equal(observations.length,1);
   mode='error';const error=await invoke();assert.equal(error.status,429);assert.equal(error.headers.get('retry-after'),'3');assert((await error.text()).includes('fixture limit'));
   mode='stream';const count=await invoke('/v1/messages/count_tokens');assert.deepEqual(await count.json(),{input_tokens:123});
@@ -62,11 +62,12 @@ test('GLM 适配器鉴权并保留 SSE、工具结果、上游错误和计数路
 
 test('取消请求关闭适配器和上游连接，禁止借配置访问任意上游',async()=>{
  await assert.rejects(createGlmEnvironmentAdapter({upstream:{baseUrl:'https://example.com',token:'unused'},cwd,model}),/UPSTREAM_INVALID/);
- const upstream=await fixture((req,res)=>{req.resume();});
+ let started;const entered=new Promise(resolve=>{started=resolve;});
+ const upstream=await fixture((req,res)=>{req.resume();started();});
  const controller=new AbortController();const adapter=await createGlmEnvironmentAdapter({upstream:{...upstream,token:'synthetic'},cwd,model,testOnly:true,signal:controller.signal});
  try{
   const pending=fetch(adapter.baseUrl+'/v1/messages',{method:'POST',headers:{authorization:`Bearer ${adapter.token}`},body:JSON.stringify(request())}).then(r=>r.text());
   const rejection=assert.rejects(pending);
-  controller.abort();await rejection;
+  await entered;controller.abort();await rejection;
  }finally{await adapter.close();await upstream.close();}
 });

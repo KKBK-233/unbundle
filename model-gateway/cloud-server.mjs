@@ -70,6 +70,7 @@ for (const [value, min, max] of [[maxRequestBytes, 1024, 256 * 1024 * 1024], [ma
 for (const value of [maxTools, maxCliOutputBytes]) if (!Number.isSafeInteger(value) || value < 0) throw new Error('工具数量或 CLI 输出字节上限无效');
 if (!Number.isSafeInteger(maxMcpRequestBytes) || maxMcpRequestBytes < 1024 || maxMcpRequestBytes > 256 * 1024 * 1024) throw new Error('MCP 请求字节上限无效');
 const startupCliVersion = await checkCliVersion(cli);
+if (clientEnvironment && startupCliVersion !== '2.1.316') throw new Error('客户端环境修正仅验证过 CLI 2.1.316');
 await fs.mkdir(home, { recursive: true, mode: 0o700 });
 const token = (await fs.readFile(path.join(base, 'token'), 'utf8')).trim();
 const models = cloudModels(contextWindow).map(item=>externalUpstream?{...item,display_name:'GLM-5.3 ('+item.anthropic_family_tier+' compatibility)',owned_by:'glm-experiment'}:item);
