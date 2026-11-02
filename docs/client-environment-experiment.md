@@ -50,7 +50,7 @@ node model-gateway/prompt-environment-probe.mjs --self-test --output=/独立实�
 
 额度允许后，用新的、等价的短会话分别测试 standard/minimal，固定模型、effort、任务和工具集合，避免旧历史携带网关讨论。任务描述只要求读文件、局部编辑、续接和路径切换，不询问模型是否在网关。对比首次工具成功率、错误路径、重复读取、工具搜索次数、输出用量与可见回复。先约定真实请求预算再运行；目前尚无行为实验结论。
 
-本分支不自动替换生产服务、不创建 PR、不合入 dev/main。首次部署实验应使用独立目录、状态和端口，共用同一个账号的官方登录管理；仍只服务现有固定本机。
+本分支不创建 PR、不合入 dev/main；切换现有入口必须由用户明确授权。首次部署实验应使用独立目录、状态和端口，共用同一个账号的官方登录管理；仍只服务现有固定本机。
 
 ## 首次验收结果
 
@@ -59,3 +59,24 @@ node model-gateway/prompt-environment-probe.mjs --self-test --output=/独立实�
 补充慢盘队列测试后，本地全量测试为 441 项：438 通过、3 跳过、0 失败。VPS 生产仍为 dev 的 2.0.4，实验独立存放于 `/home/harness/experiments/client-environment-2f1ce35/`；没有切换生产服务或启动真实模型推理。
 
 VPS 清理了软件包下载缓存和七天以前的普通系统日志，释放 1,162,539,008 字节；清理后可用 8,124,608,512 字节。网关专用日志、账号状态、当前程序和回滚版本保留。
+
+## GLM 全入口实验
+
+用户明确授权后，可将当前服务切到本分支并使用以下配置：
+
+```ini
+GATEWAY_EXPERIMENT_UPSTREAM=glm
+GATEWAY_GLM_KEY_FILE=/独立密钥文件
+GATEWAY_PROMPT_PROFILE=minimal
+GATEWAY_PROMPT_TRACE=1
+GATEWAY_PROMPT_TRACE_CONTENT=1
+GATEWAY_SESSION_RELAY=0
+```
+
+三个现有型号入口统一映射到 `glm-5.3`，保留客户端型号 ID 兼容现有桌面配置；`/status` 显示真实 `upstreamProvider` 和映射，模型显示名明确为 GLM。API Key 文件必须是 0600 普通文件，失败不回退 Claude。CLI 使用 `glm-runtime-home/.claude` 独立配置，不访问生产订阅登录目录。`authMode=api_key`、`checked=false` 只表示密钥配置存在，实际可用性通过验收请求判断。
+
+`GATEWAY_PROMPT_TRACE_CONTENT=1` 仅允许在 GLM 实验中开启。在原有日志上增加 GLM **实际返回**的 thinking/text、工具参数、交接和本轮工具回执；聚合回退与流式记录按消息去重，不包含签名和请求头。已配置的 API Key、网关令牌及常见认证字段脱敏，但这不是任意敏感信息的万能识别器。全文日志保持服务账号私有权限。
+
+详细模式每轮采集最多 256 KiB 原始内容，超过处明确标记截断，最多 256 条内容记录；单文件硬上限 2 MiB，最多 128 份、总计 64 MiB、保留 72 小时。每十五秒原子保存进度，结束后覆盖为最终版本；普通 journal 只记录元数据。保留限制在每次写入时执行。模型未返回的思考不猜测、不补写。
+
+生产切换使用单独 systemd drop-in 指向独立实验程序目录，原程序与订阅配置留在原处。切换期间暂停 CLI 自动更新，以固定实验版本；恢复脚本撤销实验 drop-in 并恢复定时器原状态，恢复前必须确认没有活动请求。
