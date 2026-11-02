@@ -3,6 +3,7 @@ import json
 import os
 import pathlib
 import tempfile
+import subprocess
 import unittest
 import importlib.util
 
@@ -12,6 +13,27 @@ spec.loader.exec_module(update_cli)
 
 
 class UpdateTests(unittest.TestCase):
+    def test_probe_models_accepts_actual_gateway_map_and_installer_aliases(self):
+        # 直接读取网关导出的公开型号表，防止测试再次复制过时别名而漏掉协议差异。
+        root = pathlib.Path(__file__).resolve().parent.parent
+        script = "import {upstreamModels} from './model-gateway/cloud-models.mjs'; console.log(JSON.stringify(upstreamModels));"
+        models = json.loads(subprocess.check_output(['node', '--input-type=module', '-e', script], cwd=root, text=True))
+        resolved = update_cli.probe_models(models)
+        self.assertEqual(set(resolved), {'opus', 'sonnet', 'haiku'})
+        self.assertEqual(set(resolved.values()), set(models.values()))
+        aliases = {'claude-code-' + tier: value for tier, value in resolved.items()}
+        self.assertEqual(update_cli.probe_models(aliases), resolved)
+        self.assertEqual(update_cli.probe_models({**models, **aliases}), resolved)
+
+    def test_probe_models_rejects_missing_invalid_or_ambiguous_tiers(self):
+        models = {'claude-code-' + tier: 'claude-' + tier + '-5-5' for tier in ['opus', 'sonnet', 'haiku']}
+        invalid = [None, {}, {**models, 'claude-code-opus': '../invalid'},
+                   {**models, 'claude-code-haiku': 'claude-opus-5-5'},
+                   {**models, 'claude-opus-5-5': 'claude-opus-other'}]
+        for value in invalid:
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                update_cli.probe_models(value)
+
     def test_authentication_regression_fails_health_check(self):
         before = {'checked': True, 'loggedIn': True}
         self.assertTrue(update_cli.health_matches(before, before, '2.1.289'))
