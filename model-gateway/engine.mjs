@@ -12,18 +12,20 @@ import { CliEvents } from './cli-events.mjs';
 import { validateRequest } from './request.mjs';
 import { resolveEffort } from './effort.mjs';
 import { requestProbes } from './request-probes.mjs';
+import { createPromptTrace } from './prompt-trace.mjs';
 import { sessionQuotaFailure } from './session-quota-guard.mjs';
 
 // 每轮独立进程、逐消息输入；工作目录固定，凭据继续由官方 CLI 管理。
-export async function infer(request, { cli, home, configDir = path.join(home, '.claude'), model, signal, onText, timing, anomalyDir, cliVersion, toolSearch = false, maxToolSearchCalls = 8, timeoutMs = 0, idleTimeoutMs = 180000, spawnProcess = spawn, testUpstream, cacheBreakpoint = DEFAULT_CACHE_BREAKPOINT, maxImageBytes = 5 * 1024 * 1024, maxOutputTokens = 8192, killGraceMs = 2000, maxCliOutputBytes = 0, maxMcpRequestBytes = 32 * 1024 * 1024, maxTools = 0 }) {
+export async function infer(request, { cli, home, configDir = path.join(home, '.claude'), model, signal, onText, timing, anomalyDir, cliVersion, toolSearch = false, maxToolSearchCalls = 8, timeoutMs = 0, idleTimeoutMs = 180000, spawnProcess = spawn, testUpstream, cacheBreakpoint = DEFAULT_CACHE_BREAKPOINT, maxImageBytes = 5 * 1024 * 1024, maxOutputTokens = 8192, killGraceMs = 2000, maxCliOutputBytes = 0, maxMcpRequestBytes = 32 * 1024 * 1024, maxTools = 0, promptProfile = 'standard', promptTraceDir }) {
   const discovery = toolSearchConfig({ toolSearch, maxToolSearchCalls });
   for (const value of [timeoutMs, idleTimeoutMs]) if (!Number.isSafeInteger(value) || value < 0 || value > 2147483647) throw new Error('推理超时配置必须为 0..2147483647 毫秒；0 表示关闭');
   if (!Number.isInteger(maxOutputTokens) || maxOutputTokens < 256 || maxOutputTokens > 128000) throw new Error('输出 token 上限无效');
   maxOutputTokens = validateRequest(request, { maxOutputTokens, maxImageBytes, maxTools });
   if (!Number.isSafeInteger(maxCliOutputBytes) || maxCliOutputBytes < 0) throw new Error('CLI 输出字节上限无效');
   if (!Number.isSafeInteger(maxMcpRequestBytes) || maxMcpRequestBytes < 1024 || maxMcpRequestBytes > 256 * 1024 * 1024) throw new Error('MCP 请求字节上限无效');
-  const compiled = compileContext(request, { cacheBreakpoint, maxImageBytes, maxTools });
+  const compiled = compileContext(request, { cacheBreakpoint, maxImageBytes, maxTools, promptProfile });
   const { available, exposedTools, metrics } = compiled;
+  const promptTrace = createPromptTrace({ directory: promptTraceDir, requestId: timing?.requestId, compiled, model, cliVersion, effort: resolveEffort(request) || 'auto' });
   // 默认逐轮路线继续接受调用方历史；原生模式的检查点约束只在会话池中执行。
   const {systemPrompt, input} = compiled;
   timing?.mark('context_ready');
@@ -131,6 +133,7 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
       let event; try { event = JSON.parse(line); } catch { return; }
       timing?.cliEvent?.(event);
       probes.accept(event);
+      promptTrace?.accept(event);
       timing?.mark('cli_first_event');
       const inner = event.type === 'stream_event' ? event.event : undefined;
       if (inner?.type === 'message_start') upstreamMessages++;
@@ -191,6 +194,11 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     throw error;
   } finally {
     await probes.finish(probeOutcome);
+    if (promptTrace) {
+      // 磁盘日志失败或变慢不阻塞生产响应；后台写入队列仍保持串行。
+      let traceTimer;
+      try { await Promise.race([promptTrace.finish(probeOutcome), new Promise(resolve => { traceTimer = setTimeout(resolve, 250); })]); } finally { clearTimeout(traceTimer); }
+    }
     clearTimeout(timer); clearTimeout(idleTimer); clearTimeout(killTimer); signal?.removeEventListener('abort', stop); lines?.close();
     kill('SIGKILL'); server.closeAllConnections();
     if (server.listening) await new Promise(resolve => server.close(resolve));

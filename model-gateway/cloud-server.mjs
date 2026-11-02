@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { gateway } from './server.mjs';
+import { validatePromptProfile } from './context.mjs';
 import { infer } from './engine.mjs';
 import { checkCliVersion, readCliRelease } from './cli-compat.mjs';
 import { cloudModels, modelAliases, upstreamModels } from './cloud-models.mjs';
@@ -15,6 +16,11 @@ if (process.platform !== 'linux') throw new Error('此入口只在 Linux 云服�
 const base = process.env.GATEWAY_STATE || '/home/harness/model-gateway';
 // 异常自动取证仅落白名单元数据；设为 off 可关闭，正常请求不写文件。
 const anomalyDir = process.env.GATEWAY_ANOMALY_DIR === 'off' ? undefined : process.env.GATEWAY_ANOMALY_DIR || path.join(base, 'anomalies');
+// 实验默认关闭；单独进程显式开启，避免无意改变原生会话语义。
+const promptProfile = validatePromptProfile(process.env.GATEWAY_PROMPT_PROFILE || 'standard');
+if (process.env.GATEWAY_PROMPT_TRACE != null && !['0', '1'].includes(process.env.GATEWAY_PROMPT_TRACE)) throw new Error('GATEWAY_PROMPT_TRACE 必须为 0 或 1');
+const promptTraceDir = process.env.GATEWAY_PROMPT_TRACE === '1' ? path.join(base, 'prompt-experiment') : undefined;
+if ((promptProfile !== 'standard' || promptTraceDir) && process.env.GATEWAY_SESSION_RELAY === '1') throw new Error('提示词实验目前仅支持逐轮 CLI，请关闭原生会话模式');
 const home = path.join(base, 'runtime-home');
 const cli = process.env.CLAUDE_BIN || '/usr/local/bin/velella-claude';
 const configDir = process.env.CLAUDE_CONFIG_DIR || '/home/harness/state/runtime-home/.claude';
@@ -89,7 +95,7 @@ function authStatus() {
   });
 }
 const server = await gateway({ token, port, models, modelAliases, status: async () => ({ ...await authStatus(), cliVersion: (await readCliRelease())?.version || startupCliVersion, busy: server.busy || nativeRelay?.maintenance===true || (nativeRelay?.frozenSize || 0)>0,
-  activeRequests: server.activeRequests, queuedRequests: server.queuedRequests, receivingRequests: server.receivingRequests, maxConcurrent, maxQueued, contextWindow, upstreamModels,
+  activeRequests: server.activeRequests, queuedRequests: server.queuedRequests, receivingRequests: server.receivingRequests, maxConcurrent, maxQueued, contextWindow, upstreamModels, promptProfile, promptTraceEnabled: Boolean(promptTraceDir),
   nativeSessionRelay: Boolean(nativeRelay), nativeSessions: (nativeRelay?.size || 0)+(nativeRelay?.frozenSize || 0), nativeFrozenSessions:nativeRelay?.frozenSize || 0, liveInstructionUpdates: Boolean(nativeRelay) && liveInstructionUpdates,
   nativeSessionMaintenance:nativeRelay?.maintenance===true, nativeSessionPersistence: Boolean(nativeRelay) && persistentSessions,
   nativeCompactionProtocol:nativeRelay&&persistentSessions?'cli_command_boundary_v1':null,
@@ -106,7 +112,7 @@ const server = await gateway({ token, port, models, modelAliases, status: async 
     const prepared = await withGatewayRules(request, rulesFile);
     if (nativeRelay) return nativeRelay.infer(prepared, { signal, onText, timing, affinity });
     return infer(prepared, { cli, home, configDir, model: upstreamModels[request.model], signal, onText, timing,
-    anomalyDir, cliVersion: (await readCliRelease())?.version || startupCliVersion,
+    anomalyDir, cliVersion: (await readCliRelease())?.version || startupCliVersion, promptProfile, promptTraceDir,
     maxTools, maxCliOutputBytes, maxMcpRequestBytes, cacheBreakpoint: process.env.GATEWAY_CACHE_BREAKPOINT || DEFAULT_CACHE_BREAKPOINT, maxImageBytes, maxOutputTokens, timeoutMs, idleTimeoutMs, toolSearch, maxToolSearchCalls });
   },
 });
