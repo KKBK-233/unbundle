@@ -16,7 +16,7 @@ import { createPromptTrace } from './prompt-trace.mjs';
 import { sessionQuotaFailure } from './session-quota-guard.mjs';
 
 // 每轮独立进程、逐消息输入；工作目录固定，凭据继续由官方 CLI 管理。
-export async function infer(request, { cli, home, configDir = path.join(home, '.claude'), model, signal, onText, timing, anomalyDir, cliVersion, toolSearch = false, maxToolSearchCalls = 8, timeoutMs = 0, idleTimeoutMs = 180000, spawnProcess = spawn, testUpstream, cacheBreakpoint = DEFAULT_CACHE_BREAKPOINT, maxImageBytes = 5 * 1024 * 1024, maxOutputTokens = 8192, killGraceMs = 2000, maxCliOutputBytes = 0, maxMcpRequestBytes = 32 * 1024 * 1024, maxTools = 0, promptProfile = 'standard', promptTraceDir }) {
+export async function infer(request, { cli, home, configDir = path.join(home, '.claude'), model, signal, onText, timing, anomalyDir, cliVersion, toolSearch = false, maxToolSearchCalls = 8, timeoutMs = 0, idleTimeoutMs = 180000, spawnProcess = spawn, testUpstream, cacheBreakpoint = DEFAULT_CACHE_BREAKPOINT, maxImageBytes = 5 * 1024 * 1024, maxOutputTokens = 8192, killGraceMs = 2000, maxCliOutputBytes = 0, maxMcpRequestBytes = 32 * 1024 * 1024, maxTools = 0, promptProfile = 'standard', promptTraceDir, promptTraceContent = false, traceSecrets = [], externalUpstream }) {
   const discovery = toolSearchConfig({ toolSearch, maxToolSearchCalls });
   for (const value of [timeoutMs, idleTimeoutMs]) if (!Number.isSafeInteger(value) || value < 0 || value > 2147483647) throw new Error('推理超时配置必须为 0..2147483647 毫秒；0 表示关闭');
   if (!Number.isInteger(maxOutputTokens) || maxOutputTokens < 256 || maxOutputTokens > 128000) throw new Error('输出 token 上限无效');
@@ -25,7 +25,9 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
   if (!Number.isSafeInteger(maxMcpRequestBytes) || maxMcpRequestBytes < 1024 || maxMcpRequestBytes > 256 * 1024 * 1024) throw new Error('MCP 请求字节上限无效');
   const compiled = compileContext(request, { cacheBreakpoint, maxImageBytes, maxTools, promptProfile });
   const { available, exposedTools, metrics } = compiled;
-  const promptTrace = createPromptTrace({ directory: promptTraceDir, requestId: timing?.requestId, compiled, model, cliVersion, effort: resolveEffort(request) || 'auto' });
+  if (testUpstream && externalUpstream) throw new Error('测试上游和实验上游不能同时启用');
+  const selectedUpstream = externalUpstream || testUpstream;
+  let promptTrace;
   // 默认逐轮路线继续接受调用方历史；原生模式的检查点约束只在会话池中执行。
   const {systemPrompt, input} = compiled;
   timing?.mark('context_ready');
@@ -90,6 +92,7 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
   const mcp = path.join(work, 'mcp.json');
   const promptFile = path.join(work, 'system.txt');
   try {
+    promptTrace = createPromptTrace({ directory: promptTraceDir, requestId: timing?.requestId, compiled, model, cliVersion, effort: resolveEffort(request) || 'auto', captureContent: promptTraceContent, request, secrets: [...traceSecrets, selectedUpstream?.token].filter(Boolean), ...(promptTraceContent ? {maxFiles:128,maxTotalBytes:64*1024*1024,maxAgeMs:3*86400000} : {}) });
     await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
     const env = {};
     for (const k of ['PATH', 'Path', 'SystemRoot', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP', 'LANG']) if (process.env[k]) env[k] = process.env[k];
@@ -97,10 +100,10 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1', DISABLE_AUTOUPDATER: '1',
       ENABLE_TOOL_SEARCH: discovery.environment, MCP_TOOL_TIMEOUT: String(timeoutMs || 2147483647), CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(maxOutputTokens) });
     Object.assign(env, cacheEnvironment(cacheBreakpoint));
-    // 测试上游只经显式参数注入，正式订阅入口不会传入此参数。
-    if (testUpstream) {
-      Object.assign(env, { ANTHROPIC_BASE_URL: testUpstream.baseUrl, ANTHROPIC_AUTH_TOKEN: testUpstream.token });
-      if (!testUpstream.preserveModelAliases) Object.assign(env, { ANTHROPIC_MODEL: model,
+    // 外部实验和模拟上游显式选择，独立 HOME；不继承订阅认证或自动回退。
+    if (selectedUpstream) {
+      Object.assign(env, { ANTHROPIC_BASE_URL: selectedUpstream.baseUrl, ANTHROPIC_AUTH_TOKEN: selectedUpstream.token });
+      if (!selectedUpstream.preserveModelAliases) Object.assign(env, { ANTHROPIC_MODEL: model,
         ANTHROPIC_DEFAULT_SONNET_MODEL: model, ANTHROPIC_DEFAULT_HAIKU_MODEL: model, ANTHROPIC_DEFAULT_OPUS_MODEL: model });
     }
     const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', discovery.builtin, '--strict-mcp-config', '--mcp-config', mcp,
@@ -177,14 +180,14 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     if (events.stopSequence !== undefined) return { role: 'assistant', content: events.content(), stop_sequence: events.stopSequence, ...events.usage() };
     events.flushText();
     if (events.outputLimitReached) return { role: 'assistant', content: events.content(), stop_reason: 'max_tokens', ...events.usage() };
-    if (events.toolEnd && events.calls.size) return {role: 'assistant', ...events.usage(), content: events.content()};
+    if (events.toolEnd && events.calls.size) { promptTrace?.handoff([...events.calls.values()]); return {role: 'assistant', ...events.usage(), content: events.content()}; }
     if (events.blocks.size || events.calls.size || events.toolEnd) throw new Error('CLI 工具消息不完整，未返回部分调用');
     if (code !== 0 || !events.result || events.result.is_error) {
       const detail = events.result?.result || errors;
       // 明确的账户额度错误交给服务层终止重试；不从模型正文或任意 stderr 猜测额度。
       const quota = events.result?.is_error && sessionQuotaFailure(events.result.result, events.usage());
       if (quota) throw quota;
-      throw new Error((testUpstream ? String(detail || '').replaceAll(testUpstream.token, '[REDACTED]') : detail) || 'Claude 推理未完成');
+      throw new Error((selectedUpstream ? String(detail || '').replaceAll(selectedUpstream.token, '[REDACTED]') : detail) || 'Claude 推理未完成');
     }
     if (!events.receivedText) { events.emit(events.result.result || ''); events.flushText(); }
     enforceToolChoice(policy, [], events.usage());

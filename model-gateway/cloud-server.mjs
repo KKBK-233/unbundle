@@ -7,7 +7,8 @@ import { gateway } from './server.mjs';
 import { validatePromptProfile } from './context.mjs';
 import { infer } from './engine.mjs';
 import { checkCliVersion, readCliRelease } from './cli-compat.mjs';
-import { cloudModels, modelAliases, upstreamModels } from './cloud-models.mjs';
+import { loadExperimentUpstream } from './experiment-upstream.mjs';
+import { cloudModels, modelAliases, upstreamModels as claudeUpstreamModels } from './cloud-models.mjs';
 import { withGatewayRules } from './gateway-rules.mjs';
 import { sessionRelay } from './session-relay.mjs';
 
@@ -21,9 +22,15 @@ const promptProfile = validatePromptProfile(process.env.GATEWAY_PROMPT_PROFILE |
 if (process.env.GATEWAY_PROMPT_TRACE != null && !['0', '1'].includes(process.env.GATEWAY_PROMPT_TRACE)) throw new Error('GATEWAY_PROMPT_TRACE 必须为 0 或 1');
 const promptTraceDir = process.env.GATEWAY_PROMPT_TRACE === '1' ? path.join(base, 'prompt-experiment') : undefined;
 if ((promptProfile !== 'standard' || promptTraceDir) && process.env.GATEWAY_SESSION_RELAY === '1') throw new Error('提示词实验目前仅支持逐轮 CLI，请关闭原生会话模式');
-const home = path.join(base, 'runtime-home');
+const externalUpstream = await loadExperimentUpstream({provider:process.env.GATEWAY_EXPERIMENT_UPSTREAM || 'claude',keyFile:process.env.GATEWAY_GLM_KEY_FILE});
+if (externalUpstream && process.env.GATEWAY_SESSION_RELAY === '1') throw new Error('GLM 实验仅支持逐轮 CLI');
+const upstreamModels = externalUpstream ? Object.fromEntries(Object.keys(claudeUpstreamModels).map(id=>[id,externalUpstream.model])) : claudeUpstreamModels;
+if (process.env.GATEWAY_PROMPT_TRACE_CONTENT != null && !['0','1'].includes(process.env.GATEWAY_PROMPT_TRACE_CONTENT)) throw new Error('详细内容日志开关无效');
+const promptTraceContent = process.env.GATEWAY_PROMPT_TRACE_CONTENT === '1';
+if (promptTraceContent && (!promptTraceDir || !externalUpstream)) throw new Error('详细内容日志仅允许在 GLM 实验且启用日志时使用');
+const home = path.join(base, externalUpstream ? 'glm-runtime-home' : 'runtime-home');
 const cli = process.env.CLAUDE_BIN || '/usr/local/bin/velella-claude';
-const configDir = process.env.CLAUDE_CONFIG_DIR || '/home/harness/state/runtime-home/.claude';
+const configDir = externalUpstream ? path.join(home,'.claude') : process.env.CLAUDE_CONFIG_DIR || '/home/harness/state/runtime-home/.claude';
 const port = Number(process.env.GATEWAY_PORT || 18796);
 const maxOutputTokens = Number(process.env.GATEWAY_MAX_OUTPUT_TOKENS || 128000);
 const timeoutMs = Number(process.env.GATEWAY_TIMEOUT_MS || 0);
@@ -62,7 +69,7 @@ if (!Number.isSafeInteger(maxMcpRequestBytes) || maxMcpRequestBytes < 1024 || ma
 const startupCliVersion = await checkCliVersion(cli);
 await fs.mkdir(home, { recursive: true, mode: 0o700 });
 const token = (await fs.readFile(path.join(base, 'token'), 'utf8')).trim();
-const models = cloudModels(contextWindow);
+const models = cloudModels(contextWindow).map(item=>externalUpstream?{...item,display_name:'GLM-5.3 ('+item.anthropic_family_tier+' compatibility)',owned_by:'glm-experiment'}:item);
 const rulesFile = process.env.GATEWAY_RULES_FILE;
 // 候选默认关闭；开启后仅追加的真实指令可经原生MCP控制通道续接。
 const liveInstructionUpdates = process.env.GATEWAY_LIVE_INSTRUCTION_UPDATES === '1';
@@ -84,6 +91,7 @@ const nativeRelay = process.env.GATEWAY_SESSION_RELAY === '1' ? sessionRelay({
   onSessionEvent: record => console.error(JSON.stringify(record)),
 }) : undefined;
 function authStatus() {
+  if (externalUpstream) return Promise.resolve({loggedIn:true,checked:false,authMode:'api_key',keyConfigured:true});
   return new Promise(resolve => {
     execFile(cli, ['auth', 'status', '--json'], {
       env: { PATH: '/usr/local/bin:/usr/bin:/bin', HOME: home, CLAUDE_CONFIG_DIR: configDir, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' },
@@ -95,7 +103,7 @@ function authStatus() {
   });
 }
 const server = await gateway({ token, port, models, modelAliases, status: async () => ({ ...await authStatus(), cliVersion: (await readCliRelease())?.version || startupCliVersion, busy: server.busy || nativeRelay?.maintenance===true || (nativeRelay?.frozenSize || 0)>0,
-  activeRequests: server.activeRequests, queuedRequests: server.queuedRequests, receivingRequests: server.receivingRequests, maxConcurrent, maxQueued, contextWindow, upstreamModels, promptProfile, promptTraceEnabled: Boolean(promptTraceDir),
+  activeRequests: server.activeRequests, queuedRequests: server.queuedRequests, receivingRequests: server.receivingRequests, maxConcurrent, maxQueued, contextWindow, upstreamModels, promptProfile, promptTraceEnabled: Boolean(promptTraceDir), promptTraceContent, upstreamProvider: externalUpstream?.provider || 'claude',
   nativeSessionRelay: Boolean(nativeRelay), nativeSessions: (nativeRelay?.size || 0)+(nativeRelay?.frozenSize || 0), nativeFrozenSessions:nativeRelay?.frozenSize || 0, liveInstructionUpdates: Boolean(nativeRelay) && liveInstructionUpdates,
   nativeSessionMaintenance:nativeRelay?.maintenance===true, nativeSessionPersistence: Boolean(nativeRelay) && persistentSessions,
   nativeCompactionProtocol:nativeRelay&&persistentSessions?'cli_command_boundary_v1':null,
@@ -104,6 +112,7 @@ const server = await gateway({ token, port, models, modelAliases, status: async 
   inputModalities: ['text', 'image'], timeoutMs, idleTimeoutMs, toolSearch, maxToolSearchCalls, maxTools, maxCliOutputBytes, maxMcpRequestBytes, maxRequestBytes, maxImageBytes, maxInflightBytes, inflightBytes: server.inflightBytes }), maxOutputTokens, maxTools, maxConcurrent, maxQueued, queueTimeoutMs, bodyIdleTimeoutMs, bodyTimeoutMs, maxRequestBytes, maxImageBytes, maxInflightBytes,
   onTiming: process.env.GATEWAY_TIMING_DIAGNOSTICS === '0' ? undefined : record => console.error(JSON.stringify(record)),
   async beforeExecute(request) {
+    if (externalUpstream) return;
     const auth = await authStatus();
     if (!auth.loggedIn) throw Object.assign(new Error(auth.checked ? 'AUTH_REQUIRED：请在云服务器登录 Claude Code' : 'AUTH_CHECK_FAILED：云端认证状态检查失败'), { status: auth.checked ? 401 : 503, code: auth.checked ? 'AUTH_REQUIRED' : 'AUTH_CHECK_FAILED' });
   },
@@ -112,7 +121,7 @@ const server = await gateway({ token, port, models, modelAliases, status: async 
     const prepared = await withGatewayRules(request, rulesFile);
     if (nativeRelay) return nativeRelay.infer(prepared, { signal, onText, timing, affinity });
     return infer(prepared, { cli, home, configDir, model: upstreamModels[request.model], signal, onText, timing,
-    anomalyDir, cliVersion: (await readCliRelease())?.version || startupCliVersion, promptProfile, promptTraceDir,
+    anomalyDir, cliVersion: (await readCliRelease())?.version || startupCliVersion, promptProfile, promptTraceDir, promptTraceContent, externalUpstream, traceSecrets:[token],
     maxTools, maxCliOutputBytes, maxMcpRequestBytes, cacheBreakpoint: process.env.GATEWAY_CACHE_BREAKPOINT || DEFAULT_CACHE_BREAKPOINT, maxImageBytes, maxOutputTokens, timeoutMs, idleTimeoutMs, toolSearch, maxToolSearchCalls });
   },
 });
