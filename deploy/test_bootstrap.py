@@ -91,6 +91,36 @@ class BootstrapTests(unittest.TestCase):
         for name in ['model-gateway', 'deploy', 'src']:
             self.assertEqual((bootstrap.APP / name / 'old.txt').read_text(), 'PREVIOUS')
         self.assertFalse((bootstrap.APP / 'model-gateway/current.txt').exists())
+        self.assertEqual(list(bootstrap.APP.glob('.program-next-*')), [])
+
+    def test_failed_rollback_retains_both_programs_and_reports_recovery_path(self):
+        source = self.program_source()
+        for name in ['model-gateway', 'deploy', 'src']:
+            (bootstrap.APP / name).mkdir()
+            (bootstrap.APP / name / 'old.txt').write_text('PREVIOUS')
+        rename = pathlib.Path.rename
+
+        def fail_install_and_rollback(file, target):
+            if file.parent.name == 'incoming' and file.name == 'deploy':
+                raise OSError('SYNTHETIC_INSTALL_FAILURE')
+            if file == bootstrap.APP / 'model-gateway' and target.parent.name == 'incoming':
+                raise OSError('SYNTHETIC_ROLLBACK_FAILURE')
+            return rename(file, target)
+
+        with patch.object(pathlib.Path, 'rename', fail_install_and_rollback):
+            with self.assertRaises(RuntimeError) as error:
+                bootstrap.copy_program(source, bootstrap.APP)
+        stages = list(bootstrap.APP.glob('.program-next-*'))
+        self.assertEqual(len(stages), 1)
+        stage = stages[0]
+        self.assertIn('SYNTHETIC_INSTALL_FAILURE', str(error.exception))
+        self.assertIn('SYNTHETIC_ROLLBACK_FAILURE', str(error.exception))
+        self.assertIn(str(stage.resolve()), str(error.exception))
+        for name in ['model-gateway', 'deploy']:
+            self.assertEqual((stage / 'previous' / name / 'old.txt').read_text(), 'PREVIOUS')
+        self.assertEqual((stage / 'incoming/deploy/current.txt').read_text(), 'CURRENT')
+        self.assertEqual((bootstrap.APP / 'model-gateway/current.txt').read_text(), 'CURRENT')
+        self.assertEqual((bootstrap.APP / 'src/old.txt').read_text(), 'PREVIOUS')
 
     def test_foreign_unit_is_preserved(self):
         bootstrap.UNIT.write_text('OTHER SERVICE')

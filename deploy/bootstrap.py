@@ -167,8 +167,9 @@ def copy_program(source, target):
         origin = source / name
         if origin.is_symlink() or not origin.exists():
             raise RuntimeError('安装源程序清单不完整或包含符号链接')
-    with tempfile.TemporaryDirectory(prefix='.program-next-', dir=target) as temporary:
-        stage = pathlib.Path(temporary)
+    stage = pathlib.Path(tempfile.mkdtemp(prefix='.program-next-', dir=target))
+    cleanup = True
+    try:
         incoming, previous = stage / 'incoming', stage / 'previous'
         incoming.mkdir()
         previous.mkdir()
@@ -180,6 +181,7 @@ def copy_program(source, target):
             else:
                 shutil.copy2(origin, incoming / name)
         saved, installed = [], []
+        cleanup = False
         try:
             for name in managed:
                 destination = target / name
@@ -189,13 +191,26 @@ def copy_program(source, target):
                 if name in current:
                     (incoming / name).rename(destination)
                     installed.append(name)
-        except BaseException:
-            # 回移新目录而不递归删除目标；事务临时目录会在恢复之后统一清理。
-            for name in reversed(installed):
-                (target / name).rename(incoming / name)
-            for name in reversed(saved):
-                (previous / name).rename(target / name)
+        except BaseException as install_error:
+            # 回滚也可能受磁盘或权限故障影响，此时保留全部事务文件供人工恢复。
+            try:
+                for name in reversed(installed):
+                    (target / name).rename(incoming / name)
+                for name in reversed(saved):
+                    (previous / name).rename(target / name)
+            except BaseException as recovery_error:
+                raise RuntimeError(f'程序替换失败：{install_error}；回滚失败：{recovery_error}；'
+                                   f'已保留事务目录：{stage}') from install_error
+            cleanup = True
             raise
+        else:
+            cleanup = True
+    finally:
+        if cleanup:
+            # 只删除本次创建且仍位于目标目录直属位置的真实目录，禁止跟随链接越界。
+            if stage.is_symlink() or stage.resolve() != stage or stage.parent != target:
+                raise RuntimeError(f'事务目录路径发生变化，已保留：{stage}')
+            shutil.rmtree(stage)
 
 
 def install(source, token_file):
