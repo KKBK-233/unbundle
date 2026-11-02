@@ -46,7 +46,7 @@ export function parseMessagesRequest(body, {defaultMaxTokens=128000}={}) {
   if(system!=null){
     if(typeof system!=='string'&&!Array.isArray(system))fail('system 必须为文本或文本块');
     const blocks=contentBlocks(system).map(block=>{
-      if(block.type!=='text'||typeof block.text!=='string')fail('system 仅支持文本');
+      if(block?.type!=='text'||typeof block.text!=='string')fail('system 仅支持文本');
       return {...block,text:block.text.replace(/^x-anthropic-billing-header:[^\r\n]*(?:\r?\n|$)/,'')};
     });
     system=typeof system==='string'?(blocks[0]?.text??''):blocks;

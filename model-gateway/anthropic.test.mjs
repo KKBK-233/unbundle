@@ -44,6 +44,25 @@ test('Anthropic 保留指令和并行工具结果，拒绝无法兑现的参数'
     { messages: [{ role: 'user', content: [{ type: 'video' }] }] }]) assert.throws(() => parseMessagesRequest({ ...body, ...extra }), error => error.status === 400);
 });
 
+// 无效系统块必须在认证或模型执行前返回输入错误，避免客户端重试同一坏请求。
+test('无效系统块返回 400 且不启动上游', async () => {
+  let executions = 0, authentications = 0;
+  const server = await gateway({ token: 'test', port: 0, models: [{ id: body.model }],
+    beforeExecute: async () => { authentications++; },
+    execute: async () => { executions++; return { role: 'assistant', content: '不应执行' }; } });
+  try {
+    for (const block of [null, false, 0, 'rule', [], {}, { type: 'text', text: null }]) {
+      const response = await fetch(`http://127.0.0.1:${server.port}/v1/messages`, {
+        method: 'POST', headers, body: JSON.stringify({ ...body, system: [block] }),
+      });
+      assert.equal(response.status, 400);
+      assert.equal((await response.json()).error.type, 'invalid_request_error');
+    }
+    assert.equal(authentications, 0);
+    assert.equal(executions, 0);
+  } finally { await server.close(); }
+});
+
 test('原生入口透传 user 图片，形状校验仍由上下文编译单点收口', () => {
   const png = 'iVBORw0KGgoAAAANSUhEUg==';
   const image = { type: 'image', source: { type: 'base64', media_type: 'image/png', data: png } };

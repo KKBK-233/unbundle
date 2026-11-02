@@ -34,7 +34,7 @@ npm run doctor
 
 ## 说明文档
 
-[2.0 架构清理与升级](docs/architecture-cleanup.md)：仅保留 Messages 推理入口，删除旧协议转换和 FRP/OMP 部署路径；升级需结束旧会话并新建会话。此文描述开发分支，稳定安装仍以 `main` 为准。
+[2.0 架构清理与升级](docs/architecture-cleanup.md)：仅保留 Messages 推理入口，删除旧协议转换和 FRP/OMP 部署路径；升级需结束旧会话并新建会话。安装前请确认调用方使用 Messages 接口，并阅读升级边界。
 
 [系统提示词对比与暂停信息分析](docs/system-prompt-comparison.md)：记录 Unbundle 与 Magpie 默认、Lean 模式的差别及目前能确认的证据范围。
 
