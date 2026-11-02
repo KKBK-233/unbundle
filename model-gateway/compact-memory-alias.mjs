@@ -31,7 +31,8 @@ export function compactMemoryAliases(messages,{hashKey,toolSchemas}={}){
  return aliases;
 }
 export function compactMemoryContext(message){
- const extra=message?.content?.at?.(-1)?.text;
+ // 别名已核验原生工具收据，自动记忆位于 tool_result 的嵌套内容中。
+ const extra=toolReceipt(message)?.content?.at?.(-1)?.text;
  return typeof extra==='string'&&extra.startsWith(header)?{role:'user',content:'Caller auto-memory snapshot attached during compaction; its file contents were already supplied by a completed Write. This is caller context, not a replacement tool result:\n'+extra}:undefined;
 }
 
