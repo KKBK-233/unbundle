@@ -124,3 +124,14 @@ GATEWAY_SESSION_RELAY=0
 修正后的真实 CLI 模拟上游验收：standard/minimal 各测试工具调用与续接，共四次，最终请求均无云端 cwd。GLM 候选服务另外通过文本、工具及续接三轮；初始 Windows 目录与会话内目录更新两例均只返回一次正确的 Read（offset=1、limit=3），没有发起环境探查命令。两个短任务不能用于量化此前复杂审计任务的 token 浪费。
 
 适配器保留实际 CLI 的 User-Agent，只替换出口认证；未知 CLI 版本在服务启动时拒绝启用修正。回环入口不监听公网，取消时关闭正在进行的上游请求。
+
+
+### 2.1.1 上线验收
+
+2026-11-02 已将现有 GLM 实验入口切换到 `/home/harness/experiments/glm-env-a89103c`，启用 `GATEWAY_EXPERIMENT_CLIENT_ENV=1`。上线后初始目录和动态更新目录各一次真实 GLM 请求，均返回正确 Windows 路径的单次 Read；日志均记录移除五个机器字段和一个自动模型声明。服务依旧使用原 18796 端口、最小头、直接注册工具及有容量限制的详细日志。
+
+可回退到上一版 GLM 的脚本位于 `/home/harness/experiments/client-env-release-a89103c/rollback.py`；回到原 Claude 部署的既有脚本仍有效。二者均检查空闲状态。旧对话历史中的环境争论没有被擦除，验证新行为应优先使用新会话。Claude 订阅路径尚未应用此修正。
+
+第二次现象没有新增系统/工具定义：systemHash、toolsHash 相同，工具仍为 194 个；历史由 25 条变成 32 条，字节数由 29,452 增至 129,738，运行状态快照由 5 次变成 6 次。后续另一个无完成用量的请求明确记录为 cancelled，不是 refusal。
+
+最终本地测试 449 项：446 通过、3 跳过、0 失败。真实 CLI 的四次最终版本合成协议测试全部通过；候选 GLM 文本/工具/续接及 Windows 目录测试通过。所有合成工具测试均未写入实际 Windows 工作文件。
