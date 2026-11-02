@@ -28,6 +28,9 @@ const upstreamModels = externalUpstream ? Object.fromEntries(Object.keys(claudeU
 if (process.env.GATEWAY_PROMPT_TRACE_CONTENT != null && !['0','1'].includes(process.env.GATEWAY_PROMPT_TRACE_CONTENT)) throw new Error('详细内容日志开关无效');
 const promptTraceContent = process.env.GATEWAY_PROMPT_TRACE_CONTENT === '1';
 if (promptTraceContent && (!promptTraceDir || !externalUpstream)) throw new Error('详细内容日志仅允许在 GLM 实验且启用日志时使用');
+if (process.env.GATEWAY_EXPERIMENT_CLIENT_ENV != null && !['0','1'].includes(process.env.GATEWAY_EXPERIMENT_CLIENT_ENV)) throw new Error('客户端环境实验开关无效');
+const clientEnvironment = process.env.GATEWAY_EXPERIMENT_CLIENT_ENV === '1';
+if (clientEnvironment && !externalUpstream) throw new Error('客户端环境修正仅允许 GLM 实验');
 const home = path.join(base, externalUpstream ? 'glm-runtime-home' : 'runtime-home');
 const cli = process.env.CLAUDE_BIN || '/usr/local/bin/velella-claude';
 const configDir = externalUpstream ? path.join(home,'.claude') : process.env.CLAUDE_CONFIG_DIR || '/home/harness/state/runtime-home/.claude';
@@ -103,7 +106,7 @@ function authStatus() {
   });
 }
 const server = await gateway({ token, port, models, modelAliases, status: async () => ({ ...await authStatus(), cliVersion: (await readCliRelease())?.version || startupCliVersion, busy: server.busy || nativeRelay?.maintenance===true || (nativeRelay?.frozenSize || 0)>0,
-  activeRequests: server.activeRequests, queuedRequests: server.queuedRequests, receivingRequests: server.receivingRequests, maxConcurrent, maxQueued, contextWindow, upstreamModels, promptProfile, promptTraceEnabled: Boolean(promptTraceDir), promptTraceContent, upstreamProvider: externalUpstream?.provider || 'claude',
+  activeRequests: server.activeRequests, queuedRequests: server.queuedRequests, receivingRequests: server.receivingRequests, maxConcurrent, maxQueued, contextWindow, upstreamModels, promptProfile, promptTraceEnabled: Boolean(promptTraceDir), promptTraceContent, clientEnvironment, upstreamProvider: externalUpstream?.provider || 'claude',
   nativeSessionRelay: Boolean(nativeRelay), nativeSessions: (nativeRelay?.size || 0)+(nativeRelay?.frozenSize || 0), nativeFrozenSessions:nativeRelay?.frozenSize || 0, liveInstructionUpdates: Boolean(nativeRelay) && liveInstructionUpdates,
   nativeSessionMaintenance:nativeRelay?.maintenance===true, nativeSessionPersistence: Boolean(nativeRelay) && persistentSessions,
   nativeCompactionProtocol:nativeRelay&&persistentSessions?'cli_command_boundary_v1':null,
@@ -121,7 +124,7 @@ const server = await gateway({ token, port, models, modelAliases, status: async 
     const prepared = await withGatewayRules(request, rulesFile);
     if (nativeRelay) return nativeRelay.infer(prepared, { signal, onText, timing, affinity });
     return infer(prepared, { cli, home, configDir, model: upstreamModels[request.model], signal, onText, timing,
-    anomalyDir, cliVersion: (await readCliRelease())?.version || startupCliVersion, promptProfile, promptTraceDir, promptTraceContent, externalUpstream, traceSecrets:[token],
+    anomalyDir, cliVersion: (await readCliRelease())?.version || startupCliVersion, promptProfile, promptTraceDir, promptTraceContent, externalUpstream, clientEnvironment, traceSecrets:[token],
     maxTools, maxCliOutputBytes, maxMcpRequestBytes, cacheBreakpoint: process.env.GATEWAY_CACHE_BREAKPOINT || DEFAULT_CACHE_BREAKPOINT, maxImageBytes, maxOutputTokens, timeoutMs, idleTimeoutMs, toolSearch, maxToolSearchCalls });
   },
 });

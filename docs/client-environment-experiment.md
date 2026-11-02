@@ -106,3 +106,16 @@ GATEWAY_SESSION_RELAY=0
 回滚脚本为 `/home/harness/experiments/glm-live-control/rollback.py`，root 在确认空闲后执行。它校验实验 drop-in 未被改动，撤销实验入口、恢复原程序，并恢复原 CLI 自动更新状态；实验日志维护继续运行。部署记录和验收摘要也保存在该私有控制目录。未创建 PR，未合并 dev/main。
 
 本地最终测试：445 项，442 通过、3 跳过、0 失败；日志维护脚本另外通过数量、容量、年龄及文件白名单检查。
+
+
+## GLM 云端环境事实修正（2.1.1）
+
+第二个真实样本与第一个的 systemHash、toolsHash 相同，差别是历史从约 29 KiB 增长到约 127 KiB，上一轮环境争论也进入历史。第二轮耗时 293.6 秒、输出 17,432 token，再次调用 pwd/uname 确认环境；这些统计不能全部解释为环境冲突造成的浪费。
+
+`GATEWAY_EXPERIMENT_CLIENT_ENV=1` 仅用于 GLM API Key 实验，当前限定已验证的 CLI 2.1.316。每轮创建一个带随机令牌的回环 HTTP 适配器，转发到固定智谱入口；没有读取、提取或转发 Claude OAuth。订阅路径不启用此功能。
+
+适配器只匹配 CLI 自行追加的独立 system 环境块，并验证工作目录恰好是本轮云端 cwd、平台为 Linux、git 状态为 false。只移除五项云端机器事实（cwd、git、平台、Shell、OS）及本块自动追加的重复模型声明，保留其下载文件规则、日期和其他内容；客户端系统指令、历史、工具参数/回执以及 GLM 响应不改写。缺失、重复、格式变化会显式报错，不静默扩大匹配范围。此方案让原客户端环境成为唯一工具环境来源，不伪造 Windows 工作目录，也不假装已经解决所有模型身份指令冲突。
+
+详细日志和普通元数据日志增加 `cli_environment_adjusted`，只记移除字段数、前后字节数与哈希。响应 SSE、429 等上游状态和取消信号保持传递。适配器在请求结束/取消时关闭；CLI 原二进制不修改。
+
+模拟验收入口：`node model-gateway/prompt-environment-probe.mjs --self-test --client-environment --output=/独立目录`。它使用真实 CLI 与合成输入，检查最终请求不含云端 cwd，历史和规则保持完整，并验证工具调用及续接。

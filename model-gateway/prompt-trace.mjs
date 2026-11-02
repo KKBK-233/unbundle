@@ -115,6 +115,13 @@ export function createPromptTrace({ directory, requestId, compiled, model, cliVe
       else if (e?.type === 'system' && e.subtype === 'api_retry') event({ event: 'api_retry' });
       else if (e?.type === 'result') event({ event: 'result', isError: e.is_error === true });
     },
+    environment(fields) {
+      if(finished)return;
+      const safe={event:'cli_environment_adjusted'};
+      for(const key of ['removedMachineFields','removedModelStatements','beforeBytes','afterBytes'])if(Number.isSafeInteger(fields[key]))safe[key]=fields[key];
+      for(const key of ['beforeHash','afterHash'])if(/^[a-f0-9]{64}$/.test(fields[key]||''))safe[key]=fields[key];
+      event(safe);publish(safe);
+    },
     handoff(calls) { if(!finished)content?.handoff(calls); },
     finish(outcome) {
       if (finished) return finished;

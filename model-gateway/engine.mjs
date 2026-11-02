@@ -13,10 +13,11 @@ import { validateRequest } from './request.mjs';
 import { resolveEffort } from './effort.mjs';
 import { requestProbes } from './request-probes.mjs';
 import { createPromptTrace } from './prompt-trace.mjs';
+import { createGlmEnvironmentAdapter } from './glm-environment-adapter.mjs';
 import { sessionQuotaFailure } from './session-quota-guard.mjs';
 
 // 每轮独立进程、逐消息输入；工作目录固定，凭据继续由官方 CLI 管理。
-export async function infer(request, { cli, home, configDir = path.join(home, '.claude'), model, signal, onText, timing, anomalyDir, cliVersion, toolSearch = false, maxToolSearchCalls = 8, timeoutMs = 0, idleTimeoutMs = 180000, spawnProcess = spawn, testUpstream, cacheBreakpoint = DEFAULT_CACHE_BREAKPOINT, maxImageBytes = 5 * 1024 * 1024, maxOutputTokens = 8192, killGraceMs = 2000, maxCliOutputBytes = 0, maxMcpRequestBytes = 32 * 1024 * 1024, maxTools = 0, promptProfile = 'standard', promptTraceDir, promptTraceContent = false, traceSecrets = [], externalUpstream }) {
+export async function infer(request, { cli, home, configDir = path.join(home, '.claude'), model, signal, onText, timing, anomalyDir, cliVersion, toolSearch = false, maxToolSearchCalls = 8, timeoutMs = 0, idleTimeoutMs = 180000, spawnProcess = spawn, testUpstream, cacheBreakpoint = DEFAULT_CACHE_BREAKPOINT, maxImageBytes = 5 * 1024 * 1024, maxOutputTokens = 8192, killGraceMs = 2000, maxCliOutputBytes = 0, maxMcpRequestBytes = 32 * 1024 * 1024, maxTools = 0, promptProfile = 'standard', promptTraceDir, promptTraceContent = false, traceSecrets = [], externalUpstream, clientEnvironment = false }) {
   const discovery = toolSearchConfig({ toolSearch, maxToolSearchCalls });
   for (const value of [timeoutMs, idleTimeoutMs]) if (!Number.isSafeInteger(value) || value < 0 || value > 2147483647) throw new Error('推理超时配置必须为 0..2147483647 毫秒；0 表示关闭');
   if (!Number.isInteger(maxOutputTokens) || maxOutputTokens < 256 || maxOutputTokens > 128000) throw new Error('输出 token 上限无效');
@@ -27,7 +28,9 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
   const { available, exposedTools, metrics } = compiled;
   if (testUpstream && externalUpstream) throw new Error('测试上游和实验上游不能同时启用');
   const selectedUpstream = externalUpstream || testUpstream;
-  let promptTrace;
+  if (clientEnvironment && (!selectedUpstream || externalUpstream && externalUpstream.provider !== 'glm')) throw new Error('客户端环境修正仅允许 GLM 实验或模拟上游');
+  if (clientEnvironment && cliVersion !== '2.1.316') throw new Error('客户端环境修正仅验证过 CLI 2.1.316');
+  let promptTrace, environmentAdapter;
   // 默认逐轮路线继续接受调用方历史；原生模式的检查点约束只在会话池中执行。
   const {systemPrompt, input} = compiled;
   timing?.mark('context_ready');
@@ -101,8 +104,12 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
       ENABLE_TOOL_SEARCH: discovery.environment, MCP_TOOL_TIMEOUT: String(timeoutMs || 2147483647), CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(maxOutputTokens) });
     Object.assign(env, cacheEnvironment(cacheBreakpoint));
     // 外部实验和模拟上游显式选择，独立 HOME；不继承订阅认证或自动回退。
+    if (clientEnvironment) environmentAdapter = await createGlmEnvironmentAdapter({upstream:selectedUpstream,cwd,model,signal,
+      maxBodyBytes:Math.min(256*1024*1024,maxMcpRequestBytes*2),testOnly:!externalUpstream,
+      onAdjustment:fields=>promptTrace?.environment(fields)});
     if (selectedUpstream) {
-      Object.assign(env, { ANTHROPIC_BASE_URL: selectedUpstream.baseUrl, ANTHROPIC_AUTH_TOKEN: selectedUpstream.token });
+      const endpoint = environmentAdapter || selectedUpstream;
+      Object.assign(env, { ANTHROPIC_BASE_URL: endpoint.baseUrl, ANTHROPIC_AUTH_TOKEN: endpoint.token });
       if (!selectedUpstream.preserveModelAliases) Object.assign(env, { ANTHROPIC_MODEL: model,
         ANTHROPIC_DEFAULT_SONNET_MODEL: model, ANTHROPIC_DEFAULT_HAIKU_MODEL: model, ANTHROPIC_DEFAULT_OPUS_MODEL: model });
     }
@@ -196,6 +203,7 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     probeOutcome = aborted ? 'cancelled' : timedOut || idleTimedOut ? 'timeout' : 'error';
     throw error;
   } finally {
+    await environmentAdapter?.close();
     await probes.finish(probeOutcome);
     if (promptTrace) {
       // 磁盘日志失败或变慢不阻塞生产响应；后台写入队列仍保持串行。

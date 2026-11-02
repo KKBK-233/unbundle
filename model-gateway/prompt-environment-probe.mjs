@@ -10,7 +10,7 @@ import {compileContext} from './context.mjs';
 import {checkCliVersion} from './cli-compat.mjs';
 
 // 只允许合成输入连接回环模拟上游；不加载生产登录目录，也不转发认证头。
-export async function probeEnvironment({cli='/usr/local/bin/velella-claude', outputDirectory}={}) {
+export async function probeEnvironment({cli='/usr/local/bin/velella-claude', outputDirectory, clientEnvironment=false}={}) {
   if(process.platform!=='linux')throw new Error('真实 CLI 环境探针只能在 Linux 运行');
   if(!outputDirectory)throw new Error('必须指定实验报告目录');
   const cliVersion=await checkCliVersion(cli);
@@ -30,6 +30,7 @@ export async function probeEnvironment({cli='/usr/local/bin/velella-claude', out
       const expected=JSON.parse(compiled.input).message.content.filter(b=>b.type==='text').map(b=>b.text);
       let position=-1;for(const text of expected){position=blocks.findIndex((b,i)=>i>position&&b.text===text);assert(position>=0,'历史块必须完整保留');}
       assert(body.system.some(b=>b.text===compiled.systemPrompt),'CLI 必须采用实验模式的系统提示');
+      if(clientEnvironment)assert(!blocks.some(b=>b.text.includes(home)), '适配后不能包含云端工作目录');
       const environmentBlocks=blocks.filter(b=>b.role==='system'&&/^# Environment\b/.test(b.text));
       captures.push({profile:active.profile,phase,cliVersion,model:body.model,generatedHead:compiled.promptComponents,metrics:compiled.metrics,
         system:body.system,history:blocks,environmentBlocks,tools:body.tools?.map(t=>t.name)||[],actualEnvironmentCaptured:true});
@@ -52,19 +53,19 @@ export async function probeEnvironment({cli='/usr/local/bin/velella-claude', out
       const schema={type:'object',properties:{path:{type:'string'},old_string:{type:'string'},new_string:{type:'string'}},required:['path']};
       const request={model:'claude-sonnet-5-5',max_tokens:1024,system:'SYNTHETIC_CLIENT: Platform Windows. Shell PowerShell. Working directory D:\\synthetic\\project. Use the provided tools.',messages:[{role:'user',content:'SYNTHETIC_TASK: read file.txt and edit other.txt.'}],tools:[{name:'Read',description:'Read a client file',input_schema:schema},{name:'Edit',description:'Edit a client file',input_schema:schema}]};
       active={profile,request};
-      const invoke=()=>infer(request,{cli,home,configDir:path.join(home,'.claude'),model:'claude-sonnet-5-5',promptProfile:profile,promptTraceDir:path.join(outputDirectory,'traces'),cliVersion,toolSearch:false,timeoutMs:20000,testUpstream:{baseUrl:`http://127.0.0.1:${server.address().port}`,token:'synthetic-only'}});
+      const invoke=()=>infer(request,{cli,home,configDir:path.join(home,'.claude'),model:clientEnvironment?'glm-5.3':'claude-sonnet-5-5',clientEnvironment,promptProfile:profile,promptTraceDir:path.join(outputDirectory,'traces'),cliVersion,toolSearch:false,timeoutMs:20000,testUpstream:{baseUrl:`http://127.0.0.1:${server.address().port}`,token:'synthetic-only'}});
       phase='tools';const first=await invoke();assert.equal(first.content.filter(b=>b.type==='tool_use').length,2);assert.equal(first.content[0].input.path,'D:\\synthetic\\project\\file.txt');
       request.messages.push({role:'assistant',content:first.content},{role:'user',content:first.content.map(b=>({type:'tool_result',tool_use_id:b.id,content:'SYNTHETIC_TOOL_RESULT'}))});
       phase='continuation';const second=await invoke();assert(second.content.some(b=>b.type==='text'&&b.text==='SYNTHETIC_ENV_OK'));
     }
     assert.equal(captures.length,4);
-    const report={schemaVersion:1,cliVersion,modelRequests:0,syntheticRequests:captures.length,toolSearch:false,captures};
+    const report={schemaVersion:1,cliVersion,clientEnvironment,modelRequests:0,syntheticRequests:captures.length,toolSearch:false,captures};
     await fs.writeFile(path.join(outputDirectory,'environment-probe.json'),JSON.stringify(report,null,2)+'\n',{mode:0o600});
-    return {cliVersion,modelRequests:0,syntheticRequests:captures.length,profiles:captures.map(c=>({profile:c.profile,phase:c.phase,relayBytes:c.metrics.relayBytes,systemPromptBytes:c.metrics.systemPromptBytes,environmentBlocks:c.environmentBlocks.length,cloudCwdVisible:c.environmentBlocks.some(b=>b.text.includes(home))})),report:path.join(outputDirectory,'environment-probe.json')};
+    return {cliVersion,clientEnvironment,modelRequests:0,syntheticRequests:captures.length,profiles:captures.map(c=>({profile:c.profile,phase:c.phase,relayBytes:c.metrics.relayBytes,systemPromptBytes:c.metrics.systemPromptBytes,environmentBlocks:c.environmentBlocks.length,cloudCwdVisible:c.environmentBlocks.some(b=>b.text.includes(home))})),report:path.join(outputDirectory,'environment-probe.json')};
   }finally{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));await fs.rm(home,{recursive:true,force:true});}
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(path.resolve(process.argv[1])).href){
  if(!process.argv.includes('--self-test'))throw new Error('环境探针只支持 --self-test 隔离模式');
  const outputDirectory=process.argv.find(a=>a.startsWith('--output='))?.slice('--output='.length);
- console.log(JSON.stringify(await probeEnvironment({outputDirectory})));
+ console.log(JSON.stringify(await probeEnvironment({outputDirectory,clientEnvironment:process.argv.includes('--client-environment')})));
 }
