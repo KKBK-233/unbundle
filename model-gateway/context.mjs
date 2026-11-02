@@ -132,7 +132,8 @@ export function compileContext(request, { cacheBreakpoint = DEFAULT_CACHE_BREAKP
   history.forEach((message,offset)=>{
     if(!Object.hasOwn(message,'content')){blocks.push({type:'text',text:stableJson(message)});return;}
     const pending=[];
-    const images=content=>contentBlocks(content).map((block,index)=>{
+    // 客户端缓存标记只属于传输层，不能写进历史正文；仅递归工具结果内容，保留工具参数。
+    const images=content=>contentBlocks(content).map(({cache_control,...block})=>{
       if(block.type==='tool_result')return {...block,content:typeof block.content==='string'?block.content:images(block.content)};
       if(!isImageBlock(block))return block;
       const {native,bytes}=normalizeImage(block,maxImageBytes);imageBytes+=bytes;
