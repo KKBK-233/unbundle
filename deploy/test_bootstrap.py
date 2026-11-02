@@ -94,22 +94,32 @@ class BootstrapTests(unittest.TestCase):
         self.assertEqual(list(bootstrap.APP.glob('.program-next-*')), [])
 
     def test_failed_rollback_retains_both_programs_and_reports_recovery_path(self):
+        # 所有平台都通过带 .. 的别名进入，确保故障注入适配生产代码的路径归一化。
+        alias = self.folder / 'path-alias'
+        alias.mkdir()
+        bootstrap.APP = alias / '..' / 'APP'
+        self.assertNotEqual(bootstrap.APP, bootstrap.APP.resolve())
         source = self.program_source()
         for name in ['model-gateway', 'deploy', 'src']:
             (bootstrap.APP / name).mkdir()
             (bootstrap.APP / name / 'old.txt').write_text('PREVIOUS')
         rename = pathlib.Path.rename
 
+        failures = []
+
         def fail_install_and_rollback(file, target):
             if file.parent.name == 'incoming' and file.name == 'deploy':
+                failures.append('install')
                 raise OSError('SYNTHETIC_INSTALL_FAILURE')
-            if file == bootstrap.APP / 'model-gateway' and target.parent.name == 'incoming':
+            if file.resolve() == (bootstrap.APP / 'model-gateway').resolve() and target.parent.name == 'incoming':
+                failures.append('rollback')
                 raise OSError('SYNTHETIC_ROLLBACK_FAILURE')
             return rename(file, target)
 
         with patch.object(pathlib.Path, 'rename', fail_install_and_rollback):
             with self.assertRaises(RuntimeError) as error:
                 bootstrap.copy_program(source, bootstrap.APP)
+        self.assertEqual(failures, ['install', 'rollback'])
         stages = list(bootstrap.APP.glob('.program-next-*'))
         self.assertEqual(len(stages), 1)
         stage = stages[0]
