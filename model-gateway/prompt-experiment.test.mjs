@@ -58,3 +58,12 @@ test('日志关闭不产生副作用，磁盘写入失败不影响完成',async(
  try{await fs.writeFile(file,'keep');const trace=createPromptTrace({directory:file,compiled:compileContext(request()),sink:x=>logs.push(x)});await trace.finish('error');assert(logs.some(x=>x.event==='write_failed'));assert.equal(await fs.readFile(file,'utf8'),'keep');}
  finally{await fs.rm(directory,{recursive:true,force:true});}
 });
+
+test('慢盘队列有界，超过八份只记录跳过事件',async()=>{
+ const directory=await fs.mkdtemp(path.join(os.tmpdir(),'prompt-trace-test-')),logs=[];
+ try{
+  const pending=[];
+  for(let i=0;i<10;i++){const trace=createPromptTrace({directory,compiled:compileContext(request()),sink:x=>logs.push(x)});pending.push(trace.finish('completed'));}
+  await Promise.all(pending);assert.equal(logs.filter(x=>x.event==='write_skipped').length,2);assert.equal((await fs.readdir(directory)).length,8);
+ }finally{await fs.rm(directory,{recursive:true,force:true});}
+});

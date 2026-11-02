@@ -3,7 +3,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 
-const queues = new Map();
+const queues = new Map(), pendingWrites = new Map();
 const managed = /^prompt-\d{13}-[a-f0-9-]{36}\.json$/;
 const tokenKeys = ['input_tokens', 'output_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens'];
 const metricKeys = ['instructionBytes', 'systemPromptBytes', 'historyBytes', 'toolSchemaBytes', 'relayBytes', 'instructionCount', 'instructionUpdates', 'runtimeStatusCount', 'imageCount', 'imageBytes', 'toolCount', 'historyMessages', 'blockCount'];
@@ -100,10 +100,18 @@ export function createPromptTrace({ directory, requestId, compiled, model, cliVe
       for (const value of usage.values()) for (const k of tokenKeys) if (value[k] !== undefined) totals[k] = (totals[k] || 0) + value[k];
       record.summary = { outcome: ['completed', 'error', 'timeout', 'cancelled'].includes(outcome) ? outcome : 'unknown', elapsedMs: Math.round(performance.now() - started), upstreamMessages: ordinal, observedUsage: totals, usageSource: 'deduplicated_cli_message_events', mentionCoverage: 'stream_text_and_thinking_only', text: text.summary(), thinking: thinking.summary(), droppedEvents };
       publish({ event: 'summary', ...record.summary });
+      // 慢盘最多积压八份日志，避免诊断队列拖垮长时间运行的服务。
+      const pending = pendingWrites.get(directory) || 0;
+      if (pending >= 8) { publish({ event: 'write_skipped', reason: 'queue_full' }); finished = Promise.resolve(); return finished; }
+      pendingWrites.set(directory, pending + 1);
       const previous = queues.get(directory) || Promise.resolve();
       finished = previous.catch(() => {}).then(() => persist(directory, record, { maxFiles, maxTotalBytes, maxAgeMs })).catch(() => { publish({ event: 'write_failed' }); });
       queues.set(directory, finished);
-      void finished.then(() => { if (queues.get(directory) === finished) queues.delete(directory); });
+      void finished.then(() => {
+        const remaining = (pendingWrites.get(directory) || 1) - 1;
+        if (remaining) pendingWrites.set(directory, remaining); else pendingWrites.delete(directory);
+        if (queues.get(directory) === finished) queues.delete(directory);
+      });
       return finished;
     },
   };
