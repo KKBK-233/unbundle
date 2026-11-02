@@ -91,3 +91,18 @@ GATEWAY_SESSION_RELAY=0
 2026-11-02 已验证三个兼容型号均映射到 `glm-5.3`，短文本、流式输出、原生 ToolSearch 发现、MCP 工具交接和结果续接可用。一次开启 ToolSearch 的请求在 120 秒后超时，但复测成功，不能据此断言 ToolSearch 不兼容。
 
 32 工具合成样例要求只读三行、编辑后不回读。一次 GLM 在同一个上游消息中生成了四个独立调用：读、编辑、读、读；网关记录与实际交接一致。这属于观察到的模型行为偏差，不能把协议通过等同于模型总能遵循操作顺序。此测试使用模拟工具回执，没有在 Windows 上执行真实编辑。详细日志保存实际返回的思考字段，不能据此推断模型内部的全部处理过程。
+
+
+### 当前部署状态（2026-11-02）
+
+用户授权扩大 GLM 测试后，现有 `velella-model-gateway.service` 已切换到 `/home/harness/experiments/glm-live-d75d61e`，保留 `127.0.0.1:18796` 和原网关令牌。本地原隧道鉴权查询已确认三个入口实际均为 GLM-5.3。原 `/home/harness/app` 的 dev 2.0.4 程序和订阅配置保留。
+
+当前配置为 minimal + 详细内容日志 + `GATEWAY_TOOL_SEARCH=0`：直接注册客户端工具，不使用云端原生 ToolSearch。复测中，启用 ToolSearch 的 32 工具样例曾一次生成十三组读/编辑调用；关闭后同一样例只生成一次读和一次编辑。样本量有限，只作为本次实验的配置选择，不代表已经证明根因或消除了所有循环。
+
+真实验收包括普通回复、流式结束、多工具发现、Windows 路径参数、工具交接和续接。330,016 字节的工具回执正常传递，日志最多采集 262,144 字节，并标记截断。切换后的现有端口再次完成文本、工具和续接三轮请求；日志实际出现 thinking、text、tool_arguments、tool_handoff、tool_result，目录 0700、文件 0600。没有在样本日志或服务 journal 中发现配置的 GLM 密钥和网关令牌。Windows 文件编辑使用模拟回执验证，真实桌面工具操作仍由用户测试。
+
+详细日志位于 `/home/harness/model-gateway/prompt-experiment/`，每个请求一份 JSON。定期维护服务 `unbundle-glm-log-maintenance.timer` 已启用。独立 GLM 密钥保存于 `/home/harness/experiments/secrets/glm-api-key`，权限 0600；不读取生产 OAuth。CLI 自动更新定时器已暂停，固定 2.1.316。实验不会消除 CLI 自带的 Linux 环境说明。
+
+回滚脚本为 `/home/harness/experiments/glm-live-control/rollback.py`，root 在确认空闲后执行。它校验实验 drop-in 未被改动，撤销实验入口、恢复原程序，并恢复原 CLI 自动更新状态；实验日志维护继续运行。部署记录和验收摘要也保存在该私有控制目录。未创建 PR，未合并 dev/main。
+
+本地最终测试：445 项，442 通过、3 跳过、0 失败；日志维护脚本另外通过数量、容量、年龄及文件白名单检查。
