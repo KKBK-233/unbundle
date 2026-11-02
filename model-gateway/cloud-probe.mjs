@@ -4,6 +4,7 @@ import path from 'node:path';
 import http from 'node:http';
 import assert from 'node:assert/strict';
 import {randomBytes} from 'node:crypto';
+import {pathToFileURL} from 'node:url';
 import { once } from 'node:events';
 import { gateway } from './server.mjs';
 import { infer } from './engine.mjs';
@@ -11,6 +12,24 @@ import { compileContext } from './context.mjs';
 import { checkCliVersion } from './cli-compat.mjs';
 import { inspectUpstream } from './probe-contract.mjs';
 
+// 合成请求与验收断言可独立导入，离线测试无需启动官方 CLI。
+export function createProbeRequest(maxTokens) {
+    const request = { model: 'claude-code-sonnet', system: '合成验收固定指令', messages: [{ role: 'user', content: '读取 proof.txt' }], tools: [{name: 'read', description: '读取本地文件', input_schema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] }}], max_tokens: maxTokens };
+    request.messages.push({ role: 'system', content: 'SYNTHETIC_MID_SYSTEM' }, { role: 'developer', content: 'SYNTHETIC_MID_DEVELOPER' });
+    return request;
+}
+
+export function assertInstructionProbe(body, calls) {
+    // 动态指令是固定验收项：正文只进系统提示，历史只保留其原位引用。
+    const systemText = typeof body.system === 'string' ? body.system : body.system.filter(block => block.type === 'text').map(block => block.text).join('\n');
+    assert(systemText.includes('SYNTHETIC_MID_SYSTEM') && systemText.includes('SYNTHETIC_MID_DEVELOPER'), '动态指令正文必须到达上游系统提示');
+    const textBlocks = body.messages.flatMap(message => Array.isArray(message.content) ? message.content : []).filter(block => block.type === 'text');
+    for (const [index, role] of [[1, 'system'], [2, 'developer']]) assert(textBlocks.some(block => block.text === JSON.stringify({ instruction_ref: `message_${index}`, role })), '上游必须保留动态指令原位引用');
+    assert(!textBlocks.some(block => /SYNTHETIC_MID_(SYSTEM|DEVELOPER)/.test(block.text)), '历史不能重复指令正文');
+    if (calls === 2) assert(textBlocks.some(block => block.text.includes('runtime_status') && block.text.includes('<total_tokens>800 tokens left</total_tokens>')), '第二轮运行状态必须保留在历史中');
+}
+
+async function main() {
 // 仅在云端运行：官方 CLI 连接回环模拟上游，验证 Messages 与 MCP 工具往返。
 if (process.platform !== 'linux') throw new Error('验收只能在云端运行，不允许启动本地 Claude');
 const state = process.env.GATEWAY_STATE || '/home/harness/model-gateway';
@@ -42,6 +61,7 @@ const mock = http.createServer(async (req, res) => {
     if (upstreamModel) assert.equal(body.model, upstreamModel.replace(/\[1m\]$/, ''), '实际模型 ID 必须到达模拟上游');
     assert.equal(body.output_config?.effort, activeRequest.output_config?.effort, '桌面思考档位必须原样到达最终上游');
     assert.equal(body.max_tokens, activeRequest.max_tokens, '调用方输出上限必须传递到上游');
+    assertInstructionProbe(body, calls);
     if (images) {
       // 本节回答唯一无法在本地验证的问题：官方 CLI 是否把图片块原样转发给上游。
       const blocks = body.messages.flatMap(message => Array.isArray(message.content) ? message.content : []);
@@ -113,7 +133,7 @@ try {
   console.log('CLOUD_PROBE_READY');
   {
     // 受控两轮复用调用方指令，通过临时 HTTP 端口验收，不占用正式服务。
-    const request = { model: 'claude-code-sonnet', system: '合成验收固定指令', messages: [{ role: 'user', content: '读取 proof.txt' }], tools: [{name: 'read', description: '读取本地文件', input_schema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] }}], max_tokens: probeOutputTokens };
+    const request = createProbeRequest(probeOutputTokens);
     // 图片只放在 user 消息，与运行时支持的范围一致；两轮都携带以验证跨轮前缀稳定。
     if (images) request.messages[0] = { role: 'user', content: [{ type: 'text', text: '读取 proof.txt' },
       { type: 'image', source: { type: 'base64', media_type: 'image/png', data: PROBE_PNG } }] };
@@ -129,6 +149,7 @@ try {
     request.messages.push(first, {role:'user', content:[{type:'tool_result', tool_use_id:toolUses(first)[0].id, content:'UNBUNDLE_PROOF'}]});
     if (images) toolReceipt(request.messages.at(-1)).content = [{ type: 'text', text: 'UNBUNDLE_PROOF' },
       { type: 'image', source: { type: 'base64', media_type: 'image/png', data: PROBE_PNG } }];
+    request.messages.push({ role: 'system', content: '<total_tokens>800 tokens left</total_tokens>' });
     assert.equal(messageText(await invoke()), 'UNBUNDLE_OK');
   }
   assert.equal(calls, 2);
@@ -139,3 +160,7 @@ try {
   // 只清理 mkdtemp 创建且仍位于验收目录内的临时状态。
   if (path.dirname(home) === state && path.basename(home).startsWith('probe-')) await fs.rm(home, { recursive: true, force: true });
 }
+
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) await main();

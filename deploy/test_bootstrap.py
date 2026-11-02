@@ -35,6 +35,63 @@ class BootstrapTests(unittest.TestCase):
         self.assertTrue((bootstrap.APP / 'package-lock.json').exists())
         self.assertFalse((bootstrap.APP / 'src').exists())
 
+    def program_source(self):
+        source = self.folder / 'source'
+        source.mkdir()
+        for name in ['model-gateway', 'deploy']:
+            (source / name).mkdir()
+            (source / name / 'current.txt').write_text('CURRENT')
+        for name in ['package.json', 'package-lock.json']:
+            (source / name).write_text('{}')
+        return source
+
+    def test_upgrade_removes_retired_programs_and_preserves_private_state(self):
+        source = self.program_source()
+        for name in ['model-gateway/import-omp.mjs', 'deploy/install-frp.sh', 'src/frp.mjs',
+                     'node/bin/node', '.local/profile.json', '.claude/settings.json', 'custom.txt']:
+            file = bootstrap.APP / name
+            file.parent.mkdir(parents=True, exist_ok=True)
+            file.write_text('PREVIOUS')
+        state = bootstrap.STATE / 'synthetic-state'
+        state.write_text('STATE')
+        # 连续重跑也不重新混入旧入口，受管理目录之外保持逐字节不变。
+        bootstrap.copy_program(source, bootstrap.APP)
+        bootstrap.copy_program(source, bootstrap.APP)
+        for name in ['model-gateway/import-omp.mjs', 'deploy/install-frp.sh', 'src']:
+            self.assertFalse((bootstrap.APP / name).exists())
+        for name in ['node/bin/node', '.local/profile.json', '.claude/settings.json', 'custom.txt']:
+            self.assertEqual((bootstrap.APP / name).read_text(), 'PREVIOUS')
+        self.assertEqual(state.read_text(), 'STATE')
+        self.assertEqual((bootstrap.APP / 'model-gateway/current.txt').read_text(), 'CURRENT')
+
+    def test_incomplete_source_preserves_previous_program(self):
+        source = self.program_source()
+        (source / 'package-lock.json').unlink()
+        previous = bootstrap.APP / 'package.json'
+        previous.write_text('PREVIOUS')
+        with self.assertRaisesRegex(RuntimeError, '清单不完整'):
+            bootstrap.copy_program(source, bootstrap.APP)
+        self.assertEqual(previous.read_text(), 'PREVIOUS')
+
+    def test_install_failure_rolls_back_changed_program_directories(self):
+        source = self.program_source()
+        for name in ['model-gateway', 'deploy', 'src']:
+            (bootstrap.APP / name).mkdir()
+            (bootstrap.APP / name / 'old.txt').write_text('PREVIOUS')
+        rename = pathlib.Path.rename
+
+        def fail_once(file, target):
+            if file.parent.name == 'incoming' and file.name == 'deploy':
+                raise OSError('SYNTHETIC_INSTALL_FAILURE')
+            return rename(file, target)
+
+        with patch.object(pathlib.Path, 'rename', fail_once):
+            with self.assertRaisesRegex(OSError, 'SYNTHETIC_INSTALL_FAILURE'):
+                bootstrap.copy_program(source, bootstrap.APP)
+        for name in ['model-gateway', 'deploy', 'src']:
+            self.assertEqual((bootstrap.APP / name / 'old.txt').read_text(), 'PREVIOUS')
+        self.assertFalse((bootstrap.APP / 'model-gateway/current.txt').exists())
+
     def test_foreign_unit_is_preserved(self):
         bootstrap.UNIT.write_text('OTHER SERVICE')
         with self.assertRaisesRegex(RuntimeError, '非安装器'):

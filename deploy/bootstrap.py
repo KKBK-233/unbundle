@@ -153,13 +153,49 @@ WantedBy=multi-user.target
 
 
 def copy_program(source, target):
-    """只复制当前程序清单，旧部署的 src 不再是新安装源的必需目录。"""
-    for name in ['model-gateway', 'deploy', 'package.json', 'package-lock.json']:
+    """准备完整程序副本后替换受管理目录；失败回滚，状态与登录目录保持原位。"""
+    current = ['model-gateway', 'deploy', 'package.json', 'package-lock.json']
+    managed = current + ['src']
+    source, target = source.resolve(), target.resolve()
+    if source == target:
+        raise RuntimeError('安装源不能是当前程序目录')
+    # 不沿着已有链接清理目录；只管理 APP 直属的程序清单。
+    for name in managed:
+        if (target / name).is_symlink():
+            raise RuntimeError('受管理程序路径不能是符号链接')
+    for name in current:
         origin = source / name
-        if origin.is_dir():
-            shutil.copytree(origin, target / name, dirs_exist_ok=True)
-        else:
-            shutil.copy2(origin, target / name)
+        if origin.is_symlink() or not origin.exists():
+            raise RuntimeError('安装源程序清单不完整或包含符号链接')
+    with tempfile.TemporaryDirectory(prefix='.program-next-', dir=target) as temporary:
+        stage = pathlib.Path(temporary)
+        incoming, previous = stage / 'incoming', stage / 'previous'
+        incoming.mkdir()
+        previous.mkdir()
+        # 所有新文件复制成功后才接触旧程序，缺文件或磁盘错误不会先清空现有版本。
+        for name in current:
+            origin = source / name
+            if origin.is_dir():
+                shutil.copytree(origin, incoming / name)
+            else:
+                shutil.copy2(origin, incoming / name)
+        saved, installed = [], []
+        try:
+            for name in managed:
+                destination = target / name
+                if destination.exists():
+                    destination.rename(previous / name)
+                    saved.append(name)
+                if name in current:
+                    (incoming / name).rename(destination)
+                    installed.append(name)
+        except BaseException:
+            # 回移新目录而不递归删除目标；事务临时目录会在恢复之后统一清理。
+            for name in reversed(installed):
+                (target / name).rename(incoming / name)
+            for name in reversed(saved):
+                (previous / name).rename(target / name)
+            raise
 
 
 def install(source, token_file):
