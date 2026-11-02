@@ -1,3 +1,4 @@
+import {toolUses} from './messages.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -12,14 +13,14 @@ import { createTiming } from './timing.mjs';
 const available = [{ name: 'read', original: 'read' }];
 const stream = event => ({ type: 'stream_event', event });
 const start = index => stream({ type: 'content_block_start', index,
-  content_block: { type: 'tool_use', id: `tool_${index}`, name: 'mcp__omp__read', input: {} } });
+  content_block: { type: 'tool_use', id: `tool_${index}`, name: 'mcp__caller__read', input: {} } });
 const delta = (index, partial_json) => stream({ type: 'content_block_delta', index,
   delta: { type: 'input_json_delta', partial_json } });
 const stop = index => stream({ type: 'content_block_stop', index });
 const end = reason => stream({ type: 'message_delta', delta: { stop_reason: reason }, usage: { output_tokens: 10 } });
 const begin = stream({ type: 'message_start', message: { id: 'msg_tools', usage: { input_tokens: 20, output_tokens: 0 } } });
 const snapshot = (index, input) => ({ type: 'assistant', message: { id: 'msg_tools', content: [
-  { type: 'tool_use', id: `tool_${index}`, name: 'mcp__omp__read', input },
+  { type: 'tool_use', id: `tool_${index}`, name: 'mcp__caller__read', input },
 ] } });
 
 // 模拟缺失块结束事件，必须等整条消息结束且参数完整，才能交付工具调用。
@@ -33,7 +34,7 @@ test('消息结束补齐缺失的工具块结束事件，保持并行工具与�
   assert.equal(events.toolEnd, true);
   assert.equal(events.blocks.size, 0);
   assert.equal(events.recoveredToolStops, 1);
-  assert.deepEqual([...events.calls.values()].map(value => JSON.parse(value.function.arguments)), [{ path: 'a' }, { path: '中文.txt' }]);
+  assert.deepEqual([...events.calls.values()].map(value => value.input), [{ path: 'a' }, { path: '中文.txt' }]);
   events.accept(stop(3));
   events.accept(snapshot(3, { path: '中文.txt' }));
   assert.equal(events.calls.size, 2);
@@ -93,13 +94,12 @@ test('缺失块结束事件仍可通过两种 HTTP 协议交付完整工具，�
     },
   });
   try {
-    for (const native of [false, true]) for (const streaming of [false, true]) {
+    for (const withBudget of [false, true]) for (const streaming of [false, true]) {
       const parameters = { type: 'object', properties: { path: { type: 'string' } } };
       const body = { model: 'claude-code-sonnet', messages: [{ role: 'user', content: '合成测试' }], stream: streaming,
-        ...(native ? { max_tokens: 1024, tools: [{ name: 'read', input_schema: parameters }] }
-          : { tools: [{ type: 'function', function: { name: 'read', parameters } }] }),
+        ...(withBudget ? {max_tokens:1024} : {}), tools:[{name:'read',input_schema:parameters}],
       };
-      const response = await fetch(`http://127.0.0.1:${app.port}/v1/${native ? 'messages' : 'chat/completions'}`, {
+      const response = await fetch(`http://127.0.0.1:${app.port}/v1/messages`, {
         method: 'POST', headers: { authorization: 'Bearer synthetic', 'content-type': 'application/json' }, body: JSON.stringify(body),
       });
       const text = await response.text();
@@ -107,16 +107,11 @@ test('缺失块结束事件仍可通过两种 HTTP 协议交付完整工具，�
       if (streaming) {
         assert(!text.includes('"type":"error"'), text);
         assert(text.includes('example.txt'), text);
-        assert(text.includes(native ? '"stop_reason":"tool_use"' : '"finish_reason":"tool_calls"'), text);
+        assert(text.includes('"stop_reason":"tool_use"'), text);
       } else {
         const result = JSON.parse(text);
-        if (native) {
-          assert.equal(result.stop_reason, 'tool_use');
-          assert.deepEqual(result.content, [{ type: 'tool_use', id: 'tool_0', name: 'read', input: { path: 'example.txt' } }]);
-        } else {
-          assert.equal(result.choices[0].finish_reason, 'tool_calls');
-          assert.equal(result.choices[0].message.tool_calls[0].function.arguments, '{"path":"example.txt"}');
-        }
+        assert.equal(result.stop_reason, 'tool_use');
+        assert.deepEqual(result.content, [{type:'tool_use',id:'tool_0',name:'read',input:{path:'example.txt'}}]);
       }
     }
     const finished = records.filter(record => record.stage === 'finished');
@@ -136,7 +131,7 @@ test('CLI 退出前没有工具消息结束信号时，不把未完成工具当�
   const script = `for await (const chunk of process.stdin) {}; for (const event of ${JSON.stringify(trace)}) console.log(JSON.stringify(event));`;
   try {
     await assert.rejects(infer({ messages: [{ role: 'user', content: '合成测试' }], tools: [
-      { type: 'function', function: { name: 'read', parameters: { type: 'object' } } },
+      {name: 'read', input_schema: { type: 'object' }},
     ] }, { cli: 'synthetic', home, model: 'mock', timeoutMs: 5000,
       spawnProcess: (_cli, _args, options) => spawn(process.execPath, ['--input-type=module', '-e', script], options),
     }), /工具消息不完整/);
@@ -159,7 +154,7 @@ test('完整工具回退保留最终参数，重复聚合消息只记一次工�
   assert.equal(events.toolEnd, true);
   assert.equal(events.blocks.size, 0);
   assert.equal(events.calls.size, 1);
-  assert.deepEqual(JSON.parse(events.calls.get('tool_0').function.arguments), complete.message.content[0].input);
+  assert.deepEqual(events.calls.get('tool_0').input, complete.message.content[0].input);
   assert.deepEqual(calls, [{ id: 'tool_0', kind: 'caller', name: 'read' }]);
   const changed = structuredClone(complete); changed.message.content[0].input.path = 'other.txt';
   assert.throws(() => events.accept(changed), /ID 冲突/);

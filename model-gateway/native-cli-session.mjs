@@ -1,3 +1,4 @@
+import {toolUses} from './messages.mjs';
 import {cacheEnvironment} from './cache-policy.mjs';
 import {nativeCompact} from './native-compaction.mjs';
 import {statelessQuotaFailure,statelessInitialCancellation} from './stateless-quota.mjs';
@@ -72,7 +73,7 @@ export class NativeCliSession {
     this.server = http.createServer((req, res) => this.rpc(req, res));
     await new Promise((resolve, reject) => { this.server.once('error', reject); this.server.listen(0, '127.0.0.1', resolve); });
     const mcp = path.join(this.work, 'mcp.json'), prompt = path.join(this.work, 'system.txt');
-    await fs.writeFile(mcp, JSON.stringify({ mcpServers: this.compiled.available.length ? { omp: { type: 'http',timeout:o.toolWaitTimeoutMs||DEFAULT_TOOL_WAIT_MS,
+    await fs.writeFile(mcp, JSON.stringify({ mcpServers: this.compiled.available.length ? { caller: { type: 'http',timeout:o.toolWaitTimeoutMs||DEFAULT_TOOL_WAIT_MS,
       url: `http://127.0.0.1:${this.server.address().port}/mcp`, headers: { Authorization: `Bearer ${this.bearer}` } } } : {} }), { mode: 0o600 });
     if (o.liveInstructionUpdates === true) systemPrompt += LIVE_INSTRUCTION_PROMPT;
     await fs.writeFile(prompt, systemPrompt, { mode: 0o600 });
@@ -88,7 +89,7 @@ export class NativeCliSession {
     if (o.testUpstream) Object.assign(env, { ANTHROPIC_BASE_URL: o.testUpstream.baseUrl, ANTHROPIC_AUTH_TOKEN: o.testUpstream.token });
     const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
       '--tools', discovery.builtin, '--strict-mcp-config', '--mcp-config', mcp, '--setting-sources', '', '--no-chrome',
-      '--permission-mode', 'dontAsk', '--allowedTools', 'mcp__omp__*', '--model', o.model, '--system-prompt-file', prompt];
+      '--permission-mode', 'dontAsk', '--allowedTools', 'mcp__caller__*', '--model', o.model, '--system-prompt-file', prompt];
     if (o.persistentSessions !== true) args.push('--no-session-persistence');
     else if (!this.resumeFile && !o.resumeNativeId) args.push('--session-id', this.nativeSessionId);
     if (o.resumeNativeId) args.push('--resume', o.resumeNativeId, '--system-prompt-snapshot', 'on');
@@ -152,7 +153,7 @@ export class NativeCliSession {
     for (const [id, value] of this.results) {
       const pending = this.pendingHttp.get(id), expected = this.lastCalls?.get(id);
       if (!pending || !expected) continue;
-      if (pending.name !== expected.function.name || pending.args !== expected.function.arguments) {
+      if (pending.name !== expected.name || pending.args !== stableJson(expected.input)) {
         this.fail(Object.assign(new Error('原生工具 ID 与名称/参数不匹配'), { code: 'NATIVE_TOOL_ID_MISMATCH' })); return;
       }
       pending.res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ jsonrpc: '2.0', id: pending.rpcId, result: value }));
@@ -176,7 +177,7 @@ export class NativeCliSession {
     }
     for (const [id, pending] of waiting) {
       const expected = this.lastCalls.get(id);
-      if (pending.name !== expected.function.name || pending.args !== expected.function.arguments) {
+      if (pending.name !== expected.name || pending.args !== stableJson(expected.input)) {
         this.fail(Object.assign(new Error('原生工具 ID 与名称/参数不匹配'), { code: 'NATIVE_TOOL_ID_MISMATCH' })); return;
       }
     }
@@ -186,8 +187,7 @@ export class NativeCliSession {
         { code: 'NATIVE_TOOL_FALLBACK_UNVERIFIED', status: 409, retryable: false })); return;
     }
     turn.waitingHandoff = false;
-    this.deliver({ role: 'assistant', content: turn.events.text || null,
-      tool_calls: [...this.lastCalls.values()], ...turn.events.usage() }, true);
+    this.deliver({role: 'assistant', ...turn.events.usage(), content: turn.events.content()}, true);
   }
   control(request) {
     return new Promise((resolve, reject) => {
@@ -224,7 +224,7 @@ export class NativeCliSession {
     const previous=this.compiled,revision=this.toolListRevision||0;
     this.compiled=update.compiled;
     try{
-      const result=await this.control({subtype:'mcp_reconnect',serverName:'omp'});
+      const result=await this.control({subtype:'mcp_reconnect',serverName:'caller'});
       if(result?.error||Object.keys(result?.errors||{}).length||(this.toolListRevision||0)<=revision)throw new Error('CLI 未读取新的 MCP 工具定义');
       this.signature=update.signature;
       this.report('tools_updated','native_mcp_reconnected');
@@ -254,8 +254,9 @@ export class NativeCliSession {
     let timer;
     try {
       const supports = this.cliCapabilities || new Set();
+      // 首帧前也可能已提交原生输入；用 UUID、中断回执和终止事件确认边界。
       if (!supports.has('interrupt_receipt_v1') || !supports.has('interrupt_cancel_queued_v1')
-        || turn.awaitingStart || !turn.inputUuid || turn.events.text.trim() || turn.events.pendingText.trim()
+        || !turn.inputUuid || turn.events.text.trim() || turn.events.pendingText.trim()
         || turn.events.calls.size || turn.events.blocks.size || this.pendingIds.size || this.pendingHttp.size || this.results.size) throw failure;
       const terminal = new Promise(resolve => { turn.cancelTerminal = resolve; });
       const [receipt, result] = await Promise.race([
@@ -295,7 +296,7 @@ export class NativeCliSession {
         context:{...this.compiled.metrics,model:request.model,effort:resolveEffort(request)||'auto',requestedOutputTokens:this.options.outputTokens,cliVersion:this.options.cliVersion}});
       const events = new CliEvents(this.compiled.available, text => {
         if(!this.turn?.cancelling&&!policy.required&&!policy.single){probes.output(text);onText?.(text);}
-      }, request.stop == null ? [] : typeof request.stop === 'string' ? [request.stop] : request.stop, { allowToolSearch: this.options.toolSearch, maxToolSearchCalls: this.options.maxToolSearchCalls, preferAggregateWithMcpValidation: true, onStopReason: reason => timing?.upstreamStop?.(reason), onToolCall: call => timing?.cliTool?.(call) });
+      }, request.stop_sequences || [], { allowToolSearch: this.options.toolSearch, maxToolSearchCalls: this.options.maxToolSearchCalls, preferAggregateWithMcpValidation: true, onStopReason: reason => timing?.upstreamStop?.(reason), onToolCall: call => timing?.cliTool?.(call) });
       const audit = cliOutputAudit({ requestId: timing?.requestId, sink: this.options.onCliAudit });
       const turn = { events, audit, probes, resolve, reject, signal, timing, policy, awaitingStart: true, outputBytes: 0,
         strategy: delta !== undefined ? 'native_increment' : this.entryMode || 'native_new', deliveredReceiptIds: new Set() };
@@ -392,11 +393,11 @@ export class NativeCliSession {
       || event.type === 'result')) {
       this.fail(Object.assign(new Error('CLI 未完成 MCP 交接便继续执行'), { code: 'CLI_TOOL_HANDOFF_FAILED' })); return;
     }
-    if (inner?.type === 'message_start') { turn.awaitingStart = false; turn.timing?.onUsage?.({upstream_usage:inner.message?.usage}); turn.timing?.mark('upstream_message_start'); }
+    if (inner?.type === 'message_start') { turn.awaitingStart = false; turn.timing?.onUsage?.({usage:inner.message?.usage}); turn.timing?.mark('upstream_message_start'); }
     // 官方 CLI 在流式重试降级后可能只给完整 assistant，没有 message_start。
     // API 错误占位消息不能作为模型回复；工具仍须通过真实 MCP 等待和参数校验。
     if(turn.awaitingStart&&completeAssistant(event)){
-      turn.awaitingStart=false;turn.timing?.onUsage?.({upstream_usage:event.message.usage});turn.timing?.mark('upstream_message_start');
+      turn.awaitingStart=false;turn.timing?.onUsage?.({usage:event.message.usage});turn.timing?.mark('upstream_message_start');
     }
     // 明确的 API 重试属于进展，只刷新空闲计时，不延长整轮总时限。
     if (event.type === 'system' && event.subtype === 'api_retry') { this.progress(); return; }
@@ -416,11 +417,11 @@ export class NativeCliSession {
       if (inner?.type === 'content_block_delta' && inner.delta?.type === 'thinking_delta') turn.timing?.mark('first_thinking');
       if (inner?.type === 'content_block_start' && inner.content_block?.type === 'tool_use') turn.timing?.mark('first_tool');
       if (turn.events.refused) {
-        this.deliver({ role: 'assistant', content: turn.events.text, stop_reason: 'refusal', ...turn.events.usage() }, false); return;
+        this.deliver({ role: 'assistant', content: turn.events.content(), stop_reason: 'refusal', stop_details: turn.events.stopDetails, ...turn.events.usage() }, false); return;
       }
       if (turn.events.outputLimitReached || turn.events.stopSequence !== undefined) {
-        const result = { role: 'assistant', content: turn.events.text, finish_reason: 'length', ...turn.events.usage() };
-        if (turn.events.stopSequence !== undefined) { delete result.finish_reason; result.stop_sequence = turn.events.stopSequence; }
+        const result = { role: 'assistant', content: turn.events.content(), stop_reason: 'max_tokens', ...turn.events.usage() };
+        if (turn.events.stopSequence !== undefined) { delete result.stop_reason; result.stop_sequence = turn.events.stopSequence; }
         this.deliver(result, false); return;
       }
       if (turn.events.toolEnd && turn.events.calls.size) {
@@ -436,20 +437,20 @@ export class NativeCliSession {
         turn.events.flushText();
         if (!turn.events.receivedText) turn.events.emit(event.result || '');
         this.pendingIds.clear(); this.lastCalls = undefined;
-        this.deliver({ role: 'assistant', content: turn.events.text || '', ...turn.events.usage() }, true);
+        this.deliver({ role: 'assistant', content: turn.events.content(), ...turn.events.usage() }, true);
       }
     } catch (error) { this.fail(error); }
   }
   deliver(result, reusable) {
     const turn = this.turn; if (!turn) return;
-    try { if (result.stop_reason !== 'refusal') enforceToolChoice(turn.policy, result.tool_calls, turn.events.usage()); }
+    try { if (result.stop_reason !== 'refusal') enforceToolChoice(turn.policy, toolUses(result), turn.events.usage()); }
     catch (error) { this.fail(error); return; }
     this.turn = undefined; this.clearTurn(turn);
     this.expected = historyKey(assistantMessage(result), { hashKey: this.options.historyHashKey, toolSchemas: this.request.tools }); this.lastUsed = Date.now();
     this.expectedFingerprint = assistantFingerprint(assistantMessage(result), {hashKey:this.options.historyHashKey});
     this.lastAssistant=assistantMessage(result);
     this.lastStopReason=result.stop_reason;
-    this.state = result.tool_calls?.length ? 'waiting-tool' : 'idle';
+    this.state = toolUses(result).length ? 'waiting-tool' : 'idle';
     void turn.probeFinished.then(()=>turn.resolve(result));
     if (!reusable) void this.close();
     else { this.expiry = setTimeout(() => { void this.close('expired').catch(() => {}); }, this.options.sessionTtlMs || 1800000); this.expiry.unref?.(); }
@@ -496,7 +497,7 @@ export class NativeCliSession {
       if(error.code!=='ESRCH')throw error;
     }
   }
-  freeze(reason,{request,partialTurn}={}) {
+  freeze(reason,{request=this.request,partialTurn}={}) {
     if(this.freezing)return this.freezing;
     this.freezePreviousState=this.state;this.frozenRequest=request;this.recoveryArmed=false;
     this.state='frozen';this.freezeReason=reason;clearTimeout(this.expiry);

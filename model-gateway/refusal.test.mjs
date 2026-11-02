@@ -1,3 +1,4 @@
+import {messageText} from './messages.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -9,10 +10,13 @@ import { infer } from './engine.mjs';
 import { sessionRelay } from './session-relay.mjs';
 import { gateway } from './server.mjs';
 import { createTiming } from './timing.mjs';
+import { refusalDetails } from './refusal-details.mjs';
 
 const stream = event => ({ type: 'stream_event', event });
-const refusal = { type: 'assistant', message: { id: 'refused', content: [{ type: 'text', text: 'DECLINED' }], stop_reason: 'refusal', usage: { input_tokens: 10, output_tokens: 2 } } };
-const tool = { type: 'function', function: { name: 'read', parameters: { type: 'object', properties: {} } } };
+const details = { category: 'cyber', explanation: 'Synthetic policy explanation' };
+const refusal = { type: 'assistant', message: { id: 'refused', content: [{ type: 'text', text: 'DECLINED' }], stop_reason: 'refusal',
+  stop_details: { ...details, fallback_credit_token: 'PRIVATE_CREDIT', nested: { token: 'PRIVATE_TOKEN' } }, usage: { input_tokens: 10, output_tokens: 2 } } };
+const tool = {name: 'read', input_schema: { type: 'object', properties: {} }};
 
 // 覆盖拒绝终止、错误占位、空正文与已收集工具，禁止将拒绝后的续写混入回复。
 test('拒绝封存文本和用量、取消未交付工具；正文拒绝不冒充协议拒绝', () => {
@@ -23,24 +27,40 @@ test('拒绝封存文本和用量、取消未交付工具；正文拒绝不冒�
   assert.equal(events.refused, false);
   events.accept(stream({ type: 'message_start', message: { id: 'refused', usage: { input_tokens: 10, output_tokens: 0 } } }));
   events.accept(stream({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'DECLINED' } }));
-  events.accept(stream({ type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'call', name: 'mcp__omp__read', input: {} } }));
+  events.accept(stream({ type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'call', name: 'mcp__caller__read', input: {} } }));
   events.accept(stream({ type: 'content_block_stop', index: 1 }));
-  events.accept(stream({ type: 'content_block_start', index: 2, content_block: { type: 'tool_use', id: 'partial', name: 'mcp__omp__read' } }));
-  events.accept(stream({ type: 'message_delta', delta: { stop_reason: 'refusal' }, usage: { output_tokens: 2 } }));
+  events.accept(stream({ type: 'content_block_start', index: 2, content_block: { type: 'tool_use', id: 'partial', name: 'mcp__caller__read' } }));
+  events.accept(stream({ type: 'message_delta', delta: { stop_reason: 'refusal', stop_details: refusal.message.stop_details }, usage: { output_tokens: 2 } }));
   events.accept(refusal);
   events.accept(stream({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'LEAK' } }));
   events.accept(stream({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 99 } }));
   assert.equal(events.refused, true);
+  assert.deepEqual(events.stopDetails, details);
   assert.equal(events.text, 'DECLINED');
   assert.equal(events.calls.size, 0); assert.equal(events.blocks.size, 0); assert.equal(events.toolEnd, false);
-  assert.equal(events.usage().usage.completion_tokens, 2);
+  assert.equal(events.usage().usage.output_tokens, 2);
   assert.deepEqual(stops, ['refusal']);
   const plain = new CliEvents([]);
   plain.accept({ ...refusal, message: { ...refusal.message, stop_reason: 'end_turn' } });
   assert.equal(plain.refused, false);
+  assert.equal(plain.stopDetails, undefined);
   const empty = new CliEvents([]);
   empty.accept({ ...refusal, message: { ...refusal.message, content: [] } });
   assert.equal(empty.refused, true); assert.equal(empty.text, '');
+});
+
+// 缺失原因不补猜，显式空值保留，凭据及恢复信用字段不能借诊断对象泄露。
+test('拒绝原因保留空值和未来类别，校验对象并过滤敏感或未知字段', () => {
+  assert.equal(refusalDetails(undefined), undefined);
+  assert.equal(refusalDetails(null), null);
+  for (const value of [[], 'cyber', {}, { fallback_credit_token: 'PRIVATE' }, { category: {} }]) assert.equal(refusalDetails(value), undefined);
+  assert.deepEqual(refusalDetails({ category: null, explanation: null }), { category: null, explanation: null });
+  assert.deepEqual(refusalDetails({ category: 'future_category', explanation: 'Bearer PRIVATE_SECRET https://example.invalid/private', other: 'PRIVATE' }),
+    { category: 'future_category', explanation: '[REDACTED] [URL]' });
+  const events = new CliEvents([]);
+  events.accept(stream({ type: 'message_delta', delta: { stop_reason: 'refusal' } }));
+  events.accept(refusal);
+  assert.equal(events.stopDetails, undefined);
 });
 
 test('拒绝诊断立即输出并保留到完成记录，未知字段不进入日志', () => {
@@ -64,7 +84,7 @@ for (const native of [false, true]) for (const full of [false, true]) {
         ${full ? `emit(${JSON.stringify(refusal)});` : `
         emit({type:'stream_event',event:{type:'message_start',message:{id:'refused',usage:{input_tokens:10,output_tokens:0}}}});
         emit({type:'stream_event',event:{type:'content_block_delta',delta:{type:'text_delta',text:'DECLINED'}}});
-        emit({type:'stream_event',event:{type:'message_delta',delta:{stop_reason:'refusal'},usage:{output_tokens:2}}});`}
+        emit({type:'stream_event',event:{type:'message_delta',delta:{stop_reason:'refusal',stop_details:${JSON.stringify(refusal.message.stop_details)}},usage:{output_tokens:2}}});`}
         emit({type:'stream_event',event:{type:'content_block_delta',delta:{type:'text_delta',text:'LEAK'}}});
         emit({type:'stream_event',event:{type:'message_delta',delta:{stop_reason:'end_turn'},usage:{output_tokens:99}}});
       }); setInterval(()=>{},1000);`;
@@ -74,22 +94,26 @@ for (const native of [false, true]) for (const full of [false, true]) {
     const app = await gateway({ token: 'refusal-test', port: 0, models: [{ id: 'claude-opus-5-5' }], onTiming: row => rows.push(row),
       execute: (body, signal, onText, timing) => native ? relay.infer(body, { signal, onText, timing }) : infer(body, { ...options, signal, onText, timing }) });
     try {
-      for (const anthropic of [true, false]) for (const streaming of [false, true]) {
+      for (const withTools of [false, true]) for (const streaming of [false, true]) {
         const body = { model: 'claude-opus-5-5', max_tokens: 1024, messages: [{ role: 'user', content: 'synthetic' }], stream: streaming,
-          ...(!anthropic ? { tools: [tool], tool_choice: 'required' } : {}) };
-        const response = await fetch(`http://127.0.0.1:${app.port}/${anthropic ? 'v1/messages' : 'v1/chat/completions'}`, {
+          ...(withTools ? {tools: [tool], tool_choice:{type:"any"}} : {}) };
+        const response = await fetch(`http://127.0.0.1:${app.port}/v1/messages`, {
           method: 'POST', headers: { authorization: 'Bearer refusal-test', 'content-type': 'application/json' }, body: JSON.stringify(body) });
         const wire = await response.text();
         assert.equal(response.status, 200, wire);
         assert(wire.includes('DECLINED')); assert(!wire.includes('LEAK')); assert(!wire.includes('TOOL_CHOICE_UNSATISFIED'));
+        assert(!wire.includes('PRIVATE')); assert(!wire.includes('fallback_credit_token'));
         if (streaming) {
-          assert(wire.includes(anthropic ? '"stop_reason":"refusal"' : '"finish_reason":"content_filter"'));
-          assert(wire.includes(anthropic ? 'event: message_stop' : 'data: [DONE]'));
+          assert(wire.includes('"stop_reason":"refusal"'));
+          assert(wire.includes('event: message_stop'));
+          const frames = wire.split('\n').filter(line => line.startsWith('data: {')).map(line => JSON.parse(line.slice(6)));
+          const last = frames.find(frame => frame.type === 'message_delta');
+          assert.deepEqual(last.delta.stop_details, details);
         } else {
           const value = JSON.parse(wire);
-          assert.equal(anthropic ? value.stop_reason : value.choices[0].finish_reason, anthropic ? 'refusal' : 'content_filter');
-          assert.equal(anthropic ? value.usage.output_tokens : value.usage.completion_tokens, 2);
-          if (!anthropic) assert.equal(value.choices[0].message.stop_reason, undefined);
+          assert.equal(value.stop_reason, 'refusal');
+          assert.equal(value.usage.output_tokens, 2);
+          assert.deepEqual(value.stop_details, details);
         }
       }
       const finished = rows.filter(row => row.stage === 'finished');
@@ -107,6 +131,6 @@ test('拒绝结束原CLI后保存原生检查点，下条消息同UUID resume而
  const fake=`import fs from'node:fs';import readline from'node:readline';const send=x=>console.log(JSON.stringify(x));send({type:'system',subtype:'init',session_id:process.env.SYNTHETIC_ID});readline.createInterface({input:process.stdin}).on('line',line=>{const frame=JSON.parse(line);if(frame.type!=='user')throw Error('unexpected frame');fs.appendFileSync(process.env.SYNTHETIC_FILE,JSON.stringify({type:'user',message:frame.message})+'\\n');if(process.env.SYNTHETIC_RESUME!=='1'){send({type:'assistant',message:{id:'declined',content:[{type:'text',text:'DECLINED'}],stop_reason:'refusal',usage:{input_tokens:10,output_tokens:1}}});return;}send({type:'stream_event',event:{type:'message_start',message:{id:'after',usage:{input_tokens:10,output_tokens:0}}}});send({type:'result',result:'AFTER_REFUSAL',is_error:false});});`;
  const options={home,cli:'synthetic',model:'synthetic',maxOutputTokens:1024,persistentSessions:true,timeoutMs:4000,spawnProcess(_cli,args,o){argsSeen.push(args);const resumed=args.includes('--resume'),id=args[args.indexOf(resumed?'--resume':'--session-id')+1],file=path.join(home,'.claude','projects','synthetic',id+'.jsonl');fsSync.mkdirSync(path.dirname(file),{recursive:true});if(!resumed)fsSync.writeFileSync(file,'');const child=spawn(process.execPath,['--input-type=module','-e',fake],{...o,env:{...o.env,SYNTHETIC_ID:id,SYNTHETIC_FILE:file,SYNTHETIC_RESUME:resumed?'1':'0'}}),write=child.stdin.write.bind(child.stdin);child.stdin.write=(data,...rest)=>{inputs.push(JSON.parse(data));return write(data,...rest);};return child;}};
  const first={model:'synthetic',max_tokens:1024,messages:[{role:'user',content:'ORIGINAL_PRIVATE_TASK'}]};
- try{relay=sessionRelay(options);const refused=await relay.infer(first);assert.equal(refused.stop_reason,'refusal');const follow=await relay.infer({...first,messages:[...first.messages,{role:'assistant',content:'DECLINED'},{role:'user',content:'NEW_INPUT'}]});assert.equal(follow.content,'AFTER_REFUSAL');assert.equal(argsSeen.length,2);assert.equal(argsSeen[1][argsSeen[1].indexOf('--resume')+1],argsSeen[0][argsSeen[0].indexOf('--session-id')+1]);assert.equal(inputs.length,2);assert(!JSON.stringify(inputs[1]).includes('ORIGINAL_PRIVATE_TASK'));}
+ try{relay=sessionRelay(options);const refused=await relay.infer(first);assert.equal(refused.stop_reason,'refusal');const follow=await relay.infer({...first,messages:[...first.messages,{role:'assistant',content:'DECLINED'},{role:'user',content:'NEW_INPUT'}]});assert.equal(messageText(follow),'AFTER_REFUSAL');assert.equal(argsSeen.length,2);assert.equal(argsSeen[1][argsSeen[1].indexOf('--resume')+1],argsSeen[0][argsSeen[0].indexOf('--session-id')+1]);assert.equal(inputs.length,2);assert(!JSON.stringify(inputs[1]).includes('ORIGINAL_PRIVATE_TASK'));}
  finally{await relay?.close({discardFrozen:true});await fs.rm(home,{recursive:true,force:true});}
 });

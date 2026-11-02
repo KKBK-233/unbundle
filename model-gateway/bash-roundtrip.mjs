@@ -1,3 +1,4 @@
+import {toolUses, contentBlocks} from './messages.mjs';
 import {toolBoundarySnapshot} from './tool-boundary-trace.mjs';
 import {callerRuntimeStatus} from './runtime-status.mjs';
 
@@ -18,7 +19,7 @@ export function mappedBashAssistant(message, precedingMessages, snapshot=toolBou
   cwd=absolute(update[1])&&absolute(update[2])
     && !/(?:^|\n)\s*(?:# Environment|[- ]*Primary working directory:)/.test(text.slice(update[0].length))?update[1]:undefined;
  }
- if(!cwd||!Array.isArray(message?.tool_calls))return message;
+ if(!cwd||!Array.isArray(toolUses(message)))return message;
  const pathKey=value=>{
   const win=/^([A-Za-z]):[\\/](.*)$/.exec(value);
   const bash=/^\/([A-Za-z])\/(.*)$/.exec(value);
@@ -30,9 +31,9 @@ export function mappedBashAssistant(message, precedingMessages, snapshot=toolBou
  };
  const cwdKey=pathKey(cwd);if(!cwdKey)return message;
  let changed=false;
- const calls=message.tool_calls.map(call=>{
-  if(call.function?.name!=='Bash')return call;
-  let input;try{input=JSON.parse(call.function.arguments);}catch{return call;}
+ const content=contentBlocks(message.content).map(call=>{
+  if(call.type!=='tool_use'||call.name!=='Bash')return call;
+  let input;try{input=call.input;}catch{return call;}
   const row=snapshot([call.id])[0],phases=row?.phases;
   const original=phases?.cli?.command;
   if(typeof original!=='string'||original!==phases?.wire?.command||input.command!==phases?.desktop?.command)return call;
@@ -40,7 +41,7 @@ export function mappedBashAssistant(message, precedingMessages, snapshot=toolBou
   const match=/^cd (\/[A-Za-z]\/[A-Za-z0-9_./-]+) && ([\s\S]+)$/.exec(original);
   if(!match||pathKey(match[1])!==cwdKey||match[2]!==input.command)return call;
   changed=true;
-  return {...call,function:{...call.function,arguments:JSON.stringify({...input,command:original})}};
+  return {...call,input:{...input,command:original}};
  });
- return changed?{...message,tool_calls:calls}:message;
+ return changed?{...message,content}:message;
 }

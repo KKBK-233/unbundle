@@ -90,7 +90,6 @@ function authStatus() {
 }
 const server = await gateway({ token, port, models, modelAliases, status: async () => ({ ...await authStatus(), cliVersion: (await readCliRelease())?.version || startupCliVersion, busy: server.busy || nativeRelay?.maintenance===true || (nativeRelay?.frozenSize || 0)>0,
   activeRequests: server.activeRequests, queuedRequests: server.queuedRequests, receivingRequests: server.receivingRequests, maxConcurrent, maxQueued, contextWindow, upstreamModels,
-  relayHost: process.env.GATEWAY_FRP_RELAY_HOST || null,
   nativeSessionRelay: Boolean(nativeRelay), nativeSessions: (nativeRelay?.size || 0)+(nativeRelay?.frozenSize || 0), nativeFrozenSessions:nativeRelay?.frozenSize || 0, liveInstructionUpdates: Boolean(nativeRelay) && liveInstructionUpdates,
   nativeSessionMaintenance:nativeRelay?.maintenance===true, nativeSessionPersistence: Boolean(nativeRelay) && persistentSessions,
   nativeCompactionProtocol:nativeRelay&&persistentSessions?'cli_command_boundary_v1':null,

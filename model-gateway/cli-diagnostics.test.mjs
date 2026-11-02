@@ -106,14 +106,14 @@ for (const native of [false, true]) test(`${native ? '原生会话' : '逐轮CLI
 for (const native of [false, true]) test(`${native ? '原生会话' : '独立进程'}：工具发现与最终交接沿同一请求关联且不改变编辑`, async () => {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'tool-diagnostics-')), rows = [];
   const fake = `import fs from 'node:fs';import readline from 'node:readline';const send=x=>console.log(JSON.stringify(x));
-    const config=JSON.parse(fs.readFileSync(process.argv[1],'utf8')).mcpServers.omp;
+    const config=JSON.parse(fs.readFileSync(process.argv[1],'utf8')).mcpServers.caller;
     readline.createInterface({input:process.stdin}).once('line',async()=>{
       send({type:'stream_event',event:{type:'message_start',message:{id:'msg_discovery'}}});
-      send({type:'assistant',message:{id:'msg_discovery',content:[{type:'tool_use',id:'search',name:'ToolSearch',input:{query:'select:mcp__omp__Edit'}}]}});
+      send({type:'assistant',message:{id:'msg_discovery',content:[{type:'tool_use',id:'search',name:'ToolSearch',input:{query:'select:mcp__caller__Edit'}}]}});
       send({type:'stream_event',event:{type:'message_delta',delta:{stop_reason:'tool_use'}}});
-      send({type:'user',message:{content:[{type:'tool_result',tool_use_id:'search',content:[{type:'tool_reference',tool_name:'mcp__omp__Edit'}]}]}});
+      send({type:'user',message:{content:[{type:'tool_result',tool_use_id:'search',content:[{type:'tool_reference',tool_name:'mcp__caller__Edit'}]}]}});
       send({type:'stream_event',event:{type:'message_start',message:{id:'msg_edit'}}});
-      send({type:'assistant',message:{id:'msg_edit',content:[{type:'tool_use',id:'edit',name:'mcp__omp__Edit',input:{file_path:'PRIVATE_PATH',old_string:'PRIVATE_OLD',new_string:'PRIVATE_NEW'}}]}});
+      send({type:'assistant',message:{id:'msg_edit',content:[{type:'tool_use',id:'edit',name:'mcp__caller__Edit',input:{file_path:'PRIVATE_PATH',old_string:'PRIVATE_OLD',new_string:'PRIVATE_NEW'}}]}});
       send({type:'stream_event',event:{type:'message_delta',delta:{stop_reason:'tool_use'}}});
       await fetch(config.url,{method:'POST',headers:{...config.headers,'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:'rpc-edit',method:'tools/call',params:{name:'Edit',arguments:{file_path:'PRIVATE_PATH',old_string:'PRIVATE_OLD',new_string:'PRIVATE_NEW'},_meta:{'claudecode/toolUseId':'edit'}}})}).catch(()=>{});
     });`;

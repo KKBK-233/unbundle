@@ -1,3 +1,4 @@
+import {messageText, toolUses} from './messages.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -24,9 +25,9 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   emit({type:'result',is_error:true,result:'API Error: 400 synthetic resume failure'});return;
  }
  if(mode==='pending'){
-  emit({type:'assistant',message:{content:[{type:'tool_use',id:'pending',name:'mcp__omp__Read',input:{}}]}});
+  emit({type:'assistant',message:{content:[{type:'tool_use',id:'pending',name:'mcp__caller__Read',input:{}}]}});
   emit({type:'stream_event',event:{type:'message_delta',delta:{stop_reason:'tool_use'},usage:{output_tokens:3}}});
-  const config=JSON.parse(fs.readFileSync(flag('--mcp-config'),'utf8')).mcpServers.omp;
+  const config=JSON.parse(fs.readFileSync(flag('--mcp-config'),'utf8')).mcpServers.caller;
   fetch(config.url,{method:'POST',headers:{...config.headers,'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:'rpc',method:'tools/call',params:{name:'Read',arguments:{},_meta:{'claudecode/toolUseId':'pending'}}})}).catch(()=>{});return;
  }
  emit({type:'stream_event',event:{type:'content_block_delta',index:0,delta:{type:'text_delta',text:'READY'}}});
@@ -48,11 +49,11 @@ test('网关关闭重建后按原 UUID resume，只输入新增消息，索引�
  const state=await setup();
  try{
   const firstRelay=state.make(),first=await firstRelay.infer(base);await firstRelay.close({discardFrozen:true});
-  const index=await fs.readFile(path.join(state.home,'native-session-index/index.json'),'utf8');
+  const index=await fs.readFile(path.join(state.home,'native-session-index-v2/index.json'),'utf8');
   assert(!index.includes('PRIVATE_FIRST_MESSAGE'));assert(!index.includes('READY'));
   const oldArgs=state.calls[0],id=oldArgs[oldArgs.indexOf('--session-id')+1];
   assert(!oldArgs.includes('--no-session-persistence'));
-  const secondRelay=state.make();assert.equal((await secondRelay.infer(next(first))).content,'READY');
+  const secondRelay=state.make();assert.equal(messageText((await secondRelay.infer(next(first)))),'READY');
   const args=state.calls[1];assert.equal(args[args.indexOf('--resume')+1],id);assert(!args.includes('--session-id'));
   const transcript=await fs.readFile(path.join(state.home,'.claude/projects/synthetic',id+'.jsonl'),'utf8');
   const frames=transcript.trim().split('\n').map(JSON.parse);
@@ -66,7 +67,7 @@ test('池容量淘汰后的完成会话可恢复原 UUID',async()=>{
  try{
   const relay=state.make(),first=await relay.infer(base);
   await relay.infer({...base,messages:[{role:'user',content:'OTHER_CONVERSATION'}]});
-  assert.equal((await relay.infer(next(first))).content,'READY');
+  assert.equal(messageText((await relay.infer(next(first)))),'READY');
   assert.equal(state.calls.length,3);
   assert.equal(state.calls[2][state.calls[2].indexOf('--resume')+1],state.calls[0][state.calls[0].indexOf('--session-id')+1]);
  }finally{await state.close({discardFrozen:true});}
@@ -76,9 +77,9 @@ test('等待工具时不生成恢复检查点，不把未完成操作当成完�
  const state=await setup();
  try{
   state.setMode('pending');const relay=state.make();
-  const result=await relay.infer({...base,tools:[{type:'function',function:{name:'Read',parameters:{}}}]});
-  assert.equal(result.tool_calls.length,1);
-  await assert.rejects(fs.readFile(path.join(state.home,'native-session-index/index.json')),{code:'ENOENT'});
+  const result=await relay.infer({...base,tools:[{name:'Read', input_schema: {}}]});
+  assert.equal(toolUses(result).length,1);
+  await assert.rejects(fs.readFile(path.join(state.home,'native-session-index-v2/index.json')),{code:'ENOENT'});
  }finally{await state.close({discardFrozen:true});}
 });
 
@@ -93,7 +94,7 @@ test('恢复失败只运行一次，相同长历史请求立即重试被拦截',
   await assert.rejects(relay.infer({...next(first),messages:[...next(first).messages,
     {role:'system',content:'<total_tokens>100 tokens left</total_tokens>'}]}),{code:'SESSION_QUARANTINED',retryable:false});
   assert.equal(state.calls.length,count);
-  assert.deepEqual(JSON.parse(await fs.readFile(path.join(state.home,'native-session-index/index.json'),'utf8')),[]);
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(state.home,'native-session-index-v2/index.json'),'utf8')),[]);
  }finally{await state.close({discardFrozen:true});}
 });
 
@@ -122,13 +123,13 @@ test('官方 transcript 丢失时记录原因，不按不存在的原生 ID 启�
 test('先撤销完成检查点再启动工具轮次，中途关闭不能恢复旧边界',async()=>{
  const state=await setup();
  try{
-  const relay=state.make(),first=await relay.infer({...base,tools:[{type:'function',function:{name:'Read',parameters:{}}}]});
-  assert.equal(JSON.parse(await fs.readFile(path.join(state.home,'native-session-index/index.json'),'utf8')).length,1);
+  const relay=state.make(),first=await relay.infer({...base,tools:[{name:'Read', input_schema: {}}]});
+  assert.equal(JSON.parse(await fs.readFile(path.join(state.home,'native-session-index-v2/index.json'),'utf8')).length,1);
   state.setMode('pending');
   // 更改工具集合会隔离会话，保持集合一致以验证原会话的检查点撤销。
   await relay.close({discardFrozen:true});const second=state.make();
-  await second.infer({...next(first),tools:[{type:'function',function:{name:'Read',parameters:{}}}]});
-  assert.deepEqual(JSON.parse(await fs.readFile(path.join(state.home,'native-session-index/index.json'),'utf8')),[]);
+  await second.infer({...next(first),tools:[{name:'Read', input_schema: {}}]});
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(state.home,'native-session-index-v2/index.json'),'utf8')),[]);
  }finally{await state.close({discardFrozen:true});}
 });
 
@@ -164,7 +165,7 @@ test('检查点已消费但未完成新一轮时，固定会话重启后禁止�
  const state=await setup(),affinity={key:'unfinished'};
  try {
   const firstRelay=state.make(),first=await firstRelay.infer(base,{affinity});await firstRelay.close({discardFrozen:true});
-  await fs.writeFile(path.join(state.home,'native-session-index/index.json'),'[]');
+  await fs.writeFile(path.join(state.home,'native-session-index-v2/index.json'),'[]');
   await assert.rejects(state.make().infer(next(first),{affinity}),{code:'NATIVE_TRANSCRIPT_UNCERTAIN',retryable:false});
   assert.equal(state.calls.length,1);
  }finally{await state.close({discardFrozen:true});}
@@ -187,8 +188,8 @@ test('持久封存经审核恢复同一 PID 后只移除该会话的阻止记录
   const request={...base,messages:[...base.messages,{role:'assistant',content:[{type:'text',text:'RE'},{type:'text',text:'ADY'}]},{role:'user',content:'下一步'}]};
   await assert.rejects(relay.infer(request),{code:'ASSISTANT_MESSAGE_MISMATCH'});
   const session=(await relay.listSessions()).sessions.find(s=>s.state==='frozen');assert(session.processPreserved);
-  const ledger=path.join(state.home,'native-session-index/quarantined-history.json');assert.equal(JSON.parse(await fs.readFile(ledger,'utf8')).length,1);
-  await relay.recover(session.sessionId);const second=await relay.infer(request);assert.equal(second.content,'READY');
+  const ledger=path.join(state.home,'native-session-index-v2/quarantined-history.json');assert.equal(JSON.parse(await fs.readFile(ledger,'utf8')).length,1);
+  await relay.recover(session.sessionId);const second=await relay.infer(request);assert.equal(messageText(second),'READY');
   assert.equal(JSON.parse(await fs.readFile(ledger,'utf8')).length,0);
   await relay.infer({...base,messages:[...request.messages,assistantMessage(second),{role:'user',content:'再下一步'}]});
   const live=(await relay.listSessions()).sessions.find(s=>s.sessionId===session.sessionId);assert.equal(live.pid,session.pid);assert.equal(state.calls.length,1);

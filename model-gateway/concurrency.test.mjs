@@ -33,7 +33,7 @@ test('主请求与辅助请求实际重叠，排队请求断线后不执行，�
       await barrier; running--;
       return { role: 'assistant', content: body.messages[0].content };
     } });
-  const call = (content, signal) => fetch(`http://127.0.0.1:${server.port}/v1/chat/completions`, {
+  const call = (content, signal) => fetch(`http://127.0.0.1:${server.port}/v1/messages`, {
     method: 'POST', headers: { authorization: 'Bearer concurrency', 'content-type': 'application/json' }, signal,
     body: JSON.stringify({ model: 'claude-code-sonnet', messages: [{ role: 'user', content }] }),
   });

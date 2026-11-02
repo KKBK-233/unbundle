@@ -33,7 +33,7 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
   await fs.mkdir(cwd, { recursive: true, mode: 0o700 });
   const work = await fs.mkdtemp(path.join(home, 'request-'));
   const bearer = randomBytes(32).toString('hex');
-  const stops = request.stop == null ? [] : typeof request.stop === 'string' ? [request.stop] : request.stop;
+  const stops = request.stop_sequences || [];
   const probes = requestProbes({anomalyDir,requestId:timing?.requestId,
     context:{...metrics,model:request.model,effort:resolveEffort(request)||'auto',requestedOutputTokens:maxOutputTokens,cliVersion}});
   const policy = toolChoice(request);
@@ -75,7 +75,7 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
       }
       let body; try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { res.writeHead(400).end(); return; }
       const reply = value => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ jsonrpc: '2.0', id: body.id, result: value }));
-      if (body.method === 'initialize') reply({ protocolVersion: '2025-03-26', capabilities: { tools: {} }, serverInfo: { name: 'omp-tool-relay', version: '0.5.0' } });
+      if (body.method === 'initialize') reply({ protocolVersion: '2025-03-26', capabilities: { tools: {} }, serverInfo: { name: 'unbundle-caller-tools', version: '2.0.0' } });
       else if (body.method === 'tools/list') reply({ tools: exposedTools });
       else if (body.method === 'tools/call') {
         if (!available.some(item => item.name === body.params?.name)) { res.writeHead(400).end(); return; }
@@ -103,11 +103,11 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     }
     const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', discovery.builtin, '--strict-mcp-config', '--mcp-config', mcp,
       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',
-      '--allowedTools', 'mcp__omp__*', '--no-session-persistence', '--max-turns', String(discovery.enabled ? discovery.maxCalls + 2 : 2), '--model', model, '--system-prompt-file', promptFile];
+      '--allowedTools', 'mcp__caller__*', '--no-session-persistence', '--max-turns', String(discovery.enabled ? discovery.maxCalls + 2 : 2), '--model', model, '--system-prompt-file', promptFile];
     if (discovery.enabled) args.splice(args.indexOf('--allowedTools') + 1, 0, 'ToolSearch');
     const effort = resolveEffort(request);
     if (effort) args.push('--effort', effort);
-    await fs.writeFile(mcp, JSON.stringify({ mcpServers: available.length ? { omp: { type: 'http', url: `http://127.0.0.1:${server.address().port}/mcp`, headers: { Authorization: `Bearer ${bearer}` } } } : {} }), { mode: 0o600 });
+    await fs.writeFile(mcp, JSON.stringify({ mcpServers: available.length ? { caller: { type: 'http', url: `http://127.0.0.1:${server.address().port}/mcp`, headers: { Authorization: `Bearer ${bearer}` } } } : {} }), { mode: 0o600 });
     await fs.writeFile(promptFile, systemPrompt, { mode: 0o600 });
     signal?.throwIfAborted();
     child = spawnProcess(cli, args, { env, cwd, detached: group, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -140,8 +140,8 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
       if (event.type === 'system' && event.subtype === 'api_retry') { retryEvents++; observe('api_retry'); }
       if (['message_start', 'content_block_start', 'content_block_delta', 'content_block_stop', 'message_delta', 'message_stop'].includes(inner?.type)
         || ['assistant', 'result'].includes(event.type)) refreshProgress();
-      if (inner?.type === 'message_start') {timing?.onUsage?.({upstream_usage:inner.message?.usage});timing?.mark('upstream_message_start');}
-      if(event.type==='assistant'&&!event.is_api_error_message)timing?.onUsage?.({upstream_usage:event.message?.usage});
+      if (inner?.type === 'message_start') {timing?.onUsage?.({usage:inner.message?.usage});timing?.mark('upstream_message_start');}
+      if(event.type==='assistant'&&!event.is_api_error_message)timing?.onUsage?.({usage:event.message?.usage});
       if (inner?.type === 'content_block_delta' && inner.delta?.type === 'thinking_delta') timing?.mark('first_thinking');
       if (inner?.type === 'content_block_start' && inner.content_block?.type === 'tool_use') timing?.mark('first_tool');
       if (inner?.type === 'message_delta' && inner.delta?.stop_reason) timing?.mark('upstream_message_end');
@@ -169,12 +169,12 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     if (timedOut) throw Object.assign(new Error(`推理达到总时限（${timeoutMs / 1000} 秒）`), { code: 'INFERENCE_TIMEOUT' });
     if (idleTimedOut) throw Object.assign(new Error(`上游连续 ${idleTimeoutMs / 1000} 秒没有推理进展`), { code: 'INFERENCE_IDLE_TIMEOUT' });
     if (protocolError) throw protocolError;
-    if (events.refused) return { role: 'assistant', content: events.text, stop_reason: 'refusal', ...events.usage() };
+    if (events.refused) return { role: 'assistant', content: events.content(), stop_reason: 'refusal', stop_details: events.stopDetails, ...events.usage() };
     if (events.stopSequence !== undefined || events.outputLimitReached || events.toolEnd) enforceToolChoice(policy, [...events.calls.values()], events.usage());
-    if (events.stopSequence !== undefined) return { role: 'assistant', content: events.text, stop_sequence: events.stopSequence, ...events.usage() };
+    if (events.stopSequence !== undefined) return { role: 'assistant', content: events.content(), stop_sequence: events.stopSequence, ...events.usage() };
     events.flushText();
-    if (events.outputLimitReached) return { role: 'assistant', content: events.text, finish_reason: 'length', ...events.usage() };
-    if (events.toolEnd && events.calls.size) return { role: 'assistant', content: events.text || null, tool_calls: [...events.calls.values()], ...events.usage() };
+    if (events.outputLimitReached) return { role: 'assistant', content: events.content(), stop_reason: 'max_tokens', ...events.usage() };
+    if (events.toolEnd && events.calls.size) return {role: 'assistant', ...events.usage(), content: events.content()};
     if (events.blocks.size || events.calls.size || events.toolEnd) throw new Error('CLI 工具消息不完整，未返回部分调用');
     if (code !== 0 || !events.result || events.result.is_error) {
       const detail = events.result?.result || errors;
@@ -185,7 +185,7 @@ export async function infer(request, { cli, home, configDir = path.join(home, '.
     }
     if (!events.receivedText) { events.emit(events.result.result || ''); events.flushText(); }
     enforceToolChoice(policy, [], events.usage());
-    return { role: 'assistant', content: events.text || '', ...(events.stopSequence !== undefined ? { stop_sequence: events.stopSequence } : {}), ...events.usage() };
+    return { role: 'assistant', content: events.content(), ...(events.stopSequence !== undefined ? { stop_sequence: events.stopSequence } : {}), ...events.usage() };
   } catch (error) {
     probeOutcome = aborted ? 'cancelled' : timedOut || idleTimedOut ? 'timeout' : 'error';
     throw error;

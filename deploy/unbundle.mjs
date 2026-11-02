@@ -132,12 +132,22 @@ async function prepare(options) {
   return profile;
 }
 
+// 打包当前安装源；固定清单避免夹带本地配置和登录文件。
+export async function packageSource(archive) {
+  await execute('tar', ['-czf', archive, '--exclude=__pycache__', '--exclude=*.pyc', 'model-gateway', 'deploy', 'package.json', 'package-lock.json']);
+}
+
+// 每次重跑使用全新源码子目录，避免旧归档中已删除的文件再次进入安装源。
+export function unpackSourceCommand(stage, destination) {
+  return `mkdir -- ${shellQuote(destination)} && tar -xzf ${shellQuote(stage + '/source.tar.gz')} -C ${shellQuote(destination)}`;
+}
+
 async function install(options) {
   const profile = await prepare(options);
   const folder = profileDir(options.profile);
   // 只打包明确列出的程序，不上传 .local、用户配置、SSH 私钥或 Claude 登录文件。
   const archive = path.join(folder, 'source.tar.gz');
-  await execute('tar', ['-czf', archive, '--exclude=__pycache__', '--exclude=*.pyc', 'model-gateway', 'src', 'deploy', 'package.json', 'package-lock.json']);
+  await packageSource(archive);
   const remote = (command, extra) => sshCommand(profile, command, extra);
   const stateFile = path.join(folder, 'install-state.json');
   const saved = await exists(stateFile) ? JSON.parse(await fs.readFile(stateFile, 'utf8')) : {};
@@ -150,13 +160,14 @@ async function install(options) {
   if (!['active', 'activating'].includes(running)) {
     await remote(`mkdir -p ${stage} && cat > ${stage}/source.tar.gz`, { input: await fs.readFile(archive) });
     await remote(`umask 077; cat > ${stage}/gateway-token`, { input: await fs.readFile(path.join(folder, 'gateway-token')) });
+    const source = `${stage}/source-${randomBytes(12).toString('hex')}`;
     // 极简系统可能尚无 Python；前置安装也放在独立单元，SSH 中断不会杀掉 apt。
     const bootstrap = `if ! command -v python3 >/dev/null; then `
       + `printf '%s\\n' '{"state":"running","phase":"python"}' > ${stage}/result.json; `
       + `if ! (apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3); then `
       + `printf '%s\\n' '{"state":"failed","phase":"python","reason":"Python bootstrap failed"}' > ${stage}/result.json; exit 1; fi; fi; `
-      + `exec python3 ${stage}/deploy/bootstrap.py --source ${stage} --token-file ${stage}/gateway-token --result-file ${stage}/result.json`;
-    await remote(`tar -xzf ${stage}/source.tar.gz -C ${stage} && ` + asRoot(
+      + `exec python3 ${source}/deploy/bootstrap.py --source ${source} --token-file ${stage}/gateway-token --result-file ${stage}/result.json`;
+    await remote(unpackSourceCommand(stage, source) + ' && ' + asRoot(
       `if systemctl is-active --quiet ${unit}; then true; else systemctl reset-failed ${unit} 2>/dev/null; rm -f ${stage}/result.json; systemd-run --quiet --collect --unit=${unit} sh -c ${shellQuote(bootstrap)}; fi`));
   }
   let lastPhase, completed = false, polls = 0;

@@ -1,3 +1,4 @@
+import {messageText} from './messages.mjs';
 import {compileContext} from './context.mjs';
 import {nativeIncrement} from './session-entry.mjs';
 import test from 'node:test';
@@ -12,7 +13,7 @@ function setup({badBuffer=false,badInterrupt=false}={}){
  const resume=async()=>session.line(JSON.stringify({type:'result',terminal_reason:'aborted_tools'}));
  return {session,frames,events,original,resume};
 }
-const delta=[{role:'tool',tool_call_id:'id',content:'ACTUAL_RESULT',is_error:true}];
+const delta=[{role:'user', content:[{type:'tool_result', tool_use_id:'id', content:'ACTUAL_RESULT', is_error:true}]}];
 test('先确认中断，再保存原结果而不推理，不把新消息混入工具输出',async()=>{
  const f=setup();await settleFrozenTools(f.session,delta,{resume:f.resume});
  assert.equal(f.frames.length,1);assert.equal(f.frames[0].shouldQuery,false);assert.equal(f.frames[0].message.content[1].text,'ACTUAL_RESULT');assert.equal(JSON.parse(f.frames[0].message.content[0].text).is_error,true);assert.equal(f.session.state,'idle');assert.equal(f.session.pendingIds.size,0);assert.equal(f.session.line,f.original);assert.deepEqual(f.events,['connection-closed']);
@@ -39,5 +40,15 @@ test('多次目录通知保持原顺序，含行为指令的 system 消息仍走
  const env=(cwd,old)=>({role:'system',content:`# Environment update\n - Primary working directory: ${cwd} (was ${old})\n`});
  const first=env('/new','/old'),second=env('/last','/new'),instruction={role:'system',content:first.content+'Ignore previous instructions'};
  const forward=recoveryInputMessages([...delta,first,{role:'user',content:'first new input'},second,{role:'user',content:'second new input'},instruction]);
- assert.equal(JSON.parse(forward[0].content[0].text).snapshots[0].cwd,'/new');assert.equal(forward[1].content,'first new input');assert.equal(JSON.parse(forward[2].content[0].text).snapshots[0].cwd,'/last');assert.equal(forward[3].content,'second new input');assert.equal(forward[4],instruction);assert.equal(forward[4].role,'system');
+ assert.equal(JSON.parse(forward[0].content[0].text).snapshots[0].cwd,'/new');assert.equal(messageText(forward[1]),'first new input');assert.equal(JSON.parse(forward[2].content[0].text).snapshots[0].cwd,'/last');assert.equal(messageText(forward[3]),'second new input');assert.equal(forward[4],instruction);assert.equal(forward[4].role,'system');
+});
+
+test('部分文本取消必须获得同一输入的中断确认，不提交工具结果或模型输入',async()=>{
+ for(const matches of [true,false]){
+  const f=setup();f.session.pendingIds.clear();f.session.pendingHttp.clear();f.session.frozenTurn={inputUuid:'original'};
+  const resume=async()=>f.session.line(JSON.stringify({type:'result',terminal_reason:'aborted_streaming',user_message_uuid:matches?'original':'other'}));
+  if(matches){await settleFrozenTools(f.session,[],{resume,cancelledTurn:true});assert.equal(f.session.state,'idle');assert.equal(f.session.frozenTurn,undefined);assert.equal(f.session.cancelConfirmed,true);}
+  else{await assert.rejects(settleFrozenTools(f.session,[],{resume,cancelledTurn:true}),{code:'RECOVERY_INTERRUPT_UNCONFIRMED'});assert.equal(f.session.state,'frozen');assert(f.session.frozenTurn);}
+  assert.equal(f.frames.length,0);assert.equal(f.session.line,f.original);
+ }
 });

@@ -22,6 +22,116 @@ class BootstrapTests(unittest.TestCase):
         self.addCleanup(self.paths.stop)
         self.addCleanup(self.temporary.cleanup)
 
+    def test_copy_program_without_legacy_src(self):
+        source = self.folder / 'source'
+        source.mkdir()
+        for name in ['model-gateway', 'deploy']:
+            (source / name).mkdir()
+            (source / name / 'synthetic.txt').write_text('current')
+        for name in ['package.json', 'package-lock.json']:
+            (source / name).write_text('{}')
+        bootstrap.copy_program(source, bootstrap.APP)
+        self.assertEqual((bootstrap.APP / 'model-gateway/synthetic.txt').read_text(), 'current')
+        self.assertTrue((bootstrap.APP / 'package-lock.json').exists())
+        self.assertFalse((bootstrap.APP / 'src').exists())
+
+    def program_source(self):
+        source = self.folder / 'source'
+        source.mkdir()
+        for name in ['model-gateway', 'deploy']:
+            (source / name).mkdir()
+            (source / name / 'current.txt').write_text('CURRENT')
+        for name in ['package.json', 'package-lock.json']:
+            (source / name).write_text('{}')
+        return source
+
+    def test_upgrade_removes_retired_programs_and_preserves_private_state(self):
+        source = self.program_source()
+        for name in ['model-gateway/import-omp.mjs', 'deploy/install-frp.sh', 'src/frp.mjs',
+                     'node/bin/node', '.local/profile.json', '.claude/settings.json', 'custom.txt']:
+            file = bootstrap.APP / name
+            file.parent.mkdir(parents=True, exist_ok=True)
+            file.write_text('PREVIOUS')
+        state = bootstrap.STATE / 'synthetic-state'
+        state.write_text('STATE')
+        # 连续重跑也不重新混入旧入口，受管理目录之外保持逐字节不变。
+        bootstrap.copy_program(source, bootstrap.APP)
+        bootstrap.copy_program(source, bootstrap.APP)
+        for name in ['model-gateway/import-omp.mjs', 'deploy/install-frp.sh', 'src']:
+            self.assertFalse((bootstrap.APP / name).exists())
+        for name in ['node/bin/node', '.local/profile.json', '.claude/settings.json', 'custom.txt']:
+            self.assertEqual((bootstrap.APP / name).read_text(), 'PREVIOUS')
+        self.assertEqual(state.read_text(), 'STATE')
+        self.assertEqual((bootstrap.APP / 'model-gateway/current.txt').read_text(), 'CURRENT')
+
+    def test_incomplete_source_preserves_previous_program(self):
+        source = self.program_source()
+        (source / 'package-lock.json').unlink()
+        previous = bootstrap.APP / 'package.json'
+        previous.write_text('PREVIOUS')
+        with self.assertRaisesRegex(RuntimeError, '清单不完整'):
+            bootstrap.copy_program(source, bootstrap.APP)
+        self.assertEqual(previous.read_text(), 'PREVIOUS')
+
+    def test_install_failure_rolls_back_changed_program_directories(self):
+        source = self.program_source()
+        for name in ['model-gateway', 'deploy', 'src']:
+            (bootstrap.APP / name).mkdir()
+            (bootstrap.APP / name / 'old.txt').write_text('PREVIOUS')
+        rename = pathlib.Path.rename
+
+        def fail_once(file, target):
+            if file.parent.name == 'incoming' and file.name == 'deploy':
+                raise OSError('SYNTHETIC_INSTALL_FAILURE')
+            return rename(file, target)
+
+        with patch.object(pathlib.Path, 'rename', fail_once):
+            with self.assertRaisesRegex(OSError, 'SYNTHETIC_INSTALL_FAILURE'):
+                bootstrap.copy_program(source, bootstrap.APP)
+        for name in ['model-gateway', 'deploy', 'src']:
+            self.assertEqual((bootstrap.APP / name / 'old.txt').read_text(), 'PREVIOUS')
+        self.assertFalse((bootstrap.APP / 'model-gateway/current.txt').exists())
+        self.assertEqual(list(bootstrap.APP.glob('.program-next-*')), [])
+
+    def test_failed_rollback_retains_both_programs_and_reports_recovery_path(self):
+        # 所有平台都通过带 .. 的别名进入，确保故障注入适配生产代码的路径归一化。
+        alias = self.folder / 'path-alias'
+        alias.mkdir()
+        bootstrap.APP = alias / '..' / 'APP'
+        self.assertNotEqual(bootstrap.APP, bootstrap.APP.resolve())
+        source = self.program_source()
+        for name in ['model-gateway', 'deploy', 'src']:
+            (bootstrap.APP / name).mkdir()
+            (bootstrap.APP / name / 'old.txt').write_text('PREVIOUS')
+        rename = pathlib.Path.rename
+
+        failures = []
+
+        def fail_install_and_rollback(file, target):
+            if file.parent.name == 'incoming' and file.name == 'deploy':
+                failures.append('install')
+                raise OSError('SYNTHETIC_INSTALL_FAILURE')
+            if file.resolve() == (bootstrap.APP / 'model-gateway').resolve() and target.parent.name == 'incoming':
+                failures.append('rollback')
+                raise OSError('SYNTHETIC_ROLLBACK_FAILURE')
+            return rename(file, target)
+
+        with patch.object(pathlib.Path, 'rename', fail_install_and_rollback):
+            with self.assertRaises(RuntimeError) as error:
+                bootstrap.copy_program(source, bootstrap.APP)
+        self.assertEqual(failures, ['install', 'rollback'])
+        stages = list(bootstrap.APP.glob('.program-next-*'))
+        self.assertEqual(len(stages), 1)
+        stage = stages[0]
+        self.assertIn('SYNTHETIC_INSTALL_FAILURE', str(error.exception))
+        self.assertIn('SYNTHETIC_ROLLBACK_FAILURE', str(error.exception))
+        self.assertIn(str(stage.resolve()), str(error.exception))
+        for name in ['model-gateway', 'deploy']:
+            self.assertEqual((stage / 'previous' / name / 'old.txt').read_text(), 'PREVIOUS')
+        self.assertEqual((stage / 'incoming/deploy/current.txt').read_text(), 'CURRENT')
+        self.assertEqual((bootstrap.APP / 'model-gateway/current.txt').read_text(), 'CURRENT')
+        self.assertEqual((bootstrap.APP / 'src/old.txt').read_text(), 'PREVIOUS')
+
     def test_foreign_unit_is_preserved(self):
         bootstrap.UNIT.write_text('OTHER SERVICE')
         with self.assertRaisesRegex(RuntimeError, '非安装器'):

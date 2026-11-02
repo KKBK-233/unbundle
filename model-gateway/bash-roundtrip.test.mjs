@@ -1,3 +1,4 @@
+import {toolUses} from './messages.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {recordBashPhase} from './tool-boundary-trace.mjs';
@@ -9,22 +10,22 @@ import {compileContext} from './context.mjs';
 const env=cwd=>({role:'system',content:`# Environment update\n - Primary working directory: ${cwd} (was E:\\)\n`});
 function fixture(id,original='cd /e/sr/Poem && python promo/build.py',returned='python promo/build.py',wire=original){
  for(const [phase,command] of [['cli',original],['wire',wire],['desktop',returned]])recordBashPhase(phase,id,'Bash',{command});
- const make=command=>({role:'assistant',content:null,tool_calls:[{id,type:'function',function:{name:'Bash',arguments:JSON.stringify({command,description:'build'})}}]});
+ const make=command=>({role:'assistant', content: [{id, type: 'tool_use', name:'Bash', input: {command,description:'build'}}]});
  return {expected:make(original),actual:make(returned)};
 }
 test('仅三点证据与调用前目录均一致时接受；原历史和结果不被改写',()=>{
  const {expected,actual}=fixture('verified');const prefix=[env('E:\\sr\\Poem')];
  assert.equal(historyKey(mappedBashAssistant(actual,prefix)),historyKey(expected));
- const result={role:'tool',tool_call_id:'verified',content:'failed',is_error:true};
+ const result={role:'user', content:[{type:'tool_result', tool_use_id:'verified', content:'failed', is_error:true}]};
  const delta=continuationDelta({request:{messages:prefix},history:prefix.map(m=>historyKey(m)),expected:historyKey(expected),pendingIds:new Set(['verified'])},{messages:[...prefix,actual,result]});
- assert.deepEqual(delta,[result]);assert.equal(JSON.parse(actual.tool_calls[0].function.arguments).command,'python promo/build.py');
+ assert.deepEqual(delta,[result]);assert.equal(toolUses(actual)[0].input.command,'python promo/build.py');
 });
 test('执行后 cwd 不能证明调用前目录；结果 ID 不匹配仍拒绝',()=>{
  const {expected,actual}=fixture('timing');const prefix=[env('E:\\other')];
  const session={request:{messages:prefix},history:prefix.map(m=>historyKey(m)),expected:historyKey(expected),pendingIds:new Set(['timing'])};
- assert.equal(continuationDelta(session,{messages:[...prefix,actual,{role:'tool',tool_call_id:'timing',content:'ok'},env('E:\\sr\\Poem')]}),undefined);
+ assert.equal(continuationDelta(session,{messages:[...prefix,actual,{role:'user', content:[{type:'tool_result', tool_use_id:'timing', content:'ok'}]},env('E:\\sr\\Poem')]}),undefined);
  const correct=[env('E:\\sr\\Poem')];session.request={messages:correct};session.history=correct.map(m=>historyKey(m));
- assert.equal(continuationDelta(session,{messages:[...correct,actual,{role:'tool',tool_call_id:'different',content:'ok'}]}),undefined);
+ assert.equal(continuationDelta(session,{messages:[...correct,actual,{role:'user', content:[{type:'tool_result', tool_use_id:'different', content:'ok'}]}]}),undefined);
 });
 test('调用前带数值前缀的新目录优先于更早目录，不能沿用旧cwd误判等价',()=>{
  const {actual}=fixture('directory-prefix');
@@ -33,7 +34,7 @@ test('调用前带数值前缀的新目录优先于更早目录，不能沿用�
 });
 test('冻结恢复使用相同的受限映射，并保留错误工具结果',()=>{
  const {expected,actual}=fixture('recover');const prefix=[env('E:\\sr\\Poem')];
- const receipt={role:'tool',tool_call_id:'recover',content:'original error',is_error:true};
+ const receipt={role:'user', content:[{type:'tool_result', tool_use_id:'recover', content:'original error', is_error:true}]};
  const session={request:{messages:prefix},freezePreviousState:'waiting-tool',pendingControls:new Map(),pendingHttp:new Map(),history:prefix.map(m=>historyKey(m)),expected:historyKey(expected),pendingIds:new Set(['recover'])};
  assert.deepEqual(recoveryDelta(session,{messages:[...prefix,actual,receipt]}),[receipt]);
 });
@@ -57,8 +58,8 @@ test('混合目录更新与进展提醒只提供调用前目录事实，原行�
  assert.equal(compiled.metrics.instructionUpdates,1);
  assert(compiled.systemPrompt.includes('Keep them updated.'));
  assert.equal(JSON.stringify(prefix),before);
- assert.equal(JSON.parse(actual.tool_calls[0].function.arguments).command,'python build.py');
- const receipt={role:'tool',tool_call_id:'mixed',content:'ORIGINAL_RESULT'};
+ assert.equal(toolUses(actual)[0].input.command,'python build.py');
+ const receipt={role:'user', content:[{type:'tool_result', tool_use_id:'mixed', content:'ORIGINAL_RESULT'}]};
  const session={request:{messages:prefix},freezePreviousState:'waiting-tool',pendingControls:new Map(),pendingHttp:new Map(),history:prefix.map(m=>historyKey(m)),expected:historyKey(expected),pendingIds:new Set(['mixed'])};
  assert.deepEqual(recoveryDelta(session,{messages:[...prefix,actual,receipt]}),[receipt]);
 });
@@ -66,7 +67,7 @@ test('混合目录更新与进展提醒只提供调用前目录事实，原行�
 test('混合消息仍只信任调用前 system 固定开头，冲突或不匹配的新目录不能沿用旧目录',()=>{
  const {actual}=fixture('mixed-negative');
  const mixed={...env('E:\\sr\\Poem'),content:env('E:\\sr\\Poem').content+'\nKeep them updated.'};
- for(const item of [{...mixed,role:'user'},{...mixed,role:'tool'},
+ for(const item of [{...mixed,role:'user'},{role:'user', content:[{type:'tool_result', tool_use_id:'synthetic-result', content:'', ...mixed}]},
   {...mixed,content:'quoted:\n'+mixed.content},
   {...mixed,content:mixed.content+'\n# Environment update\n - Primary working directory: E:\\other (was E:\\)\n'},
   {...mixed,content:mixed.content.replace('E:\\sr\\Poem','E:\\other')},
@@ -84,10 +85,10 @@ test('深层 cd 只在执行目录等价时映射，其他参数及未知调用�
  assert.equal(historyKey(mappedBashAssistant(actual,prefix)),historyKey(expected));
  assert.strictEqual(mappedBashAssistant(actual,[]),actual);
  assert.strictEqual(mappedBashAssistant(actual,[env('E:/other')]),actual);
- const changed=structuredClone(actual);changed.tool_calls[0].function.arguments=JSON.stringify({command:'python inspect.py',description:'changed'});
+ const changed=structuredClone(actual);toolUses(changed)[0].input = JSON.parse(JSON.stringify({command:'python inspect.py',description:'changed'}));
  assert.notEqual(historyKey(mappedBashAssistant(changed,prefix)),historyKey(expected));
  for(const command of ['cd /e/../other && python inspect.py','cd /e/$HOME && python inspect.py','cd /e/a; python inspect.py']){
   const sample=fixture(command,command,'python inspect.py');assert.strictEqual(mappedBashAssistant(sample.actual,prefix),sample.actual);
  }
- const unknown=structuredClone(actual);unknown.tool_calls[0].id='no-trace';assert.strictEqual(mappedBashAssistant(unknown,prefix),unknown);
+ const unknown=structuredClone(actual);toolUses(unknown)[0].id='no-trace';assert.strictEqual(mappedBashAssistant(unknown,prefix),unknown);
 });

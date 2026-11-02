@@ -1,3 +1,4 @@
+import {messageText} from './messages.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -8,7 +9,7 @@ import {sessionRelay} from './session-relay.mjs';
 import {assistantMessage} from './session-history.mjs';
 import {SUMMARY_SYSTEM,SUMMARY_HEADER,desktopSummary} from './compaction-boundary.mjs';
 const fake=`import readline from 'node:readline';import fs from 'node:fs';import path from 'node:path';import {randomUUID} from 'node:crypto';
-const config=JSON.parse(fs.readFileSync(process.argv[1],'utf8')).mcpServers.omp;
+const config=JSON.parse(fs.readFileSync(process.argv[1],'utf8')).mcpServers.caller;
 const emit=x=>console.log(JSON.stringify(x));let n=0,total=0;const nativeId=process.env.TEST_NATIVE_ID;const transcript=path.join(process.env.CLAUDE_CONFIG_DIR,'projects','synthetic',nativeId+'.jsonl');fs.mkdirSync(path.dirname(transcript),{recursive:true});fs.writeFileSync(transcript,'');
 const reply=text=>{emit({type:'stream_event',event:{type:'message_start',message:{id:'m'+(++n),usage:{input_tokens:10}}}});emit({type:'stream_event',event:{type:'content_block_delta',index:0,delta:{type:'text_delta',text}}});emit({type:'result',is_error:false,result:text,modelUsage:{synthetic:{inputTokens:total+=10,outputTokens:n,cacheReadInputTokens:0,cacheCreationInputTokens:0}}});};
 emit({type:'system',subtype:'init',session_id:nativeId,slash_commands:['compact'],capabilities:['interrupt_receipt_v1','interrupt_cancel_queued_v1']});
@@ -34,7 +35,7 @@ readline.createInterface({input:process.stdin}).on('line',async line=>{
  }
  if(JSON.stringify(frame).includes('TOOL_TASK')){
   emit({type:'stream_event',event:{type:'message_start',message:{id:'m'+(++n)}}});
-  emit({type:'assistant',message:{id:'m'+n,content:[{type:'tool_use',id:'tool-synthetic',name:'mcp__omp__Bash',input:{command:'synthetic'}}],stop_reason:'tool_use'}});
+  emit({type:'assistant',message:{id:'m'+n,content:[{type:'tool_use',id:'tool-synthetic',name:'mcp__caller__Bash',input:{command:'synthetic'}}],stop_reason:'tool_use'}});
   emit({type:'stream_event',event:{type:'message_delta',delta:{stop_reason:'tool_use'}}});
   if(process.env.COMPACTION_TEST_TIMEOUT==='1'){const timer=setInterval(()=>{if(!fs.existsSync(process.argv[2]+'.trigger'))return;clearInterval(timer);emit({type:'user',message:{role:'user',content:[{type:'tool_result',tool_use_id:'tool-synthetic',is_error:true,content:'synthetic timeout'}]}});},5);}
   const response=await fetch(config.url,{method:'POST',headers:{...config.headers,'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/call',params:{name:'Bash',arguments:{command:'synthetic'},_meta:{'claudecode/toolUseId':'tool-synthetic'}}})}).catch(()=>null);
@@ -43,7 +44,7 @@ readline.createInterface({input:process.stdin}).on('line',async line=>{
  }
  reply(JSON.stringify(frame).includes('detailed summary')?'<analysis>private</analysis><summary>actual task summary</summary>':'READY');
 });`;
-const tools=[{type:'function',function:{name:'Bash',parameters:{type:'object',properties:{command:{type:'string'}}}}}];
+const tools=[{name:'Bash', input_schema: {type:'object',properties:{command:{type:'string'}}}}];
 const base={model:'claude-opus-5-5',max_tokens:1024,messages:[{role:'system',content:'original rules'},{role:'user',content:'task'}],tools};
 const prompt={role:'user',content:'CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.\n\nYour task is to create a detailed summary of the conversation so far, preserving the task.'};
 async function setup(timedOut=false,monitor=false){const home=await fs.mkdtemp(path.join(os.tmpdir(),'compact-roundtrip-')),log=path.join(home,'inputs.log');let spawns=0;
@@ -55,7 +56,7 @@ test('原生压缩同样记录异常元数据，不把候选标签或正文写�
  const s=await setup(false,true);try{
   const first=await s.relay.infer(base);
   const summary=await s.relay.infer({...base,messages:[...base.messages,assistantMessage(first),prompt]});
-  assert.match(summary.content,/actual task summary/);assert(!summary.content.includes('SYNTHETIC_MONITOR_ONLY'));
+  assert.match(messageText(summary),/actual task summary/);assert(!summary.content.includes('SYNTHETIC_MONITOR_ONLY'));
   const files=await fs.readdir(path.join(s.home,'anomalies'));assert.equal(files.length,1);
   const raw=await fs.readFile(path.join(s.home,'anomalies',files[0]),'utf8'),record=JSON.parse(raw);
   assert(record.signals.some(s=>s.signal==='thinking_tag_in_text'));assert.equal(record.summary.outcome,'completed');
@@ -66,16 +67,16 @@ for(const tool of [false,true])test(`完整摘要往返${tool?'先交接真实�
  const s=await setup();try{
   const original=tool?{...base,messages:[base.messages[0],{role:'user',content:'TOOL_TASK'}]}:base;
   const first=await s.relay.infer(original);
-  const receipt={role:'tool',tool_call_id:'tool-synthetic',content:'REAL_RESULT'};
+  const receipt={role:'user', content:[{type:'tool_result', tool_use_id:'tool-synthetic', content:'REAL_RESULT'}]};
   const summaryRequest={...base,tools:base.tools,max_tokens:2048,messages:[base.messages[0],...original.messages.slice(1),assistantMessage(first),...(tool?[receipt]:[]),prompt,{role:'system',content:'<total_tokens>100 tokens left</total_tokens>'}]};
   // 摘要输出预算可变化，不能因此新建 CLI。
   summaryRequest.max_tokens=1024;
-  const summary=await s.relay.infer(summaryRequest);assert.match(summary.content,/actual task summary/);assert.equal(summary.upstream_usage.input_tokens,60000);const replay=await s.relay.infer(summaryRequest);assert.equal(replay.usage.total_tokens,0);
+  const summary=await s.relay.infer(summaryRequest);assert.match(messageText(summary),/actual task summary/);assert.equal(summary.usage.input_tokens,60000);const replay=await s.relay.infer(summaryRequest);assert.equal(replay.usage.output_tokens,0);
   const wrapper={role:'user',content:SUMMARY_HEADER+'\n\n<tools-used>Bash</tools-used>\n'+desktopSummary(summary.content)+'\nContinue the conversation.'};
   const next={...base,messages:[base.messages[0],wrapper,{role:'user',content:'next task'}]};
-  assert.equal((await s.relay.infer(next)).content,'READY');assert.equal(s.spawns(),1);
+  assert.equal(messageText((await s.relay.infer(next))),'READY');assert.equal(s.spawns(),1);
   const later={...next,messages:[...next.messages,{role:'assistant',content:'READY'},{role:'user',content:'later'}]};
-  assert.equal((await s.relay.infer(later)).content,'READY');assert.equal(s.spawns(),1);
+  assert.equal(messageText((await s.relay.infer(later))),'READY');assert.equal(s.spawns(),1);
   const frames=await s.frames();const last=JSON.stringify(frames.at(-1));assert(!last.includes('original rules'));assert(!last.includes('actual task summary'));assert(!last.includes('TOOL_TASK'));
   assert.equal(frames.filter(f=>f.message?.content==='/compact').length,1);if(tool){assert.equal(frames.filter(f=>f.type==='user'&&f.shouldQuery===false&&JSON.stringify(f).includes('REAL_RESULT')).length,1);assert.equal(frames.filter(f=>f.receipt).length,0);}
  }finally{await s.close();}
@@ -85,7 +86,7 @@ test('Anthropic HTTP JSON/SSE 的压缩请求和后续对话均复用原 CLI',as
  for(const stream of [false,true]){
   const s=await setup(),app=await gateway({token:'synthetic',port:0,models:[{id:base.model}],maxOutputTokens:1024,execute:(request,signal,onText,timing,affinity)=>s.relay.infer(request,{signal,onText,timing,affinity})});
   try{
-   const httpTools=[{name:'Bash',input_schema:tools[0].function.parameters}];
+   const httpTools=[{name:'Bash',input_schema:tools[0].input_schema}];
    const call=async body=>{
     const response=await fetch(`http://127.0.0.1:${app.port}/v1/messages`,{method:'POST',headers:{'x-api-key':'synthetic','content-type':'application/json'},body:JSON.stringify({...body,stream})});
     assert.equal(response.status,200);
@@ -107,7 +108,7 @@ test('工具超时已冻结时禁止暗中解除和再次压缩',async()=>{
  const s=await setup(true);try{
   const original={...base,messages:[base.messages[0],{role:'user',content:'TOOL_TASK'}]};const first=await s.relay.infer(original);await s.triggerTimeout();
   for(let i=0;i<100;i++){if((await s.relay.listSessions()).sessions[0].state==='frozen')break;await new Promise(r=>setTimeout(r,10));}
-  const request={...original,messages:[...original.messages,assistantMessage(first),{role:'tool',tool_call_id:'tool-synthetic',content:'REAL_AFTER_TIMEOUT'},prompt]};
+  const request={...original,messages:[...original.messages,assistantMessage(first),{role:'user', content:[{type:'tool_result', tool_use_id:'tool-synthetic', content:'REAL_AFTER_TIMEOUT'}]},prompt]};
   await assert.rejects(s.relay.infer(request),{code:'COMPACTION_SESSION_UNVERIFIED'});assert.equal((await s.frames()).filter(f=>f.message?.content==='/compact').length,0);
  }finally{await s.close();}
 });

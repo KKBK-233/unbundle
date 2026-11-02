@@ -1,3 +1,4 @@
+import {messageText} from './messages.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -11,13 +12,13 @@ import { sessionQuotaFailure, sessionQuotaGuard } from './session-quota-guard.mj
 const message = "You've hit your session limit · resets 12:10am (America/Los_Angeles)";
 const zero = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
 const request = { model: 'claude-code-opus', messages: [{ role: 'user', content: '合成问题' }] };
-const invoke = (app, native, body) => fetch(`http://127.0.0.1:${app.port}/v1/${native ? 'messages' : 'chat/completions'}`, {
+const invoke = (app, body) => fetch(`http://127.0.0.1:${app.port}/v1/messages`, {
   method: 'POST', headers: { 'x-api-key': 'quota-test', authorization: 'Bearer quota-test', 'content-type': 'application/json' }, body: JSON.stringify({ max_tokens: 8192, ...body }),
 });
 
-// 复现实际 CLI 的失败结果，验证两种协议的 JSON/SSE 均正常终止，换会话和模型也不重复启动 CLI。
+// 复现实际 CLI 的失败结果，验证Messages 的 JSON/SSE 均正常终止，换会话和模型也不重复启动 CLI。
 test('账户额度失败返回协议错误而非成功正文，新会话请求在认证之前被拦截', async () => {
-  for (const native of [false, true]) for (const stream of [false, true]) {
+  for (const stream of [false, true]) {
     const home = await fs.mkdtemp(path.join(os.tmpdir(), 'session-quota-cli-'));
     let spawns = 0, authChecks = 0;
     const logs = [];
@@ -45,13 +46,13 @@ test('账户额度失败返回协议错误而非成功正文，新会话请求�
       assert.equal(response.status,200);
       const wire = await response.text();
       assert(wire.includes('"type":"rate_limit_error"'));
-      assert(!wire.includes('"stop_reason":"end_turn"'));assert(!wire.includes('"finish_reason":"stop"'));
-      assert(!wire.includes('event: message_stop'));assert(!wire.includes('data: [DONE]'));
+      assert(!wire.includes('"stop_reason":"end_turn"'));
+      assert(!wire.includes('event: message_stop'));
       return wire;
     };
     try {
       for (const body of [request, request, { model: 'claude-code-sonnet', messages: [{ role: 'user', content: '另一个新会话' }] }]) {
-        assert((await read(await invoke(app, native, { ...body, stream }))).includes('SESSION_LIMIT'));
+        assert((await read(await invoke(app, { ...body, stream }))).includes('SESSION_LIMIT'));
       }
       assert.equal(spawns, 1); assert.equal(authChecks, 1);
       assert.equal(logs.filter(e => e.stage === 'session_quota_stopped').length, 1);
@@ -71,8 +72,8 @@ test('排队的新会话在上一请求确认额度耗尽后不再启动推理',
   const app = await gateway({ token: 'quota-test', port: 0, maxConcurrent: 1, models: [{ id: request.model }],
     execute: async () => { executions++; started(); await gate; throw sessionQuotaFailure(message); } });
   try {
-    const first = invoke(app, false, request); await began;
-    const queued = invoke(app, false, { ...request, messages: [{ role: 'user', content: '新会话' }] });
+    const first = invoke(app, request); await began;
+    const queued = invoke(app, { ...request, messages: [{ role: 'user', content: '新会话' }] });
     for (let i = 0; i < 100 && app.queuedRequests === 0; i++) await new Promise(resolve => setTimeout(resolve, 5));
     assert.equal(app.queuedRequests, 1); finish();
     for (const response of await Promise.all([first, queued])) {assert.equal(response.status,429);assert.equal((await response.json()).error.code,'SESSION_LIMIT');}
@@ -110,8 +111,8 @@ test('正常正文中的额度引用不触发冷却，未知错误仍返回原�
     return { role: 'assistant', content: message };
   } });
   try {
-    for (let i = 0; i < 2; i++) assert.equal((await (await invoke(app, false, request)).json()).choices[0].message.content, message);
-    const response = await invoke(app, false, { ...request, messages: [{ role: 'user', content: '网络' }] });
+    for (let i = 0; i < 2; i++) assert.equal(messageText(await (await invoke(app, request)).json()), message);
+    const response = await invoke(app, { ...request, messages: [{ role: 'user', content: '网络' }] });
     assert.equal(response.status, 502); assert.equal((await response.json()).error.message, 'Connection reset');
     assert.equal(executions, 3);
   } finally { await app.close({discardFrozen:true}); }

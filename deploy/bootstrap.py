@@ -152,6 +152,67 @@ WantedBy=multi-user.target
 '''
 
 
+def copy_program(source, target):
+    """准备完整程序副本后替换受管理目录；失败回滚，状态与登录目录保持原位。"""
+    current = ['model-gateway', 'deploy', 'package.json', 'package-lock.json']
+    managed = current + ['src']
+    source, target = source.resolve(), target.resolve()
+    if source == target:
+        raise RuntimeError('安装源不能是当前程序目录')
+    # 不沿着已有链接清理目录；只管理 APP 直属的程序清单。
+    for name in managed:
+        if (target / name).is_symlink():
+            raise RuntimeError('受管理程序路径不能是符号链接')
+    for name in current:
+        origin = source / name
+        if origin.is_symlink() or not origin.exists():
+            raise RuntimeError('安装源程序清单不完整或包含符号链接')
+    stage = pathlib.Path(tempfile.mkdtemp(prefix='.program-next-', dir=target))
+    cleanup = True
+    try:
+        incoming, previous = stage / 'incoming', stage / 'previous'
+        incoming.mkdir()
+        previous.mkdir()
+        # 所有新文件复制成功后才接触旧程序，缺文件或磁盘错误不会先清空现有版本。
+        for name in current:
+            origin = source / name
+            if origin.is_dir():
+                shutil.copytree(origin, incoming / name)
+            else:
+                shutil.copy2(origin, incoming / name)
+        saved, installed = [], []
+        cleanup = False
+        try:
+            for name in managed:
+                destination = target / name
+                if destination.exists():
+                    destination.rename(previous / name)
+                    saved.append(name)
+                if name in current:
+                    (incoming / name).rename(destination)
+                    installed.append(name)
+        except BaseException as install_error:
+            # 回滚也可能受磁盘或权限故障影响，此时保留全部事务文件供人工恢复。
+            try:
+                for name in reversed(installed):
+                    (target / name).rename(incoming / name)
+                for name in reversed(saved):
+                    (previous / name).rename(target / name)
+            except BaseException as recovery_error:
+                raise RuntimeError(f'程序替换失败：{install_error}；回滚失败：{recovery_error}；'
+                                   f'已保留事务目录：{stage}') from install_error
+            cleanup = True
+            raise
+        else:
+            cleanup = True
+    finally:
+        if cleanup:
+            # 只删除本次创建且仍位于目标目录直属位置的真实目录，禁止跟随链接越界。
+            if stage.is_symlink() or stage.resolve() != stage or stage.parent != target:
+                raise RuntimeError(f'事务目录路径发生变化，已保留：{stage}')
+            shutil.rmtree(stage)
+
+
 def install(source, token_file):
     if os.geteuid() != 0 or platform.system() != 'Linux' or platform.machine() not in ['x86_64', 'amd64']:
         raise RuntimeError('首次安装需要 Linux x64 和 root/sudo 权限')
@@ -197,12 +258,7 @@ def install(source, token_file):
         if UNIT.exists():
             shutil.copy2(UNIT, backup / 'gateway.service')
         emit('backup', path=str(backup))
-    for name in ['model-gateway', 'deploy', 'src', 'package.json', 'package-lock.json']:
-        origin = source / name
-        if origin.is_dir():
-            shutil.copytree(origin, APP / name, dirs_exist_ok=True)
-        else:
-            shutil.copy2(origin, APP / name)
+    copy_program(source, APP)
     emit('node', version=install_node())
     node_next = pathlib.Path('/usr/local/bin/velella-node.install-next')
     shutil.copy2(APP / 'node/bin/node', node_next)

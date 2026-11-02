@@ -1,10 +1,11 @@
+import {messageText, toolReceipt, toolUses, contentBlocks} from './messages.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { fromAnthropic, anthropicWriter } from './anthropic.mjs';
+import { parseMessagesRequest, anthropicWriter } from './anthropic.mjs';
 import { gateway } from './server.mjs';
 import { infer } from './engine.mjs';
 import { EFFORTS } from './effort.mjs';
@@ -16,7 +17,7 @@ const body = { model: 'claude-code-opus', system: [{ type: 'text', text: 'CALLER
 const headers = { 'x-api-key': 'test', 'content-type': 'application/json' };
 
 test('原生入口移除前端旋转标记，正文内引用和系统规则原样保留', () => {
-  const compile = marker => compileContext(fromAnthropic({ ...body, system: [
+  const compile = marker => compileContext(parseMessagesRequest({ ...body, system: [
     { type: 'text', text: `x-anthropic-billing-header: cc_version=synthetic; cch=${marker};\n` },
     { type: 'text', text: '固定规则\nx-anthropic-billing-header: this is a quoted example' },
   ] }));
@@ -24,37 +25,56 @@ test('原生入口移除前端旋转标记，正文内引用和系统规则原�
   assert.equal(first.systemPrompt, second.systemPrompt);
   assert(first.systemPrompt.includes('this is a quoted example'));
   assert(!first.systemPrompt.includes('cc_version=synthetic'));
-  assert.equal(fromAnthropic({ ...body, system: 'x-anthropic-billing-header: synthetic\nKeep this instruction' }).messages[0].content, 'Keep this instruction');
+  assert.equal(parseMessagesRequest({ ...body, system: 'x-anthropic-billing-header: synthetic\nKeep this instruction' }).system, 'Keep this instruction');
 });
 
 test('Anthropic 保留指令和并行工具结果，拒绝无法兑现的参数', () => {
-  const request = fromAnthropic({ ...body, messages: [...body.messages,
+  const request = parseMessagesRequest({ ...body, messages: [...body.messages,
     { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'read', input: { path: 'a' } }, { type: 'tool_use', id: 'b', name: 'read', input: { path: 'b' } }] },
     { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'a', content: [{ type: 'text', text: 'A' }] }, { type: 'tool_result', tool_use_id: 'b', content: 'B', is_error: true }] },
     { role: 'system', content: '动态规则' }] });
-  assert.equal(request.reasoning_effort, 'high');
-  assert.deepEqual(request.messages.map(message => message.role), ['system', 'user', 'assistant', 'tool', 'tool', 'system']);
-  assert.equal(request.messages[2].tool_calls.length, 2);
-  assert.deepEqual(request.messages[3].content, [{ type: 'text', text: 'A' }]);
-  assert.equal(request.messages[4].content, 'B');
-  assert.equal(request.messages[4].is_error, true);
+  assert.equal(request.output_config?.effort, 'high');
+  assert.deepEqual(request.messages.map(message => message.role), ['user', 'assistant', 'user', 'user', 'system']);
+  assert.equal(toolUses(request.messages[1]).length, 2);
+  assert.deepEqual(toolReceipt(request.messages[2]).content, [{ type: 'text', text: 'A' }]);
+  assert.equal(toolReceipt(request.messages[3]).content, 'B');
+  assert.equal(toolReceipt(request.messages[3]).is_error, true);
   for (const extra of [{ thinking: { type: 'disabled' } }, { thinking: { type: 'enabled', budget_tokens: 1000 } },
-    { output_config: { format: {} } }, { temperature: 0.3 }, { tools: [null] }, { tool_choice: { type: 'any' } },
-    { messages: [{ role: 'user', content: [{ type: 'video' }] }] }]) assert.throws(() => fromAnthropic({ ...body, ...extra }), error => error.status === 400);
+    { output_config: { format: {} } }, { temperature: 0.3 }, { tools: [null] },
+    { messages: [{ role: 'user', content: [{ type: 'video' }] }] }]) assert.throws(() => parseMessagesRequest({ ...body, ...extra }), error => error.status === 400);
+});
+
+// 无效系统块必须在认证或模型执行前返回输入错误，避免客户端重试同一坏请求。
+test('无效系统块返回 400 且不启动上游', async () => {
+  let executions = 0, authentications = 0;
+  const server = await gateway({ token: 'test', port: 0, models: [{ id: body.model }],
+    beforeExecute: async () => { authentications++; },
+    execute: async () => { executions++; return { role: 'assistant', content: '不应执行' }; } });
+  try {
+    for (const block of [null, false, 0, 'rule', [], {}, { type: 'text', text: null }]) {
+      const response = await fetch(`http://127.0.0.1:${server.port}/v1/messages`, {
+        method: 'POST', headers, body: JSON.stringify({ ...body, system: [block] }),
+      });
+      assert.equal(response.status, 400);
+      assert.equal((await response.json()).error.type, 'invalid_request_error');
+    }
+    assert.equal(authentications, 0);
+    assert.equal(executions, 0);
+  } finally { await server.close(); }
 });
 
 test('原生入口透传 user 图片，形状校验仍由上下文编译单点收口', () => {
   const png = 'iVBORw0KGgoAAAANSUhEUg==';
   const image = { type: 'image', source: { type: 'base64', media_type: 'image/png', data: png } };
-  const request = fromAnthropic({ ...body, messages: [{ role: 'user', content: [{ type: 'text', text: '看这张图' }, image] }] });
+  const request = parseMessagesRequest({ ...body, messages: [{ role: 'user', content: [{ type: 'text', text: '看这张图' }, image] }] });
   assert.deepEqual(request.messages.at(-1).content, [{ type: 'text', text: '看这张图' }, image]);
   // 无图片的消息仍输出合并文本，既有缓存前缀不因本次改动变形。
-  assert.equal(fromAnthropic(body).messages.at(-1).content, '合成请求');
+  assert.equal(messageText(parseMessagesRequest(body).messages.at(-1)), '合成请求');
   // 坏图片在原生入口透传，但 validateRequest 经 compileContext 仍返回 400。
-  const bad = fromAnthropic({ ...body, messages: [{ role: 'user', content: [{ type: 'image' }] }] });
+  const bad = parseMessagesRequest({ ...body, messages: [{ role: 'user', content: [{ type: 'image' }] }] });
   assert.throws(() => validateRequest(bad, { maxOutputTokens: 8192 }), error => error.status === 400);
-  assert.throws(() => validateRequest(fromAnthropic({ ...body,
-    messages: [{ role: 'assistant', content: [image] }, { role: 'user', content: 'hi' }] }), { maxOutputTokens: 8192 }), /assistant 消息中的图片/);
+  assert.throws(() => validateRequest(parseMessagesRequest({ ...body,
+    messages: [{ role: 'assistant', content: [image] }, { role: 'user', content: 'hi' }] }), { maxOutputTokens: 8192 }), /Anthropic 内容块 image/);
 });
 
 test('原生工具结果支持图片，保留调用 ID、错误状态与并行结果次序', async () => {
@@ -62,10 +82,10 @@ test('原生工具结果支持图片，保留调用 ID、错误状态与并行�
   const wire = { ...body, messages: [{ role: 'assistant', content: ['a', 'b'].map(id => ({ type: 'tool_use', id, name: 'read', input: {} })) },
     { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'a', is_error: true, content: [{ type: 'text', text: '截图' }, image] },
       { type: 'tool_result', tool_use_id: 'b', content: [image] }, { type: 'text', text: '分析两张图' }] }] };
-  const request = fromAnthropic(wire);
-  assert.deepEqual(request.messages.map(message => message.role), ['system', 'assistant', 'tool', 'tool', 'user']);
-  assert.equal(request.messages[2].tool_call_id, 'a');
-  assert.equal(request.messages[2].is_error, true);
+  const request = parseMessagesRequest(wire);
+  assert.deepEqual(request.messages.map(message => message.role), ['assistant', 'user', 'user', 'user']);
+  assert.equal(toolReceipt(request.messages[1])?.tool_use_id, 'a');
+  assert.equal(toolReceipt(request.messages[1]).is_error, true);
   assert.equal(compileContext(request).metrics.imageCount, 2);
   let executions = 0;
   const server = await gateway({ token: 'test', port: 0, models: [{ id: body.model }], execute: async request => {
@@ -84,10 +104,9 @@ test('原生工具结果支持图片，保留调用 ID、错误状态与并行�
 
 test('原生接口流式文本、并行工具和缓存三桶保持一致，阶段日志不泄露内容', async () => {
   const logs = [];
-  const execution = { role: 'assistant', content: 'VISIBLE', tool_calls: [1, 2].map(id => ({ id: `call_${id}`, type: 'function', function: { name: 'read', arguments: JSON.stringify({ path: `file${id}` }) } })),
-    upstream_usage: { input_tokens: 10, output_tokens: 20, cache_read_input_tokens: 30, cache_creation_input_tokens: 40 } };
+  const execution = {role: 'assistant', usage: { input_tokens: 10, output_tokens: 20, cache_read_input_tokens: 30, cache_creation_input_tokens: 40 }, content: [...contentBlocks('VISIBLE'), ...([1, 2].map(id => ({id: `call_${id}`, type: 'tool_use', name: 'read', input: { path: `file${id}` }})) || [])]};
   const app = await gateway({ token: 'test', port: 0, models: [{ id: body.model }], onTiming: entry => logs.push(entry),
-    execute: async (request, _signal, onText, timing) => { assert.equal(request.reasoning_effort, 'high'); timing.mark('cli_spawned'); onText('VIS'); onText('IBLE'); return execution; } });
+    execute: async (request, _signal, onText, timing) => { assert.equal(request.output_config?.effort, 'high'); timing.mark('cli_spawned'); onText('VIS'); onText('IBLE'); return execution; } });
   try {
     for (const stream of [false, true]) {
       const response = await fetch(`http://127.0.0.1:${app.port}/v1/messages?beta=true`, { method: 'POST', headers, body: JSON.stringify({ ...body, stream }) });
@@ -96,12 +115,12 @@ test('原生接口流式文本、并行工具和缓存三桶保持一致，阶�
         const result = await response.json();
         assert.equal(result.stop_reason, 'tool_use');
         assert.equal(result.content.filter(block => block.type === 'tool_use').length, 2);
-        assert.deepEqual(result.usage, execution.upstream_usage);
+        assert.deepEqual(result.usage, execution.usage);
       } else {
         const result = (await response.text()).split('\n').filter(line => line.startsWith('data: ')).map(line => JSON.parse(line.slice(6)));
         assert.equal(result.filter(event => event.type === 'content_block_delta' && event.delta.type === 'text_delta').map(event => event.delta.text).join(''), 'VISIBLE');
         assert.equal(result.filter(event => event.type === 'content_block_start' && event.content_block.type === 'tool_use').length, 2);
-        assert.deepEqual(result.find(event => event.type === 'message_delta').usage, execution.upstream_usage);
+        assert.deepEqual(result.find(event => event.type === 'message_delta').usage, execution.usage);
         assert.equal(result.at(-1).type, 'message_stop');
       }
     }
@@ -136,9 +155,7 @@ test('原生流心跳经过 SDK 的 ping 过滤后仍有事件，空正文不影
       assert.equal(chunk.done, false);
       wire += decoder.decode(chunk.value, { stream: true });
     }
-    complete({ role: 'assistant', content: null,
-      tool_calls: [{ id: 'read_1', type: 'function', function: { name: 'read', arguments: '{"path":"synthetic"}' } }],
-      upstream_usage: { input_tokens: 7, output_tokens: 11, cache_read_input_tokens: 13, cache_creation_input_tokens: 17 } });
+    complete({role: 'assistant', usage: { input_tokens: 7, output_tokens: 11, cache_read_input_tokens: 13, cache_creation_input_tokens: 17 }, content: [{id: 'read_1', type: 'tool_use', name: 'read', input: {"path":"synthetic"}}]});
     for (;;) {
       const chunk = await reader.read();
       if (chunk.done) break;
@@ -171,8 +188,8 @@ test('原生流心跳经过 SDK 的 ping 过滤后仍有事件，空正文不影
 test('保活与真实正文共用文本块，不重复输出或覆盖最终用量', () => {
   const writes = [];
   const writer = anthropicWriter({ writeHead() {}, write: value => writes.push(value), end() {} }, 'msg_test', body.model);
-  writer.start(); writer.usage({upstream_usage:{input_tokens:7}}); writer.ping(); writer.ping(); writer.text('真正的正文');
-  writer.finish({ content: '真正的正文', upstream_usage: { input_tokens: 7, output_tokens: 11 } }, 'end_turn');
+  writer.start(); writer.usage({usage:{input_tokens:7}}); writer.ping(); writer.ping(); writer.text('真正的正文');
+  writer.finish({ content: '真正的正文', usage: { input_tokens: 7, output_tokens: 11 } }, 'end_turn');
   const events = writes.map(wire => JSON.parse(wire.split('\ndata: ')[1]));
   assert.equal(events.filter(event => event.type === 'content_block_start').length, 1);
   assert.equal(events.filter(event => event.type === 'content_block_stop').length, 1);
@@ -203,10 +220,10 @@ test('Anthropic 各思考档位经过 HTTP 到达 CLI，取消和超时仍清理
     assert(!JSON.stringify(logs).includes('HIDDEN'));
     const hanging = (_cli, _args, options) => spawn(process.execPath, ['-e', 'process.stdin.resume(); setInterval(()=>{},1000)'], options);
     const marks = [];
-    await assert.rejects(infer(fromAnthropic(body), { ...options, spawnProcess: hanging, timeoutMs: 50, killGraceMs: 20, timing: { mark: name => marks.push(name) } }), error => error.code === 'INFERENCE_TIMEOUT');
+    await assert.rejects(infer(parseMessagesRequest(body), { ...options, spawnProcess: hanging, timeoutMs: 50, killGraceMs: 20, timing: { mark: name => marks.push(name) } }), error => error.code === 'INFERENCE_TIMEOUT');
     assert(marks.includes('cli_exit') && marks.includes('cleanup_complete'));
     const controller = new AbortController();
-    const pending = infer(fromAnthropic(body), { ...options, spawnProcess: (...args) => {
+    const pending = infer(parseMessagesRequest(body), { ...options, spawnProcess: (...args) => {
       const child = hanging(...args); child.once('spawn', () => controller.abort()); return child;
     }, signal: controller.signal, killGraceMs: 20 });
     const cancelled = assert.rejects(pending, /取消/);

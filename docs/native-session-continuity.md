@@ -1,5 +1,7 @@
 # 原生会话续接候选
 
+2.0 升级说明：会话索引位于 `native-session-index-v2`，旧版会话不跨版本续接。切换前结束旧会话，切换后新建会话；参见 [架构清理说明](architecture-cleanup.md)。
+
 本候选将新消息和工具结果续接交给持久化 CLI，减少把整段 Desktop 历史包装成 JSON 后重新提交的路径。通过 `GATEWAY_SESSION_RELAY=1` 显式启用；`GATEWAY_NATIVE_SESSION_PERSISTENCE=1` 开启原生文件检查点和 `--resume`。默认安装保留现有逐轮 CLI 路径，不自动修改现有部署或启动这些候选能力。
 
 ## 配置

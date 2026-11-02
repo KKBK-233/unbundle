@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { CliEvents } from './cli-events.mjs';
 import { infer } from './engine.mjs';
-import { fromAnthropic } from './anthropic.mjs';
+import { parseMessagesRequest } from './anthropic.mjs';
 import { validateRequest } from './request.mjs';
 import { gateway } from './server.mjs';
 
@@ -20,7 +20,7 @@ test('停止串跨片段不泄露，最早命中生效，未命中的前缀正�
   for (const stop of ['', [''], ['a', 'b', 'c', 'd', 'e'], [3]]) {
     assert.throws(() => validateRequest({ messages: [{ role: 'user', content: 'synthetic' }], stop }));
   }
-  assert.deepEqual(fromAnthropic({ model: 'claude-code-sonnet', max_tokens: 16, messages: [], stop_sequences: ['END'] }).stop, ['END']);
+  assert.deepEqual(parseMessagesRequest({ model: 'claude-code-sonnet', max_tokens: 16, messages: [], stop_sequences: ['END'] }).stop_sequences, ['END']);
 });
 
 test('停止串终止挂起进程，原生 JSON 与 SSE 都返回准确结束原因', async () => {

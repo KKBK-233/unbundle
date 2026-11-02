@@ -1,3 +1,4 @@
+import {messageText} from './messages.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -24,9 +25,9 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
  emit({type:'stream_event',event:{type:'message_start',message:{id:'synthetic',usage:{input_tokens:2}}}});
  if(mode==='failure'){emit({type:'result',is_error:true,result:'API Error: 400 synthetic'});return;}
  if(mode==='pending'){
-  emit({type:'assistant',message:{content:[{type:'tool_use',id:'pending',name:'mcp__omp__Read',input:{}}]}});
+  emit({type:'assistant',message:{content:[{type:'tool_use',id:'pending',name:'mcp__caller__Read',input:{}}]}});
   emit({type:'stream_event',event:{type:'message_delta',delta:{stop_reason:'tool_use'},usage:{output_tokens:3}}});
-  const config=JSON.parse(fs.readFileSync(flag('--mcp-config'),'utf8')).mcpServers.omp;
+  const config=JSON.parse(fs.readFileSync(flag('--mcp-config'),'utf8')).mcpServers.caller;
   fetch(config.url,{method:'POST',headers:{...config.headers,'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:'rpc',method:'tools/call',params:{name:'Read',arguments:{},_meta:{'claudecode/toolUseId':'pending'}}})}).catch(()=>{});return;
  }
  const text=['tag','mismatch'].includes(mode)?'<thinking>SYNTHETIC_ONLY</thinking>':'READY';
@@ -62,14 +63,14 @@ test('普通恢复和压缩恢复遇到容量不足均保留检查点，未启�
   const f=await poolFixture();try{
    const original=f.make(),first=await original.infer(base);await original.close();f.retained.sessions.clear();
    const relay=f.make();f.setMode('pending');
-   await relay.infer({...base,tools:[{type:'function',function:{name:'Read',parameters:{}}}],messages:[{role:'user',content:'B'}]});
+   await relay.infer({...base,tools:[{name:'Read', input_schema: {}}],messages:[{role:'user',content:'B'}]});
    const request={...base,messages:[...base.messages,assistantMessage(first),{role:'user',content:compact?'Your task is to create a detailed summary of this conversation.':'A next'}]};
-   const index=path.join(f.home,'native-session-index/index.json'),before=await fs.readFile(index,'utf8');
+   const index=path.join(f.home,'native-session-index-v2/index.json'),before=await fs.readFile(index,'utf8');
    await assert.rejects(relay.infer(request),{code:'SESSION_CAPACITY'});
    assert.equal(await fs.readFile(index,'utf8'),before);assert.equal(f.children.length,2);
    if(!compact){
     for(const session of f.retained.sessions)await session.close('test');
-    f.setMode('normal');assert.equal((await relay.infer(request)).content,'READY');assert.equal(f.children.length,3);
+    f.setMode('normal');assert.equal(messageText((await relay.infer(request))),'READY');assert.equal(f.children.length,3);
    }
   }finally{await f.close();}
  }
@@ -78,12 +79,12 @@ test('普通恢复和压缩恢复遇到容量不足均保留检查点，未启�
 test('恢复在首次输入前启动失败时保留检查点，下一次可以正常 resume',async()=>{
  const f=await poolFixture();try{
   const original=f.make(),first=await original.infer(base);await original.close();f.retained.sessions.clear();
-  const spawnProcess=f.options.spawnProcess,index=path.join(f.home,'native-session-index/index.json'),before=await fs.readFile(index,'utf8');
+  const spawnProcess=f.options.spawnProcess,index=path.join(f.home,'native-session-index-v2/index.json'),before=await fs.readFile(index,'utf8');
   f.options.spawnProcess=()=>{throw Error('synthetic startup failure');};const relay=f.make();
   const request={...base,messages:[...base.messages,assistantMessage(first),{role:'user',content:'next'}]};
   await assert.rejects(relay.infer(request),/synthetic startup failure/);assert.equal(await fs.readFile(index,'utf8'),before);
   // options 在池创建时被闭包引用，恢复构造器使用更新后的同一配置。
-  f.options.spawnProcess=spawnProcess;assert.equal((await relay.infer(request)).content,'READY');
+  f.options.spawnProcess=spawnProcess;assert.equal(messageText((await relay.infer(request))),'READY');
  }finally{await f.close();}
 });
 
@@ -93,7 +94,7 @@ test('不同会话键并发创建仍遵守池容量，容量拒绝后可重新�
   assert.equal(results.filter(r=>r.status==='fulfilled').length,1);
   assert(results.filter(r=>r.status==='rejected').every(r=>r.reason.code==='SESSION_CAPACITY'));
   assert.equal(relay.size,1);assert.equal(f.children.length,1);
-  assert.equal((await relay.infer({...base,messages:[{role:'user',content:'four'}]},{affinity:{key:'four'}})).content,'READY');
+  assert.equal(messageText((await relay.infer({...base,messages:[{role:'user',content:'four'}]},{affinity:{key:'four'}}))),'READY');
   assert.equal(relay.size,1);assert.equal(f.children.length,2);
  }finally{await f.close();}
 });
@@ -110,7 +111,7 @@ test('默认逐轮执行器接受已完成的普通历史，并在第二轮成�
  const f=await poolFixture();try{
   const first=await statelessInfer(base,f.options);
   const next={...base,messages:[...base.messages,assistantMessage(first),{role:'user',content:'next'}]};
-  assert.equal((await statelessInfer(next,f.options)).content,'READY');assert.equal(f.children.length,2);
+  assert.equal(messageText((await statelessInfer(next,f.options))),'READY');assert.equal(f.children.length,2);
  }finally{await f.close();}
 });
 
@@ -120,12 +121,12 @@ test('只允许显式释放已死亡的冻结进程，保留现场与墓碑并�
   const row=(await relay.listSessions()).sessions[0];
   await assert.rejects(relay.dispose(row.sessionId),{code:'NATIVE_PROCESS_ALIVE'});assert.equal(relay.frozenSize,1);
   const child=f.children[0],done=new Promise(r=>child.once('close',r));child.kill('SIGKILL');await done;
-  const before=await fs.readFile(path.join(f.home,'native-session-index/quarantined-history.json'),'utf8');
+  const before=await fs.readFile(path.join(f.home,'native-session-index-v2/quarantined-history.json'),'utf8');
   assert.equal((await relay.dispose(row.sessionId)).state,'archived');assert.equal(relay.frozenSize,0);
-  assert.equal(await fs.readFile(path.join(f.home,'native-session-index/quarantined-history.json'),'utf8'),before);
+  assert.equal(await fs.readFile(path.join(f.home,'native-session-index-v2/quarantined-history.json'),'utf8'),before);
   const archived=(await relay.listSessions()).sessions.find(s=>s.sessionId===row.sessionId);assert.equal(archived.state,'archived');
   await assert.rejects(relay.infer(base),{code:'SESSION_QUARANTINED'});
-  f.setMode('normal');assert.equal((await relay.infer({...base,messages:[{role:'user',content:'another conversation'}]})).content,'READY');
+  f.setMode('normal');assert.equal(messageText((await relay.infer({...base,messages:[{role:'user',content:'another conversation'}]}))),'READY');
  }finally{await f.close();}
 });
 

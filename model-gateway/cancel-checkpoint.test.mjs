@@ -1,3 +1,4 @@
+import {messageText} from './messages.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -10,7 +11,7 @@ import {historyKey} from './session-history.mjs';
 import {cancelledCheckpointDelta,cancellationBoundary,validCancellationBoundary} from './cancel-checkpoint.mjs';
 
 const env={role:'system',content:'# Environment update\n - Primary working directory: E:\\demo (was E:\\)\n'},user={role:'user',content:'PRIVATE_SYNTHETIC_TASK'},next={role:'user',content:'继续新任务'};
-const call={role:'assistant',content:null,tool_calls:[{id:'completed',type:'function',function:{name:'Bash',arguments:'{"command":"synthetic-only"}'}}]},receipt={role:'tool',tool_call_id:'completed',content:'ACTUAL_RESULT'};
+const call={role:'assistant', content: [{id:'completed', type: 'tool_use', name:'Bash', input: {"command":"synthetic-only"}}]},receipt={role:'user', content:[{type:'tool_result', tool_use_id:'completed', content:'ACTUAL_RESULT'}]};
 const ack=[{role:'user',content:'[Request interrupted by user]'},{role:'assistant',content:'No response requested.'}];
 function cancelled(messages=[user,call,receipt,env],ids=['completed']){
  const s={state:'idle',nativeConfirmed:true,nativeSessionId:'00000000-0000-4000-8000-000000000001',signature:'a'.repeat(64),options:{outputTokens:1024},historyNormalization:true,interrupted:true,cancelConfirmed:true,cancelledReceiptIds:new Set(ids),request:{messages,tools:[]},pendingIds:new Set(),pendingHttp:new Map(),results:new Map(),pendingControls:new Map()};
@@ -31,7 +32,7 @@ test('取消后的目录重排、已确认收据缺失及已完成尾部省略�
  const s=cancelled(),hashKey=Buffer.alloc(32,2);s.history=s.request.messages.map(m=>historyKey(m,{hashKey,exact:true}));const row={...s,cancellation:cancellationBoundary(s)};
  const check=messages=>cancelledCheckpointDelta(row,{messages,tools:[]},{hashKey,allowInstructionUpdates:true});
  assert.deepEqual(check([user,call,receipt,next,env]),[next,env]);
- const missing={role:'tool',tool_call_id:'completed',content:'[Tool result missing due to internal error]',is_error:true};
+ const missing={role:'user', content:[{type:'tool_result', tool_use_id:'completed', content:'[Tool result missing due to internal error]', is_error:true}]};
  assert.deepEqual(check([user,call,missing,env,...ack,next]),[next]);assert.deepEqual(check([user,next,env]),[next,env]);
  for(const messages of [[{...user,content:'changed'},next],[user,call,{...receipt,content:'changed'},env,next],[user,call,{...missing,is_error:false},env,next],[user,call,receipt,env,ack[1],next],[user,call,receipt,env,ack[0],{...ack[1],content:'different'},next]])assert.equal(check(messages),undefined);
  const unknown=cancelled(undefined,[]);unknown.history=s.history;assert.equal(cancelledCheckpointDelta({...unknown,cancellation:cancellationBoundary(unknown)},{messages:[user,call,missing,env,next],tools:[]},{hashKey,allowInstructionUpdates:true}),undefined);
@@ -44,18 +45,19 @@ send({type:'system',subtype:'init',session_id:id,capabilities:['interrupt_receip
 readline.createInterface({input:process.stdin}).on('line',l=>{const v=JSON.parse(l);
  if(v.type==='control_request'){send({type:'control_response',response:{request_id:v.request_id,subtype:'success',response:{still_queued:[],cancelled:[]}}});send({type:'result',is_error:true,terminal_reason:'aborted_streaming',user_message_uuid:uuid});return;}
  if(v.type!=='user')throw Error('unexpected frame');turns++;uuid=v.uuid;fs.appendFileSync(file,JSON.stringify({type:'user',message:v.message})+'\\n');
- send({type:'stream_event',event:{type:'message_start',message:{id:'synthetic-'+turns,usage:{input_tokens:10,output_tokens:0}}}});
+ if(turns===1&&process.env.SYNTHETIC_BEFORE_START==='1')send({type:'system',subtype:'synthetic_input_accepted'});
+ else send({type:'stream_event',event:{type:'message_start',message:{id:'synthetic-'+turns,usage:{input_tokens:10,output_tokens:0}}}});
  if(turns===1)return;send({type:'stream_event',event:{type:'content_block_delta',delta:{type:'text_delta',text:'RESUMED'}}});send({type:'result',is_error:false,result:'RESUMED',terminal_reason:'completed',user_message_uuid:uuid});
 });`;
-test('完整取消到闲置退出再新建网关：原生resume同一文件，只发送一次新用户输入',{timeout:15000},async()=>{
+for(const beforeStart of [false,true])for(const merged of [false,true,'replace','image'])test(`完整取消到闲置退出再新建网关：原生resume同一文件，只发送一次新用户输入，首帧前=${beforeStart}，合并=${merged}`,{timeout:15000},async()=>{
  const home=await fs.mkdtemp(path.join(os.tmpdir(),'cancel-resume-e2e-')),config=path.join(home,'.claude'),children=[],argumentsSeen=[],frames=[];let relay,ready;const started=new Promise(r=>ready=r);
  const options={home,configDir:config,cli:'synthetic',model:'synthetic',maxOutputTokens:1024,persistentSessions:true,preserveCancelledSession:true,liveInstructionUpdates:true,cancelAckTimeoutMs:1000,timeoutMs:5000,
-  spawnProcess(_cli,args,o){argumentsSeen.push(args);const resumed=args.includes('--resume'),id=args[args.indexOf(resumed?'--resume':'--session-id')+1],file=path.join(config,'projects','synthetic',id+'.jsonl');fsSync.mkdirSync(path.dirname(file),{recursive:true});if(!resumed)fsSync.writeFileSync(file,'');const child=spawn(process.execPath,['--input-type=module','-e',fixture],{...o,env:{...o.env,SYNTHETIC_SESSION_ID:id,SYNTHETIC_FILE:file,SYNTHETIC_RESUME:resumed?'1':'0'}});const write=child.stdin.write.bind(child.stdin);child.stdin.write=(line,...rest)=>{frames.push(JSON.parse(line));return write(line,...rest);};children.push(child);return child;}};
+  spawnProcess(_cli,args,o){argumentsSeen.push(args);const resumed=args.includes('--resume'),id=args[args.indexOf(resumed?'--resume':'--session-id')+1],file=path.join(config,'projects','synthetic',id+'.jsonl');fsSync.mkdirSync(path.dirname(file),{recursive:true});if(!resumed)fsSync.writeFileSync(file,'');const child=spawn(process.execPath,['--input-type=module','-e',fixture],{...o,env:{...o.env,SYNTHETIC_SESSION_ID:id,SYNTHETIC_FILE:file,SYNTHETIC_RESUME:resumed?'1':'0',SYNTHETIC_BEFORE_START:beforeStart?'1':'0'}});const write=child.stdin.write.bind(child.stdin);child.stdin.write=(line,...rest)=>{frames.push(JSON.parse(line));return write(line,...rest);};children.push(child);return child;}};
  const request={model:'synthetic',max_tokens:1024,messages:[user]},controller=new AbortController();
  try{
-  relay=sessionRelay(options);const run=relay.infer(request,{signal:controller.signal,timing:{mark:p=>{if(p==='upstream_message_start')ready();}}}),rejected=assert.rejects(run,{code:'REQUEST_CANCELLED'});await started;controller.abort();await rejected;
-  await relay.close();relay=sessionRelay(options);const result=await relay.infer({...request,messages:[user,...ack,next]});assert.equal(result.content,'RESUMED');assert.equal(argumentsSeen.length,2);const original=argumentsSeen[0][argumentsSeen[0].indexOf('--session-id')+1];assert.equal(argumentsSeen[1][argumentsSeen[1].indexOf('--resume')+1],original);
-  const users=frames.filter(f=>f.type==='user');assert.equal(users.length,2);assert(!JSON.stringify(users[1]).includes(user.content));assert(!JSON.stringify(users[1]).includes('No response requested.'));
+  relay=sessionRelay(options);const run=relay.infer(request,{signal:controller.signal,timing:{mark:p=>{if(p==='upstream_message_start')ready();},cliEvent:e=>{if(e.type==='system'&&e.subtype==='synthetic_input_accepted')ready();}}}),rejected=assert.rejects(run,{code:'REQUEST_CANCELLED'});await started;controller.abort();await rejected;
+  await relay.close();relay=sessionRelay(options);const result=await relay.infer({...request,messages:merged==='image'?[{role:'user',content:[{type:'text',text:next.content},{type:'image',source:{type:'base64',media_type:'image/png',data:Buffer.from('89504e470d0a1a0a','hex').toString('base64')}}]}]:merged==='replace'?[next]:merged?[{role:'user',content:user.content+'\n\n'+next.content}]:[user,...ack,next]});assert.equal(messageText(result),'RESUMED');assert.equal(argumentsSeen.length,2);const original=argumentsSeen[0][argumentsSeen[0].indexOf('--session-id')+1];assert.equal(argumentsSeen[1][argumentsSeen[1].indexOf('--resume')+1],original);
+  const users=frames.filter(f=>f.type==='user');assert.equal(users.length,2);if(merged==='image')assert(users[1].message.content.some(b=>b.type==='image'&&b.source.data===Buffer.from('89504e470d0a1a0a','hex').toString('base64')));assert(!JSON.stringify(users[1]).includes(user.content));assert(!JSON.stringify(users[1]).includes('No response requested.'));
  }finally{await relay?.close({discardFrozen:true});for(const c of children)if(c.exitCode===null&&c.signalCode===null)c.kill('SIGKILL');await fs.rm(home,{recursive:true,force:true});}
 });
 import fsSync from 'node:fs';

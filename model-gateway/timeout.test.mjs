@@ -1,3 +1,4 @@
+import {messageText, toolUses} from './messages.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -11,14 +12,14 @@ import { createTiming } from './timing.mjs';
 test('大工具消息停顿后可结束，中途超时保留参数大小与重试计数', async () => {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'relay-large-tool-'));
   const payload = '中文'.repeat(35000);
-  const request = { model: 'claude-code-opus', tools: [{ type: 'function', function: { name: 'write_file', parameters: { type: 'object' } } }],
+  const request = { model: 'claude-code-opus', tools: [{name: 'write_file', input_schema: { type: 'object' }}],
     messages: [{ role: 'user', content: 'synthetic' }] };
   const makeProcess = finish => (_cli, _args, options) => spawn(process.execPath, ['--input-type=module', '-e', `
     for await (const chunk of process.stdin) {}
     const emit = event => console.log(JSON.stringify(event));
     const stream = event => emit({type:'stream_event',event});
     stream({type:'message_start',message:{id:'large',usage:{input_tokens:1,output_tokens:0}}});
-    stream({type:'content_block_start',index:0,content_block:{type:'tool_use',id:'call',name:'mcp__omp__write_file',input:{}}});
+    stream({type:'content_block_start',index:0,content_block:{type:'tool_use',id:'call',name:'mcp__caller__write_file',input:{}}});
     emit({type:'system',subtype:'api_retry'});
     stream({type:'content_block_delta',index:0,delta:{type:'input_json_delta',partial_json:JSON.stringify({content:'中文'.repeat(35000)})}});
     if (${finish}) setTimeout(() => {
@@ -30,7 +31,7 @@ test('大工具消息停顿后可结束，中途超时保留参数大小与重�
   const common = { home, cli: 'mock', model: 'mock', timeoutMs: 3000, killGraceMs: 20 };
   try {
     const success = await infer(request, { ...common, idleTimeoutMs: 1500, spawnProcess: makeProcess(true) });
-    assert.equal(JSON.parse(success.tool_calls[0].function.arguments).content, payload);
+    assert.equal(toolUses(success)[0].input.content, payload);
     const records = [];
     const timing = createTiming(value => records.push(value));
     await assert.rejects(infer(request, { ...common, idleTimeoutMs: 400, spawnProcess: makeProcess(false),
@@ -64,9 +65,9 @@ test('持续思考延长无进展期限，CLI 心跳不能延长，总时限始�
   `], options);
   const common = { home, cli: 'mock', model: 'mock', timeoutMs: 2500, idleTimeoutMs: 400, killGraceMs: 20 };
   try {
-    assert.equal((await infer(request, { ...common, spawnProcess: makeProcess('finish') })).content, 'DONE');
+    assert.equal(messageText((await infer(request, { ...common, spawnProcess: makeProcess('finish') }))), 'DONE');
     // 0 不能变成立即到期的定时器；关闭两种时限后仍能自然完成并清理。
-    assert.equal((await infer(request, { ...common, timeoutMs: 0, idleTimeoutMs: 0, spawnProcess: makeProcess('finish') })).content, 'DONE');
+    assert.equal(messageText((await infer(request, { ...common, timeoutMs: 0, idleTimeoutMs: 0, spawnProcess: makeProcess('finish') }))), 'DONE');
     for (const [mode, extra, expected] of [
       ['noise', {}, 'INFERENCE_IDLE_TIMEOUT'],
       ['progress', { timeoutMs: 300 }, 'INFERENCE_TIMEOUT'],
