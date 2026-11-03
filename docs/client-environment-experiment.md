@@ -171,3 +171,13 @@ GATEWAY_SESSION_RELAY=0
 3. 在项目下新建专用诊断文件，先检查路径不存在，再创建内容 `probe_value=0`；随后 Read 前一行、Edit 为 `probe_value=1`，编辑成功直接报告。仅清理本次新建的文件。已有诊断文件不得覆盖。
 
 真实复测时按请求日志核对 `cli_environment_adjusted`、工具参数、工具回执、重复调用和实际回复；不能单靠探测命令输出或模型说“环境正常”判定全部上下文正常。详细日志原有的容量、数量与过期限制继续生效。
+
+## 切回 Claude，保留实验分支（2026-11-02）
+
+按用户要求，现有入口已从 GLM 切回 Claude，继续运行 `experiment/client-environment` 的代码；没有退回 dev/main 的旧程序。运行目录仍为 `/home/harness/experiments/glm-env-a89103c`，目录名称保留历史命名，实际 `upstreamProvider=claude`。该代码与切换时分支 HEAD `fa1c219` 相同，两者差异仅为实验文档。
+
+保留 minimal 提示词、直接工具注册（ToolSearch 关闭）、逐轮 CLI 和摘要诊断日志。关闭 GLM 专用机器环境修正及详细正文日志；GLM 密钥文件不再配置到该服务。**这次切换不代表环境修正已迁移到 Claude：订阅路径没有启用 GLM 回环适配器，CLI 自动附加的云端环境说明仍可能出现。** OAuth 认证继续由官方 CLI 管理，没有读取、复制或导出认证文件。
+
+验收确认 `loggedIn=true`、`checked=true`，模型映射恢复为 Sonnet/Opus 5.5 的 `[1m]` 上游与 Haiku 5.5，`/v1/models` 正常，CLI 仍为 2.1.316。没有发起真实模型请求，桌面实际推理待用户验证。自动更新定时器保持 disabled / inactive，持久禁用条件继续有效。
+
+本次切换备份及返回 GLM 的脚本位于 VPS `/home/harness/experiments/claude-branch-switch-fa1c219/`。`rollback.py` 先检查空闲和当前配置哈希，返回 GLM 后仍保持自动更新关闭。原始部署回滚记录也已同步更新当前配置哈希。未创建 PR，未合并 dev/main。
