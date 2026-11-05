@@ -256,4 +256,4 @@ CLI 返回事件累计记录输入 7,749 token、输出 1,667 token，缓存读�
 
 诊断增加 server_search_request、server_search_started、server_search_forced_choice_mapped_to_auto、server_search_result、request_error 等阶段；只记录次数、固定错误码、HTTP 状态和停止原因，不保存查询正文、网址或引用密文。取消、超时或完成后清理临时请求文件和进程。
 
-本地全量测试 465 项：462 通过、3 跳过、0 失败；另外验证补丁拒绝未知源文件和覆盖已有目录。线上候选、真实搜索和部署验收结果稍后追加。
+本地全量测试 466 项：463 通过、3 跳过、0 失败；另外验证补丁拒绝未知源文件和覆盖已有目录。线上候选、真实搜索和部署验收结果稍后追加。

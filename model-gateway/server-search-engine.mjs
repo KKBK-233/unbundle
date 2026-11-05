@@ -27,6 +27,7 @@ export async function inferServerSearch(request,{cli,home,configDir,model,signal
   if(testUpstream)Object.assign(env,{ANTHROPIC_BASE_URL:testUpstream.baseUrl,ANTHROPIC_AUTH_TOKEN:testUpstream.token});
   const args=['-p','--input-format','stream-json','--output-format','stream-json','--verbose','--include-partial-messages','--tools','','--strict-mcp-config','--mcp-config','{"mcpServers":{}}','--setting-sources','','--disable-slash-commands','--no-chrome','--permission-mode','dontAsk','--no-session-persistence','--max-turns','1','--model',model,'--system-prompt-file',prompt];
   const effort=resolveEffort(request);if(effort)args.push('--effort',effort);
+  timing?.cliContext?.({model});
   timing?.mark('server_search_started');
   if(['tool','any'].includes(request.tool_choice?.type))timing?.mark('server_search_forced_choice_mapped_to_auto');
   child=spawnProcess(cli,args,{env,cwd:work,detached:group,windowsHide:true,stdio:['pipe','pipe','pipe']});
@@ -39,7 +40,7 @@ export async function inferServerSearch(request,{cli,home,configDir,model,signal
   lines.on('line',line=>{
    if(error||events.complete)return;
    try{
-    const event=JSON.parse(line);refresh();events.accept(event);
+    const event=JSON.parse(line);refresh();timing?.cliEvent?.(event);events.accept(event);
     if(event.type==='stream_event'&&event.event?.type==='message_delta')timing?.upstreamStop?.(event.event.delta?.stop_reason);
     if(events.complete){timing?.mark('server_search_complete');kill('SIGTERM');killTimer=setTimeout(()=>kill('SIGKILL'),1000);}
    }catch(e){error=e;kill('SIGKILL');}

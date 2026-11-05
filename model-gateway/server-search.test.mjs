@@ -88,3 +88,9 @@ test('强制搜索没有执行时返回422，搜索错误码日志不含查询�
  }}),e=>e.code==='TOOL_CHOICE_UNSATISFIED'&&e.status===422);assert.deepEqual(await fs.readdir(home),[]);
  }finally{await fs.rm(home,{recursive:true,force:true});}
 });
+
+test('只有完整搜索调用而无正文时，max_tokens 不被误判为空回复',async()=>{
+ const {emptyOutputGuard}=await import('./empty-output-guard.mjs');const guard=emptyOutputGuard();
+ const execution={role:'assistant',content:[blocks[0]],stop_reason:'max_tokens'};
+ assert.equal(guard.finish('probe',execution,'',body()),execution);
+});
