@@ -233,3 +233,15 @@ CLI 返回事件累计记录输入 7,749 token、输出 1,667 token，缓存读�
 七份详细日志合计 30,855 字节，无截断或丢弃；沿用单文件上限 2 MiB、总量 64 MiB、128 份、三天保留窗口的日志写入限制。本次已结束的隔离实验目录作为验收归档保留，不存在后台定时删除保证。日志校验未包含 API Key。VPS 归档为 `/home/harness/experiments/native-glm-live-20261105T032401Z/`，本地脱敏副本为 `.local/diagnostics/environment-experiment/native-glm-live-20261105T032401Z.json`，不进入 Git。
 
 测试后只读检查确认线上仍为 Claude、CLI 2.1.316、原生补丁启用且登录正常。正式 Claude 推理与真实桌面工具执行仍待单独验收。
+
+### Claude 正式推理与本机文件往返验收
+
+2026-11-05 04:29–04:31 UTC（用户当前 UTC−7 时区为 2026-11-04 21:29–21:31），按用户授权通过现有生产网关和补丁版 CLI 请求 Claude Sonnet 5.5。未切换服务、未改认证或端点，先做一次最多 256 输出 token 的文本请求，再做三次每次最多 1,024 输出 token 的工具请求。四次全部 HTTP 200，文本请求精确返回 `CLAUDE_NATIVE_ENV_OK` 并以 `end_turn` 结束。
+
+工具测试使用 Windows 本机新建的 150 行独立诊断文件。Claude 先发出 Read（offset=21、limit=10），再发出一次 Edit 将 `probe_value=0` 改为 `probe_value=1`，最后正常报告。测试程序实际执行本机读取和编辑，并核对第 21 行最终内容；模型没有要求回读，也没有调用 Bash 或探测系统位置。工具执行器是本地受限测试程序，尚未覆盖 Claude 桌面版自身的工具加载、权限与 UI 流程。
+
+四次响应报告的用量累计为：未缓存输入 8 token、缓存创建 3,020 token、缓存读取 2,662 token、输出 452 token。不能只把 8 token 当作完整输入用量，也不能据此预测复杂任务的额度消耗。
+
+本地结果保存为 `.local/diagnostics/environment-experiment/claude-native-live-text-result.json` 和 `.local/diagnostics/environment-experiment/claude-native-tools-20261105T043000Z/result.json`。文本验收的 VPS 归档目录为 `/home/harness/experiments/claude-native-live-20261105T042913Z/`。测试后状态仍为 Claude、原生补丁启用、CLI 2.1.316、登录正常。
+
+这次实测证明当前补丁部署下的四次正式 Claude 请求被接受，且网关与本地测试执行器的工具往返成功；不代表官方支持修改二进制，也不保证未来请求或版本仍被接受。
