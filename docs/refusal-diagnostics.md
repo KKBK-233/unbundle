@@ -71,3 +71,17 @@ journalctl --namespace=claude-relay -u velella-model-gateway.service -o cat --no
 ## 1.0.9 工具发现与交接
 
 新增工具类别、内部发现和响应准备记录，详见 [工具诊断](tool-diagnostics.md)。与拒绝事件使用同一 requestId，但工具选择不代表安全拒绝，也不代表客户端已经执行。
+
+## 服务端搜索辅助请求诊断
+
+2.1.3 实验部署新增 `server_search_request`、`server_search_started`、`server_search_result` 和 `request_error`。`server_search_result.searchCalls` 是服务端搜索调用数，`searchResults` 是结果块数，不是网页条数；`searchErrors` 为固定错误枚举。CLI 摘要中的 `toolSearchCalls` 指 MCP 工具发现，不表示网页搜索次数。
+
+`auxiliary_thinking_disabled_mapped_to_adaptive` 表示辅助请求关闭思考的声明被映射为 CLI 可执行的 adaptive；Medium 等 effort 仍保留。`server_search_forced_choice_mapped_to_auto` 表示强制搜索选择被转换，最终未执行搜索时会返回 `TOOL_CHOICE_UNSATISFIED`，不会补造链接。
+
+查询时使用已有独立 journal 命名空间：
+
+```bash
+journalctl --namespace=claude-relay -u velella-model-gateway.service --since '10 minutes ago' -o cat --no-pager | jq -R 'fromjson? | select(.type == "gateway_timing" and (.stage == "server_search_result" or .stage == "request_error"))'
+```
+
+HTTP 200 也可能包含 `web_search_tool_result_error`，需同时检查搜索错误枚举。`refusal` 仍由原停止原因日志记录；网页 403、搜索工具错误和模型拒绝是不同信号。日志不保存查询正文、链接或引用密文。

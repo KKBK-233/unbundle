@@ -246,7 +246,7 @@ CLI 返回事件累计记录输入 7,749 token、输出 1,667 token，缓存读�
 
 这次实测证明当前补丁部署下的四次正式 Claude 请求被接受，且网关与本地测试执行器的工具往返成功；不代表官方支持修改二进制，也不保证未来请求或版本仍被接受。
 
-### 桌面服务端搜索兼容（2.1.3，待线上验收）
+### 桌面服务端搜索兼容（2.1.3，已部署验收）
 
 桌面主会话的 `output_config.effort=medium` 已正常传到 CLI。失败的是 WebSearch 另发的辅助请求：它声明 `thinking: disabled`，并提交 `web_search_20250305` 服务端工具。此前两个参数都被网关拒绝；网页本身返回 403 是另外的问题。
 
@@ -256,4 +256,18 @@ CLI 返回事件累计记录输入 7,749 token、输出 1,667 token，缓存读�
 
 诊断增加 server_search_request、server_search_started、server_search_forced_choice_mapped_to_auto、server_search_result、request_error 等阶段；只记录次数、固定错误码、HTTP 状态和停止原因，不保存查询正文、网址或引用密文。取消、超时或完成后清理临时请求文件和进程。
 
-本地全量测试 466 项：463 通过、3 跳过、0 失败；另外验证补丁拒绝未知源文件和覆盖已有目录。线上候选、真实搜索和部署验收结果稍后追加。
+本地全量测试 466 项：463 通过、3 跳过、0 失败；另外验证补丁拒绝未知源文件和覆盖已有目录。原环境渲染的三项 Python 测试通过。
+
+#### VPS 与真实请求验收（2026-11-05 UTC）
+
+最终运行代码为 `7065147`，位于 `/home/harness/experiments/search-code-7065147`；CLI 为 `/home/harness/experiments/search-cli-7dbe195/claude-client-search`，SHA256 为 `75bb13d97c1c4a0b618f42aa5dc19da22eddf76237769f1cc2d59696106336b9`。候选和最终代码各完成三项实际 CLI + 模拟上游测试；最终代码另完成十次环境、路径更新与本机工具续接模拟，均通过，没有真实模型消耗。
+
+真实验收限定三次 Sonnet 5.5 请求，全部完成：候选非流式搜索（最多 2048 输出 token）、无工具 disabled 摘要（最多 256）、生产入口流式搜索（最多 2048）。两次搜索均限定 `iana.org`、max_uses=1、Medium。非流式搜索返回十条结果、引用密文和两条文本引用；摘要正常返回。生产流式验收断言确认一次搜索、非空结果、引用密文和 citations_delta，最终 message_stop/end_turn 正常。
+
+前两次已保存的响应合计：未缓存输入 112 token、缓存创建 19,547 token、缓存读取 2,839 token、输出 204 token。首次搜索辅助回复还含 `<invoke name="none"></invoke>` 文本，现有转发原样保留，未冒充执行工具或过滤内容。搜索结果和引用校验通过；不能据此承诺所有上游回复格式始终整洁。
+
+生产验收脚本在响应检查通过后，因查询默认 journal 命名空间而未找到日志，导致落盘前退出。随后从正确的 `--namespace=claude-relay` 找回请求 `159ac423-a3cd-4836-9929-a7af9e155ee5` 的完整阶段记录：一次搜索、没有搜索错误、约 9.5 秒完成、end_turn、没有 refusal、API retry 或续接。该次原始响应和 usage 未保存，因此不提供三次完整 token 总数，也没有为补日志额外重试推理。
+
+部署在网关空闲时完成，状态为 Claude、登录正常、`nativeClientEnvironment=true`、`nativeServerSearch=true`、minimal、ToolSearch 关闭。原版 CLI 及其符号链接保留，自动更新仍 disabled/inactive。部署及生产验收记录在 `/home/harness/experiments/search-release-7065147/`，同目录 `rollback.py` 会核对当前配置哈希及空闲状态，再恢复之前的环境补丁版本。
+
+这些测试覆盖网关 HTTP 接口与 CLI 上游，桌面自身 WebSearch 消费结果的最终体验仍由用户重试确认。目标网站的 HTTP 403 不属于此次兼容修复。
