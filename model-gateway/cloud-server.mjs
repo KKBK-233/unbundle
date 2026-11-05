@@ -8,6 +8,7 @@ import { validatePromptProfile } from './context.mjs';
 import { infer } from './engine.mjs';
 import { checkCliVersion, readCliRelease } from './cli-compat.mjs';
 import { loadExperimentUpstream } from './experiment-upstream.mjs';
+import { validateNativeClientEnvironment } from './native-client-environment.mjs';
 import { cloudModels, modelAliases, upstreamModels as claudeUpstreamModels } from './cloud-models.mjs';
 import { withGatewayRules } from './gateway-rules.mjs';
 import { sessionRelay } from './session-relay.mjs';
@@ -30,6 +31,8 @@ const promptTraceContent = process.env.GATEWAY_PROMPT_TRACE_CONTENT === '1';
 if (promptTraceContent && (!promptTraceDir || !externalUpstream)) throw new Error('详细内容日志仅允许在 GLM 实验且启用日志时使用');
 if (process.env.GATEWAY_EXPERIMENT_CLIENT_ENV != null && !['0','1'].includes(process.env.GATEWAY_EXPERIMENT_CLIENT_ENV)) throw new Error('客户端环境实验开关无效');
 const clientEnvironment = process.env.GATEWAY_EXPERIMENT_CLIENT_ENV === '1';
+if (process.env.GATEWAY_NATIVE_CLIENT_ENV != null && !['0', '1'].includes(process.env.GATEWAY_NATIVE_CLIENT_ENV)) throw new Error('原生客户端环境实验开关无效');
+const nativeClientEnvironment = process.env.GATEWAY_NATIVE_CLIENT_ENV === '1';
 if (clientEnvironment && !externalUpstream) throw new Error('客户端环境修正仅允许 GLM 实验');
 const home = path.join(base, externalUpstream ? 'glm-runtime-home' : 'runtime-home');
 const cli = process.env.CLAUDE_BIN || '/usr/local/bin/velella-claude';
@@ -71,6 +74,8 @@ for (const value of [maxTools, maxCliOutputBytes]) if (!Number.isSafeInteger(val
 if (!Number.isSafeInteger(maxMcpRequestBytes) || maxMcpRequestBytes < 1024 || maxMcpRequestBytes > 256 * 1024 * 1024) throw new Error('MCP 请求字节上限无效');
 const startupCliVersion = await checkCliVersion(cli);
 if (clientEnvironment && startupCliVersion !== '2.1.316') throw new Error('客户端环境修正仅验证过 CLI 2.1.316');
+const startupRelease = await readCliRelease();
+await validateNativeClientEnvironment({enabled:nativeClientEnvironment, release:startupRelease, cliVersion:startupCliVersion, externalUpstream, clientEnvironment, sessionRelay:process.env.GATEWAY_SESSION_RELAY === '1', home});
 await fs.mkdir(home, { recursive: true, mode: 0o700 });
 const token = (await fs.readFile(path.join(base, 'token'), 'utf8')).trim();
 const models = cloudModels(contextWindow).map(item=>externalUpstream?{...item,display_name:'GLM-5.3 ('+item.anthropic_family_tier+' compatibility)',owned_by:'glm-experiment'}:item);
@@ -107,7 +112,7 @@ function authStatus() {
   });
 }
 const server = await gateway({ token, port, models, modelAliases, status: async () => ({ ...await authStatus(), cliVersion: (await readCliRelease())?.version || startupCliVersion, busy: server.busy || nativeRelay?.maintenance===true || (nativeRelay?.frozenSize || 0)>0,
-  activeRequests: server.activeRequests, queuedRequests: server.queuedRequests, receivingRequests: server.receivingRequests, maxConcurrent, maxQueued, contextWindow, upstreamModels, promptProfile, promptTraceEnabled: Boolean(promptTraceDir), promptTraceContent, clientEnvironment, upstreamProvider: externalUpstream?.provider || 'claude',
+  activeRequests: server.activeRequests, queuedRequests: server.queuedRequests, receivingRequests: server.receivingRequests, maxConcurrent, maxQueued, contextWindow, upstreamModels, promptProfile, promptTraceEnabled: Boolean(promptTraceDir), promptTraceContent, clientEnvironment, nativeClientEnvironment, cliModified:startupRelease?.modified === true, cliPatchId:startupRelease?.modified ? startupRelease.patchId : null, upstreamProvider: externalUpstream?.provider || 'claude',
   nativeSessionRelay: Boolean(nativeRelay), nativeSessions: (nativeRelay?.size || 0)+(nativeRelay?.frozenSize || 0), nativeFrozenSessions:nativeRelay?.frozenSize || 0, liveInstructionUpdates: Boolean(nativeRelay) && liveInstructionUpdates,
   nativeSessionMaintenance:nativeRelay?.maintenance===true, nativeSessionPersistence: Boolean(nativeRelay) && persistentSessions,
   nativeCompactionProtocol:nativeRelay&&persistentSessions?'cli_command_boundary_v1':null,

@@ -181,3 +181,31 @@ GATEWAY_SESSION_RELAY=0
 验收确认 `loggedIn=true`、`checked=true`，模型映射恢复为 Sonnet/Opus 5.5 的 `[1m]` 上游与 Haiku 5.5，`/v1/models` 正常，CLI 仍为 2.1.316。没有发起真实模型请求，桌面实际推理待用户验证。自动更新定时器保持 disabled / inactive，持久禁用条件继续有效。
 
 本次切换备份及返回 GLM 的脚本位于 VPS `/home/harness/experiments/claude-branch-switch-fa1c219/`。`rollback.py` 先检查空闲和当前配置哈希，返回 GLM 后仍保持自动更新关闭。原始部署回滚记录也已同步更新当前配置哈希。未创建 PR，未合并 dev/main。
+
+## 原生 CLI 环境渲染补丁（2.1.2，2026-11-04）
+
+用户明确允许修改客户端代码后，实验增加独立的 CLI 本地修改版，不再通过 HTTP 代理修改已发送的请求。原版固定为 Linux x64 Claude Code 2.1.316，源 SHA256 为 `fd13c70000fec3f2116dfbcbb6121210b4a29328bf0e46210a59dd594a67d824`。
+
+`deploy/patch-cli-environment.py` 只接受这个原版哈希，在新目录中生成 `claude-client-env` 和独立 `cli-release.json`。补丁只替换完整环境块的机器文本渲染函数，并失效该模块的预编译字节码和源码缓存，使它重新解析源代码。原始二进制其他字节不变。修改后的 SHA256 固定为 `789024e17d7b10262628ae7bd92824fcb32bb2478d0d6558af5b45f6de2665aa`。仓库只保存补丁工具，不保存 CLI 二进制。
+
+最初仅修改 JavaScript 文本的候选可以启动，但请求仍含原始环境，模拟上游验收因此失败。失效对应模块缓存后，最终请求中移除了云端 cwd、Git 状态、额外目录、平台、Shell、系统版本和 scratchpad 路径。worktree 安全提醒、下载文件规则、代理和 gh 提示的原有条件保留；模型身份和日期继续由 CLI 生成。客户端指令、历史、工具定义及回执不修改。
+
+补丁没有改认证、端点选择、请求头、cch、拒绝处理或响应解析代码，没有读取认证文件，也没有接入 HTTP 中间代理。**这是本地修改版 CLI，官方签名只适用于原版文件；不能声称修改后的二进制仍有官方签名或保证服务端接受。** 日常登录、刷新和请求发送仍由这个 CLI 的现有逻辑处理。
+
+### 启动与验收边界
+
+- 显式设置 `GATEWAY_NATIVE_CLIENT_ENV=1`，将 `CLAUDE_BIN` 和 `GATEWAY_CLI_RELEASE_FILE` 分别指向独立候选和补丁收据。
+- 收据和二进制继续由 root 管理，既有启动检查校验完整 SHA256。`/status` 增加 `nativeClientEnvironment`、`cliModified` 和 `cliPatchId`，明确标识补丁。
+- 只允许逐轮 Claude 模式，禁止原生会话续接、GLM 上游或叠加 GLM 环境适配器。云端工作区不能包含 `.git`。原生长会话的环境增量渲染不在这次补丁范围内。
+- 完整环境块的代理或 gh 提示仍保留；当前部署没有启用这些云端能力，不声称补丁能覆盖所有未来 CLI 配置。
+- CLI 自动更新继续停用。换版本必须重新定位并验收，不能沿用偏移或只改版本号。
+
+隔离候选已完成五种客户端环境输入的工具调用与续接，共十次真实 CLI／模拟上游请求：初始目录、目录更新、worktree 与额外目录、临时目录、语言与输出风格；全部通过，未调用模型。工具回执中作为普通文件内容出现的 Linux/Environment 文本完整保留。安全提示保留测试与失败边界测试通过。全量 Node 测试 453 项，450 通过、3 跳过、0 失败，Python 补丁测试 3 项通过。
+
+可重复验收命令：
+
+```bash
+GATEWAY_CLI_RELEASE_FILE=/独立候选/cli-release.json node model-gateway/prompt-environment-probe.mjs --self-test --native-client-environment --cli=/独立候选/claude-client-env --output=/独立结果目录
+```
+
+该验收只使用临时 HOME、合成内容、虚构认证值和回环模拟上游。正式订阅请求的接受情况和实际桌面行为仍需单独验证，模拟结果不代表账号或服务端保证。

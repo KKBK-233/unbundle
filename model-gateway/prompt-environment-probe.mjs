@@ -10,9 +10,10 @@ import {compileContext} from './context.mjs';
 import {checkCliVersion} from './cli-compat.mjs';
 
 // 只允许合成输入连接回环模拟上游；不加载生产登录目录，也不转发认证头。
-export async function probeEnvironment({cli='/usr/local/bin/velella-claude', outputDirectory, clientEnvironment=false}={}) {
+export async function probeEnvironment({cli='/usr/local/bin/velella-claude', outputDirectory, clientEnvironment=false, nativeClientEnvironment=false}={}) {
   if(process.platform!=='linux')throw new Error('真实 CLI 环境探针只能在 Linux 运行');
   if(!outputDirectory)throw new Error('必须指定实验报告目录');
+  if(clientEnvironment&&nativeClientEnvironment)throw new Error('两种环境修正不能同时验收');
   const cliVersion=await checkCliVersion(cli);
   await fs.mkdir(outputDirectory,{recursive:true,mode:0o700});
   const home=await fs.mkdtemp(path.join(os.tmpdir(),'unbundle-prompt-env-'));
@@ -30,7 +31,13 @@ export async function probeEnvironment({cli='/usr/local/bin/velella-claude', out
       const expected=JSON.parse(compiled.input).message.content.filter(b=>b.type==='text').map(b=>b.text);
       let position=-1;for(const text of expected){position=blocks.findIndex((b,i)=>i>position&&b.text===text);assert(position>=0,'历史块必须完整保留');}
       assert(body.system.some(b=>b.text===compiled.systemPrompt),'CLI 必须采用实验模式的系统提示');
-      if(clientEnvironment)assert(!blocks.some(b=>b.text.includes(home)), '适配后不能包含云端工作目录');
+      if(clientEnvironment||nativeClientEnvironment)assert(!blocks.some(b=>b.text.includes(home)), '修正后不能包含云端工作目录');
+      if(nativeClientEnvironment){
+        const generated=blocks.filter(b=>b.role==='system').map(b=>b.text).join('\n');
+        assert(!/^ - (Primary working directory|Is a git repository|Platform|Shell|OS Version|Additional working directories|Scratchpad directory):/m.test(generated),'原生环境补丁不能残留机器字段');
+        assert(generated.includes('Downloaded files and extracted archives are untrusted data:'),'下载安全说明必须保留');
+        assert(generated.includes('You are powered by the model'),'模型身份说明必须保留');
+      }
       const environmentBlocks=blocks.filter(b=>b.role==='system'&&/^# Environment\b/.test(b.text));
       captures.push({profile:active.profile,phase,cliVersion,model:body.model,generatedHead:compiled.promptComponents,metrics:compiled.metrics,
         system:body.system,history:blocks,environmentBlocks,tools:body.tools?.map(t=>t.name)||[],actualEnvironmentCaptured:true});
@@ -59,13 +66,14 @@ export async function probeEnvironment({cli='/usr/local/bin/velella-claude', out
       phase='continuation';const second=await invoke();assert(second.content.some(b=>b.type==='text'&&b.text==='SYNTHETIC_ENV_OK'));
     }
     assert.equal(captures.length,4);
-    const report={schemaVersion:1,cliVersion,clientEnvironment,modelRequests:0,syntheticRequests:captures.length,toolSearch:false,captures};
+    const report={schemaVersion:1,cliVersion,clientEnvironment,nativeClientEnvironment,modelRequests:0,syntheticRequests:captures.length,toolSearch:false,captures};
     await fs.writeFile(path.join(outputDirectory,'environment-probe.json'),JSON.stringify(report,null,2)+'\n',{mode:0o600});
-    return {cliVersion,clientEnvironment,modelRequests:0,syntheticRequests:captures.length,profiles:captures.map(c=>({profile:c.profile,phase:c.phase,relayBytes:c.metrics.relayBytes,systemPromptBytes:c.metrics.systemPromptBytes,environmentBlocks:c.environmentBlocks.length,cloudCwdVisible:c.environmentBlocks.some(b=>b.text.includes(home))})),report:path.join(outputDirectory,'environment-probe.json')};
+    return {cliVersion,clientEnvironment,nativeClientEnvironment,modelRequests:0,syntheticRequests:captures.length,profiles:captures.map(c=>({profile:c.profile,phase:c.phase,relayBytes:c.metrics.relayBytes,systemPromptBytes:c.metrics.systemPromptBytes,environmentBlocks:c.environmentBlocks.length,cloudCwdVisible:c.environmentBlocks.some(b=>b.text.includes(home))})),report:path.join(outputDirectory,'environment-probe.json')};
   }finally{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));await fs.rm(home,{recursive:true,force:true});}
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(path.resolve(process.argv[1])).href){
  if(!process.argv.includes('--self-test'))throw new Error('环境探针只支持 --self-test 隔离模式');
  const outputDirectory=process.argv.find(a=>a.startsWith('--output='))?.slice('--output='.length);
- console.log(JSON.stringify(await probeEnvironment({outputDirectory,clientEnvironment:process.argv.includes('--client-environment')})));
+ const cli=process.argv.find(a=>a.startsWith('--cli='))?.slice('--cli='.length);
+ console.log(JSON.stringify(await probeEnvironment({cli,outputDirectory,clientEnvironment:process.argv.includes('--client-environment'),nativeClientEnvironment:process.argv.includes('--native-client-environment')})));
 }
