@@ -221,3 +221,15 @@ GATEWAY_CLI_RELEASE_FILE=/独立候选/cli-release.json node model-gateway/promp
 部署结果保存在 VPS `/home/harness/experiments/native-env-release-dc4feaf/result.json`。同目录 `rollback.py` 检查空闲状态和当前配置哈希后，可恢复此次切换前同一实验分支的未修改 CLI 部署，且不重新启用自动更新。
 
 桌面验收应使用新会话，执行源码片段读取、在本机临时目录创建新文件、Read 第一行后 Edit 的工具往返，观察是否仍出现云端 Linux 目录冲突。既有会话中的旧环境文本仍在历史内，不会被补丁删除。此前 Git Bash 经 `wsl ... bash -c` 传递多行脚本损坏是独立问题，本次没有修改 MaiBot 部署脚本。
+
+### 修改版 CLI 的 GLM 实测（2026-11-04 洛杉矶时间）
+
+用户要求先用 GLM 验证后，以隔离测试程序加载线上相同哈希的修改版 CLI，使用临时 HOME 和独立 GLM API Key 直接请求 `glm-5.3`。没有启用旧 HTTP 环境改写适配器，没有改线上服务配置；服务端对原生补丁与 GLM 组合的启动限制仍保留。本次只验证 CLI 与推理引擎，不代表该组合已开放为常驻服务模式。
+
+共七次真实模型请求通过。第一组按顺序完成 Read 源码第 21–30 行、Write 临时摘要、Read 临时文件第一行、Edit 追加标记和最终报告；没有多余回读或 Bash 调用。第二组传入客户端工作目录更新，模型正确读取 `D:\synthetic\second\src\probe.py` 前三行并根据回执回答。工具回执来自确定性的合成客户端，不执行真实 Windows 文件操作，因此不替代桌面端到端验收。
+
+CLI 返回事件累计记录输入 7,749 token、输出 1,667 token，缓存读取为零。七次请求均保存实际返回的思考文本、可见回复和工具交接，思考文本共 4,010 字节。预设 gateway/relay/VPS/Windows/Linux/网关/中继/服务器关键词在返回文本和思考文本中均未出现；这只是本轮可见日志的观测，不能保证所有任务都不会产生环境疑问。
+
+七份详细日志合计 30,855 字节，无截断或丢弃；沿用单文件上限 2 MiB、总量 64 MiB、128 份、三天保留窗口的日志写入限制。本次已结束的隔离实验目录作为验收归档保留，不存在后台定时删除保证。日志校验未包含 API Key。VPS 归档为 `/home/harness/experiments/native-glm-live-20261105T032401Z/`，本地脱敏副本为 `.local/diagnostics/environment-experiment/native-glm-live-20261105T032401Z.json`，不进入 Git。
+
+测试后只读检查确认线上仍为 Claude、CLI 2.1.316、原生补丁启用且登录正常。正式 Claude 推理与真实桌面工具执行仍待单独验收。
