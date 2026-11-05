@@ -209,3 +209,15 @@ GATEWAY_CLI_RELEASE_FILE=/独立候选/cli-release.json node model-gateway/promp
 ```
 
 该验收只使用临时 HOME、合成内容、虚构认证值和回环模拟上游。正式订阅请求的接受情况和实际桌面行为仍需单独验证，模拟结果不代表账号或服务端保证。
+
+### 2.1.2 实验部署记录
+
+2026-11-05 03:17 UTC（洛杉矶时间 2026-11-04 19:17）已部署到现有实验入口。运行代码提交为 `dc4feaf`，目录为 `/home/harness/experiments/native-env-dc4feaf`；独立修改版 CLI 位于 `/home/harness/experiments/native-cli-dc4feaf/claude-client-env`，补丁收据位于同目录 `cli-release.json`。原版 `/usr/local/bin/velella-claude` 及其指向的 2.1.316 文件保留。
+
+上线及后续只读核对均确认：`upstreamProvider=claude`、`loggedIn=true`、`checked=true`、`nativeClientEnvironment=true`、`cliModified=true`，补丁 ID 为 `unbundle-machine-environment-v1`。继续使用 minimal 提示词、直接工具注册和逐轮 CLI。旧 GLM HTTP 环境适配器关闭；`clientEnvironment=false` 表示该旧适配器关闭，不表示原生补丁关闭。CLI 更新定时器仍为 disabled / inactive，持久禁用标记继续有效。
+
+正式补丁生成后，仓库探针另完成 standard/minimal 各两次合成请求，共四次通过；与前述十次矩阵合计十四次。整个补丁验收与部署没有发起真实模型请求，登录布尔值和模拟上游通过不能代替正式订阅推理验收。
+
+部署结果保存在 VPS `/home/harness/experiments/native-env-release-dc4feaf/result.json`。同目录 `rollback.py` 检查空闲状态和当前配置哈希后，可恢复此次切换前同一实验分支的未修改 CLI 部署，且不重新启用自动更新。
+
+桌面验收应使用新会话，执行源码片段读取、在本机临时目录创建新文件、Read 第一行后 Edit 的工具往返，观察是否仍出现云端 Linux 目录冲突。既有会话中的旧环境文本仍在历史内，不会被补丁删除。此前 Git Bash 经 `wsl ... bash -c` 传递多行脚本损坏是独立问题，本次没有修改 MaiBot 部署脚本。
