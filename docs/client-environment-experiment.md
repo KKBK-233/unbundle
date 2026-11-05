@@ -245,3 +245,15 @@ CLI 返回事件累计记录输入 7,749 token、输出 1,667 token，缓存读�
 本地结果保存为 `.local/diagnostics/environment-experiment/claude-native-live-text-result.json` 和 `.local/diagnostics/environment-experiment/claude-native-tools-20261105T043000Z/result.json`。文本验收的 VPS 归档目录为 `/home/harness/experiments/claude-native-live-20261105T042913Z/`。测试后状态仍为 Claude、原生补丁启用、CLI 2.1.316、登录正常。
 
 这次实测证明当前补丁部署下的四次正式 Claude 请求被接受，且网关与本地测试执行器的工具往返成功；不代表官方支持修改二进制，也不保证未来请求或版本仍被接受。
+
+### 桌面服务端搜索兼容（2.1.3，待线上验收）
+
+桌面主会话的 `output_config.effort=medium` 已正常传到 CLI。失败的是 WebSearch 另发的辅助请求：它声明 `thinking: disabled`，并提交 `web_search_20250305` 服务端工具。此前两个参数都被网关拒绝；网页本身返回 403 是另外的问题。
+
+新的固定版本补丁 `unbundle-environment-search-v1` 在独立搜索进程中读取权限 0600 的临时请求文件，仅替换最终请求的 messages、tools 和 tool_choice。认证、请求头和响应解析继续由 CLI 处理。保留已有环境修复；普通本机工具不走此入口。版本、源哈希、补丁哈希和能力收据均需匹配才开放搜索。
+
+搜索及无工具辅助请求的 disabled 映射为 adaptive；effort 原样保留，这不等价于真正关闭思考。搜索强制 tool/any 映射 auto，若正常 end_turn 未发出搜索调用则返回 422，不伪造搜索结果。只允许一个服务端搜索工具，限制单轮 CLI，保留域名筛选、max_uses、历史、原始引用密文、搜索错误、搜索用量及 pause_turn/refusal/max_tokens。流式响应在完整搜索校验后输出内容，等待期间沿用现有保活。
+
+诊断增加 server_search_request、server_search_started、server_search_forced_choice_mapped_to_auto、server_search_result、request_error 等阶段；只记录次数、固定错误码、HTTP 状态和停止原因，不保存查询正文、网址或引用密文。取消、超时或完成后清理临时请求文件和进程。
+
+本地全量测试 465 项：462 通过、3 跳过、0 失败；另外验证补丁拒绝未知源文件和覆盖已有目录。线上候选、真实搜索和部署验收结果稍后追加。

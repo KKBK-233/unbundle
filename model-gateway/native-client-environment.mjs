@@ -2,6 +2,9 @@ import fs from 'node:fs/promises';
 
 export const NATIVE_ENV_PATCH_ID = 'unbundle-machine-environment-v1';
 export const NATIVE_ENV_PATCH_SHA256 = '789024e17d7b10262628ae7bd92824fcb32bb2478d0d6558af5b45f6de2665aa';
+export const NATIVE_SEARCH_PATCH_ID='unbundle-environment-search-v1';
+export const NATIVE_SEARCH_PATCH_SHA256='75bb13d97c1c4a0b618f42aa5dc19da22eddf76237769f1cc2d59696106336b9';
+export const supportsNativeSearch=release=>release?.patchId===NATIVE_SEARCH_PATCH_ID&&release.sha256===NATIVE_SEARCH_PATCH_SHA256&&release.scope==='fresh-cli-environment-server-search'&&release.capabilities?.length===1&&release.capabilities[0]==='server_search_v1';
 const sourceSha256 = 'fd13c70000fec3f2116dfbcbb6121210b4a29328bf0e46210a59dd594a67d824';
 
 // 本地修改版只允许已验收的逐轮 Claude 实验；不能误用到原生续接或 GLM 适配器。
@@ -11,7 +14,7 @@ export async function validateNativeClientEnvironment({enabled = false, release,
     return;
   }
   if (externalUpstream || clientEnvironment || sessionRelay) throw new Error('原生环境实验仅支持逐轮 Claude，不能叠加 GLM 适配器或原生会话');
-  if (cliVersion !== '2.1.316' || release?.modified !== true || release.patchId !== NATIVE_ENV_PATCH_ID || release.sha256 !== NATIVE_ENV_PATCH_SHA256 || release.sourceSha256 !== sourceSha256 || release.scope !== 'fresh-cli-full-environment-renderer') {
+  if (cliVersion !== '2.1.316' || release?.modified !== true || release.sourceSha256 !== sourceSha256 || !((release.patchId===NATIVE_ENV_PATCH_ID&&release.sha256===NATIVE_ENV_PATCH_SHA256&&release.scope==='fresh-cli-full-environment-renderer')||supportsNativeSearch(release))) {
     throw new Error('原生环境实验的 CLI 或补丁收据未验收');
   }
   // 当前补丁不改环境增量；限制云端工作区为非 Git 目录，工具仍全部交给客户端。

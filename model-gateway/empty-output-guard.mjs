@@ -48,6 +48,7 @@ export function emptyOutputGuard({ ttlMs = 3600000, capacity = 256, now = Date.n
       return failures.has(id) ? EMPTY_OUTPUT_NOTICE : undefined;
     },
     finish(id, execution, visibleText, body) {
+      if (Array.isArray(execution.content)&&execution.content.some(b=>b.type==='web_search_tool_result'))return execution;
       if (execution.stop_reason !== 'max_tokens' || visibleText || messageText(execution).trim() || toolUses(execution).length) return execution;
       if (minimalConnectionProbe(body)) return execution;
       prune();

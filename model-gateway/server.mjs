@@ -1,3 +1,4 @@
+import {isServerSearch} from './server-search.mjs';
 import {messageText, toolUses} from './messages.mjs';
 import { sessionAffinity } from './session-affinity.mjs';
 import http from 'node:http';
@@ -24,7 +25,7 @@ const guardFailure = (message, code, statistics) => Object.assign(new Error(mess
 // 模型请求独立执行；支持子智能体并发，超过进程容量时排队。
 // 入站体在排队之前就已完整解析驻留，因此队列容量必须与请求体上限一起评估：
 // 单个 32MB 请求的峰值驻留约 124MB（分片、拼接缓冲、UTF-8 字符串与解析结果同时在场）。
-export async function gateway({ token, port = 18796, execute, models = DEFAULT_MODELS, modelAliases = {}, beforeExecute, status, sessionControl, maxOutputTokens = 8192, onTiming, maxConcurrent = 3, maxQueued = 8, queueTimeoutMs = 600000, bodyIdleTimeoutMs = 30000, bodyTimeoutMs = 600000, maxRequestBytes = 32 * 1024 * 1024, maxImageBytes = 5 * 1024 * 1024, maxTools = 0, maxInflightBytes = 64 * 1024 * 1024 } = {}) {
+export async function gateway({ token, port = 18796, execute, models = DEFAULT_MODELS, modelAliases = {}, beforeExecute, status, sessionControl, allowAuxiliaryRequests = false, maxOutputTokens = 8192, onTiming, maxConcurrent = 3, maxQueued = 8, queueTimeoutMs = 600000, bodyIdleTimeoutMs = 30000, bodyTimeoutMs = 600000, maxRequestBytes = 32 * 1024 * 1024, maxImageBytes = 5 * 1024 * 1024, maxTools = 0, maxInflightBytes = 64 * 1024 * 1024 } = {}) {
   if (!token) throw new Error('Missing gateway token');
   if (typeof execute !== 'function') throw new Error('Missing gateway executor');
   for (const value of [bodyIdleTimeoutMs, bodyTimeoutMs]) if (!Number.isSafeInteger(value) || value < 1 || value > 1800000) throw new Error('上传超时配置必须为 1..1800000 毫秒');
@@ -153,7 +154,7 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
         body = JSON.parse(raw);
         raw = '';
       } catch { buffer = undefined; json(400, { error: { message: 'Invalid JSON', code: 'INVALID_JSON' } }); return; }
-      body = parseMessagesRequest(body, { defaultMaxTokens: Math.min(128000, maxOutputTokens) });
+      body = parseMessagesRequest(body, { defaultMaxTokens: Math.min(128000, maxOutputTokens), allowAuxiliaryRequests });
       // 在参数验证与执行前统一官方 ID，旧会话仍可沿用原入口。
       if (body && Object.hasOwn(modelAliases, body.model)) body = { ...body, model: modelAliases[body.model] };
       const affinity = sessionAffinity(req.headers);
@@ -170,6 +171,8 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
       const nativeId = `msg_${randomUUID().replaceAll('-', '')}`;
       timing.bindResponse(nativeId, 'anthropic');
       timing.mark('request_validated');
+      if(isServerSearch(body))timing.mark('server_search_request');
+      if(body.thinking?.type==='disabled'){timing.mark('auxiliary_thinking_disabled_mapped_to_adaptive');body={...body,thinking:{type:'adaptive'}};}
       const requestFingerprint = outputGuard.fingerprint(body, outputTokens);
       let quotaBlocked = quotaGuard.check();
       let blocked = quotaBlocked || outputGuard.check(body, requestFingerprint);
@@ -232,7 +235,7 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
       // 用量放在响应顶层，避免 Harness 把统计字段写进 assistant 历史。
       const {stop_reason,stop_sequence,stop_details}=execution;
       const details=stop_reason==='refusal'?refusalDetails(stop_details):undefined;
-      const reason=stop_reason==='refusal'?'refusal':stop_sequence!==undefined?'stop_sequence':stop_reason==='max_tokens'?'max_tokens':toolUses(execution).length?'tool_use':'end_turn';
+      const reason=stop_reason==='refusal'?'refusal':stop_sequence!==undefined?'stop_sequence':stop_reason==='max_tokens'?'max_tokens':stop_reason==='pause_turn'?'pause_turn':toolUses(execution).length?'tool_use':'end_turn';
       if(body.stream)nativeWriter.finish(execution,reason);
       else json(200,{id:nativeId,type:'message',role:'assistant',model:body.model,content:anthropicContent(execution),stop_reason:reason,stop_sequence:stop_sequence??null,
         ...(details===undefined?{}:{stop_details:details}),usage:anthropicUsage(execution)});
@@ -240,6 +243,7 @@ export async function gateway({ token, port = 18796, execute, models = DEFAULT_M
       if (stop_reason === 'refusal') timing.mark('response_refusal');
       timing.mark('response_complete');
     } catch (error) {
+      timing.failure(error);
       const bodyTimeout = ['REQUEST_BODY_IDLE_TIMEOUT', 'REQUEST_BODY_TIMEOUT'].includes(error.code);
       if (bodyTimeout) timing.mark(error.code === 'REQUEST_BODY_IDLE_TIMEOUT' ? 'request_body_idle_timeout' : 'request_body_timeout');
       if (error.code === 'REQUEST_BODY_ABORTED') timing.mark('downstream_disconnected');

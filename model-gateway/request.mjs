@@ -1,3 +1,4 @@
+import {isServerSearch,searchProjection} from './server-search.mjs';
 import {compileContext} from './context.mjs';
 import {resolveEffort} from './effort.mjs';
 // 在流式响应和 CLI 启动前完成预算、停止序列与上下文验证。
@@ -12,6 +13,6 @@ export function validateRequest(body,{maxOutputTokens=8192,maxImageBytes,maxTool
  if(body.stream!=null&&typeof body.stream!=='boolean')fail('stream 必须是布尔值');
  const limit=body.max_tokens===undefined?Math.min(128000,maxOutputTokens):body.max_tokens;
  if(!Number.isInteger(limit)||limit<1||limit>maxOutputTokens)fail(`输出 token 上限必须是 1..${maxOutputTokens} 的整数，收到 ${limit}`);
- try{compileContext(body,{...(maxImageBytes==null?{}:{maxImageBytes}),maxTools});}catch(error){error.status=400;error.code||='INVALID_REQUEST';throw error;}
+ try{compileContext(isServerSearch(body)?searchProjection(body):body,{...(maxImageBytes==null?{}:{maxImageBytes}),maxTools});}catch(error){error.status=400;error.code||='INVALID_REQUEST';throw error;}
  return limit;
 }

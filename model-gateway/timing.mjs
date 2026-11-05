@@ -41,6 +41,19 @@ export function createTiming(sink) {
       upload = { receivedBytes };
       if (Number.isSafeInteger(expectedBytes) && expectedBytes >= 0) upload.expectedBytes = expectedBytes;
     },
+    // 搜索诊断只输出计数和固定错误枚举，禁止携带搜索内容。
+    serverSearch(content) {
+      if (ended) return;
+      const results=content.filter(b=>b.type==='web_search_tool_result');
+      const allowed=['invalid_input','unavailable','max_uses_exceeded','too_many_requests','query_too_long'];
+      const errors=results.filter(b=>b.content?.type==='web_search_tool_result_error').map(b=>allowed.includes(b.content.error_code)?b.content.error_code:'unknown');
+      publish({stage:'server_search_result',searchCalls:content.filter(b=>b.type==='server_tool_use').length,searchResults:results.length,searchErrors:errors});
+    },
+    failure(error) {
+      if (ended) return;
+      const allowed=['UNSUPPORTED_PARAMETER','TOOL_CHOICE_UNSATISFIED','INFERENCE_TIMEOUT','INFERENCE_IDLE_TIMEOUT','SESSION_LIMIT','REQUEST_BODY_TIMEOUT','REQUEST_BODY_IDLE_TIMEOUT','REQUEST_BODY_ABORTED'];
+      publish({stage:'request_error',errorCode:allowed.includes(error?.code)?error.code:'INFERENCE_ERROR',httpStatus:Number.isInteger(error?.status)&&error.status>=400&&error.status<=599?error.status:502});
+    },
     mark(stage) {
       if (ended || stage in stages) return;
       stages[stage] = Math.round(performance.now() - start);

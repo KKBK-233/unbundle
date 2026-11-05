@@ -1,3 +1,5 @@
+import {isServerSearch} from './server-search.mjs';
+import {inferServerSearch} from './server-search-engine.mjs';
 import { toolSearchConfig } from './tool-search-config.mjs';
 import { DEFAULT_CACHE_BREAKPOINT } from './cache-policy.mjs';
 import fs from 'node:fs/promises';
@@ -8,7 +10,7 @@ import { validatePromptProfile } from './context.mjs';
 import { infer } from './engine.mjs';
 import { checkCliVersion, readCliRelease } from './cli-compat.mjs';
 import { loadExperimentUpstream } from './experiment-upstream.mjs';
-import { validateNativeClientEnvironment } from './native-client-environment.mjs';
+import { validateNativeClientEnvironment,supportsNativeSearch } from './native-client-environment.mjs';
 import { cloudModels, modelAliases, upstreamModels as claudeUpstreamModels } from './cloud-models.mjs';
 import { withGatewayRules } from './gateway-rules.mjs';
 import { sessionRelay } from './session-relay.mjs';
@@ -111,8 +113,9 @@ function authStatus() {
     });
   });
 }
-const server = await gateway({ token, port, models, modelAliases, status: async () => ({ ...await authStatus(), cliVersion: (await readCliRelease())?.version || startupCliVersion, busy: server.busy || nativeRelay?.maintenance===true || (nativeRelay?.frozenSize || 0)>0,
-  activeRequests: server.activeRequests, queuedRequests: server.queuedRequests, receivingRequests: server.receivingRequests, maxConcurrent, maxQueued, contextWindow, upstreamModels, promptProfile, promptTraceEnabled: Boolean(promptTraceDir), promptTraceContent, clientEnvironment, nativeClientEnvironment, cliModified:startupRelease?.modified === true, cliPatchId:startupRelease?.modified ? startupRelease.patchId : null, upstreamProvider: externalUpstream?.provider || 'claude',
+const nativeServerSearch=nativeClientEnvironment&&supportsNativeSearch(startupRelease);
+const server = await gateway({ token, port, allowAuxiliaryRequests:nativeServerSearch, models, modelAliases, status: async () => ({ ...await authStatus(), cliVersion: (await readCliRelease())?.version || startupCliVersion, busy: server.busy || nativeRelay?.maintenance===true || (nativeRelay?.frozenSize || 0)>0,
+  activeRequests: server.activeRequests, queuedRequests: server.queuedRequests, receivingRequests: server.receivingRequests, maxConcurrent, maxQueued, contextWindow, upstreamModels, promptProfile, promptTraceEnabled: Boolean(promptTraceDir), promptTraceContent, clientEnvironment, nativeClientEnvironment, nativeServerSearch, cliModified:startupRelease?.modified === true, cliPatchId:startupRelease?.modified ? startupRelease.patchId : null, upstreamProvider: externalUpstream?.provider || 'claude',
   nativeSessionRelay: Boolean(nativeRelay), nativeSessions: (nativeRelay?.size || 0)+(nativeRelay?.frozenSize || 0), nativeFrozenSessions:nativeRelay?.frozenSize || 0, liveInstructionUpdates: Boolean(nativeRelay) && liveInstructionUpdates,
   nativeSessionMaintenance:nativeRelay?.maintenance===true, nativeSessionPersistence: Boolean(nativeRelay) && persistentSessions,
   nativeCompactionProtocol:nativeRelay&&persistentSessions?'cli_command_boundary_v1':null,
@@ -128,6 +131,10 @@ const server = await gateway({ token, port, models, modelAliases, status: async 
   sessionControl:nativeRelay,
   execute: async (request, signal, onText, timing, affinity) => {
     const prepared = await withGatewayRules(request, rulesFile);
+    if(isServerSearch(prepared)){
+      if(!nativeServerSearch)throw Object.assign(new Error('当前 CLI 不支持服务端搜索'),{status:400,code:'UNSUPPORTED_PARAMETER'});
+      return inferServerSearch(prepared,{cli,home,configDir,model:upstreamModels[request.model],signal,timing,promptProfile,timeoutMs,idleTimeoutMs,maxCliOutputBytes});
+    }
     if (nativeRelay) return nativeRelay.infer(prepared, { signal, onText, timing, affinity });
     return infer(prepared, { cli, home, configDir, model: upstreamModels[request.model], signal, onText, timing,
     anomalyDir, cliVersion: (await readCliRelease())?.version || startupCliVersion, promptProfile, promptTraceDir, promptTraceContent, externalUpstream, clientEnvironment, traceSecrets:[token],

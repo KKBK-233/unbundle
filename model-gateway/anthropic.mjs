@@ -1,3 +1,4 @@
+import {isServerSearch,validateSearchTools,validateSearchBlock} from './server-search.mjs';
 import {contentBlocks, toolUses, splitToolResults} from './messages.mjs';
 import {recordBashPhase} from './tool-boundary-trace.mjs';
 import { gatewayError } from './gateway-error.mjs';
@@ -5,17 +6,24 @@ import { refusalDetails } from './refusal-details.mjs';
 const fail = message => { throw Object.assign(new Error(message), { status: 400, code: 'UNSUPPORTED_PARAMETER' }); };
 
 // 只校验并整理 Messages 输入，不再转为 Chat Completions 或字符串化工具参数。
-export function parseMessagesRequest(body, {defaultMaxTokens=128000}={}) {
+export function parseMessagesRequest(body, {defaultMaxTokens=128000,allowAuxiliaryRequests=false}={}) {
   if(!body||typeof body!=='object'||Array.isArray(body))fail('请求必须是 JSON 对象');
   const allowed=new Set(['model','system','messages','tools','tool_choice','max_tokens','stream','thinking','output_config','metadata','stop_sequences']);
   for(const key of Object.keys(body))if(body[key]!=null&&!allowed.has(key))fail(`暂不支持 Anthropic 参数 ${key}`);
   if(!Array.isArray(body.messages))fail('messages 必须是数组');
   const max_tokens=body.max_tokens===undefined?defaultMaxTokens:body.max_tokens;
   if(!Number.isInteger(max_tokens))fail('max_tokens 必须是整数');
-  if(body.thinking!=null&&(body.thinking.type!=='adaptive'||Object.keys(body.thinking).some(k=>k!=='type')))fail('仅支持 adaptive thinking；CLI 不提供精确思考预算或关闭语义');
+  const search=isServerSearch(body);
+  if(search){if(!allowAuxiliaryRequests)fail('服务端搜索尚未启用，需要已验收的 CLI 搜索补丁');validateSearchTools(body);}
+  const auxiliaryDisabled=allowAuxiliaryRequests&&body.thinking?.type==='disabled'&&Object.keys(body.thinking).length===1&&(search||!body.tools?.length);
+  if(!auxiliaryDisabled&&body.thinking!=null&&(body.thinking.type!=='adaptive'||Object.keys(body.thinking).some(k=>k!=='type')))fail('仅支持 adaptive thinking；CLI 不提供精确思考预算或关闭语义');
   if(body.output_config!=null&&(!body.output_config||typeof body.output_config!=='object'||Array.isArray(body.output_config)||Object.keys(body.output_config).some(k=>k!=='effort')))fail('output_config 仅支持 effort');
   const validateBlock=(block,role)=>{
+    if(search&&role==='assistant'&&validateSearchBlock(block))return;
+    if(search&&role==='assistant'&&block?.type==='thinking'&&typeof block.thinking==='string'&&typeof block.signature==='string')return;
+    if(search&&role==='assistant'&&block?.type==='redacted_thinking'&&typeof block.data==='string')return;
     if(block?.type==='text'&&typeof block.text==='string')return;
+    if(search)fail('搜索历史仅接受文本、思考签名和服务端搜索块');
     if(block?.type==='image'&&role==='user')return;
     if(block?.type==='tool_use'&&role==='assistant'&&typeof block.id==='string'&&typeof block.name==='string'&&block.input&&typeof block.input==='object'&&!Array.isArray(block.input)){
       recordBashPhase('desktop',block.id,block.name,block.input);return;
@@ -38,6 +46,7 @@ export function parseMessagesRequest(body, {defaultMaxTokens=128000}={}) {
     if(!Array.isArray(body.tools))fail('tools 必须是数组');
     for(const tool of body.tools){
       if(!tool||typeof tool!=='object'||Array.isArray(tool))fail('工具定义无效');
+      if(search)continue;
       if(tool.type&&tool.type!=='custom')fail('暂不支持服务器内置工具');
       if(Object.keys(tool).some(k=>!['type','name','description','input_schema','cache_control'].includes(k)))fail('暂不支持工具属性');
     }
@@ -58,7 +67,8 @@ export function parseMessagesRequest(body, {defaultMaxTokens=128000}={}) {
 export function anthropicUsage(execution) {
   const usage=execution.usage||{};
   return {input_tokens:usage.input_tokens||0,output_tokens:usage.output_tokens||0,
-    cache_read_input_tokens:usage.cache_read_input_tokens||0,cache_creation_input_tokens:usage.cache_creation_input_tokens||0};
+    cache_read_input_tokens:usage.cache_read_input_tokens||0,cache_creation_input_tokens:usage.cache_creation_input_tokens||0,
+    ...(usage.server_tool_use?{server_tool_use:Object.fromEntries(['web_search_requests','web_fetch_requests'].filter(k=>Number.isSafeInteger(usage.server_tool_use[k])&&usage.server_tool_use[k]>=0).map(k=>[k,usage.server_tool_use[k]]))}:{})};
 }
 export function anthropicContent(execution) {
   for(const call of toolUses(execution))recordBashPhase('wire',call.id,call.name,call.input);
@@ -106,8 +116,12 @@ export function anthropicWriter(res, id, model) {
       for(const block of anthropicContent(execution)){
         if(block.type==='text'){
           const skip=Math.min(remaining,block.text.length);remaining-=skip;
-          this.text(block.text.slice(skip));stopText();
-        }else if(block.type==='tool_use'){
+          this.text(block.text.slice(skip));
+          if(block.citations?.length){if(!openText){send('content_block_start',{index,content_block:{type:'text',text:''}});openText=true;}for(const citation of block.citations)send('content_block_delta',{index,delta:{type:'citations_delta',citation}});}
+          stopText();
+        }else if(block.type==='web_search_tool_result'){
+          stopText();send('content_block_start',{index,content_block:block});send('content_block_stop',{index});index++;
+        }else if(block.type==='tool_use'||block.type==='server_tool_use'){
           stopText();
           send('content_block_start',{index,content_block:{...block,input:{}}});
           send('content_block_delta',{index,delta:{type:'input_json_delta',partial_json:JSON.stringify(block.input)}});

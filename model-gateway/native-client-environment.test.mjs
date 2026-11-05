@@ -37,3 +37,12 @@ test('原生环境补丁拒绝云端 Git 工作区，包括 worktree 的 .git �
   await assert.rejects(validateNativeClientEnvironment({...accepted(),home}),/Git 仓库/);
  }finally{await fs.rm(home,{recursive:true,force:true});}
 });
+
+test('搜索能力只在版本、补丁收据和能力列表匹配时开放',async()=>{
+ const {supportsNativeSearch,NATIVE_SEARCH_PATCH_ID,NATIVE_SEARCH_PATCH_SHA256}=await import('./native-client-environment.mjs');
+ const options=accepted();Object.assign(options.release,{patchId:NATIVE_SEARCH_PATCH_ID,sha256:NATIVE_SEARCH_PATCH_SHA256,scope:'fresh-cli-environment-server-search',capabilities:['server_search_v1']});
+ assert(supportsNativeSearch(options.release));await validateNativeClientEnvironment(options);
+ for(const capabilities of [[],['other'],['server_search_v1','other'],null]){
+  const release={...options.release,capabilities};assert(!supportsNativeSearch(release));await assert.rejects(validateNativeClientEnvironment({...options,release}),/未验收/);
+ }
+});
