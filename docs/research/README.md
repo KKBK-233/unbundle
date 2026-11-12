@@ -5,73 +5,144 @@
 
 证据程度：报告描述＋源码静态评估。没有真实流量验证，不代表检测到了服务器实际发送行为。
 
-<a id="mechanism-atis-pin-attribute"></a>
-## ATIS pin attribute
+<a id="mechanism-arbiter-safeguard-results-field"></a>
+## 仲裁器 safeguard&#95;results 裁决字段
 
-机制 ID：atis-pin-attribute
+机制 ID：arbiter-safeguard-results-field
 
-### 当前报告来源 · 2.1.300 · ATIS pin attribute
+### 当前报告来源 · 2.1.300 · 仲裁器 safeguard&#95;results 裁决字段
 
-[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/feature-flags.md)；评估时间：2026-10-21T03:15:16Z；审阅提交：c95455119f84。
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)；评估时间：2026-10-22T10:03:06Z；审阅提交：9429ba2c51d9。
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
-机制：ATIS pin 环境属性：atisPin 变化触发 GrowthBook 重评估，tengu&#95;kestrel&#95;moor 锁定会话 ATIS，作为评估上下文。
+机制：仲裁器 safeguard&#95;results 响应协议指纹：服务端分类器响应携带 evaluated、skipped 或 unavailable 裁决。
 
-完整触发条件：GrowthBook 评估上下文包含 atisPin；属性变化时重新评估，tengu&#95;kestrel&#95;moor 锁定会话 ATIS。
+完整触发条件：自动模式调用服务端分类器（cE 返回 arbiter 或 arbiterWithLocalFallback）并返回裁决时。
 
-方向：待补充；触发：默认关闭／不触发；网关处理：待核实。
+方向：服务端 → CLI；触发：默认关闭／不触发；网关处理：不经过网关。
 
-当前有效性：当前配置不触发。历史评估结论：当前配置不触发。
+当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
 
-atisPin 是 GrowthBook 评估上下文属性，tengu&#95;serene&#95;teacup 仅在该属性变化时触发重评估。默认网关通过 engine.mjs 设置 CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC=1，关联报告明确该变量关闭 GrowthBook（经 Oj），因此默认不会构造包含 atisPin 的 GrowthBook 评估请求；入站 API 请求不携带此字段。
+默认 &#96;--permission-mode dontAsk&#96; 不进入 &#96;auto&#96;，仲裁器不调用，&#96;safeguard&#95;results&#96; 不会出现在该会话；且它是服务端对 CLI 的响应字段，不是客户端上传，网关不解析该响应。
 
 发现时间：2026-10-14（上游报告提交日期）。
 
 报告原文（mechanism）：
 
-> &#96;tengu&#95;serene&#95;teacup&#96; (&#96;BW()&#96;, &#96;:142951&#96;) re-evaluates when the &#96;atisPin&#96; attribute changes. &#96;tengu&#95;kestrel&#95;moor&#96; (&#96;r6s()&#96;, &#96;:142963&#96;) latches the conversation ATIS.
+> The API beta &#96;dangerous-tool-use-2026-09-03&#96; (&#96;YC&#96;, &#96;:92316&#96;) and the response field &#96;safeguard&#95;results&#96; (&#96;:96445&#96;) carry an &#96;evaluated{outcome:"flagged"&#124;"not&#95;flagged"}&#96; / &#96;skipped&#96; / &#96;unavailable&#96; verdict (&#96;AEo&#96;, &#96;:431576&#96;).
 
 报告原文（trigger）：
 
-> &#96;tengu&#95;serene&#95;teacup&#96; (&#96;BW()&#96;, &#96;:142951&#96;) re-evaluates when the &#96;atisPin&#96; attribute changes. &#96;tengu&#95;kestrel&#95;moor&#96; (&#96;r6s()&#96;, &#96;:142963&#96;) latches the conversation ATIS.
+> &#96;cE(tool)&#96; (&#96;:431829&#96;) returns &#96;"off"&#96;, &#96;"arbiter"&#96; (first party) or &#96;"arbiterWithLocalFallback"&#96; (third-party planes: bedrock, mantle, vertex, foundry, anthropicAws, anthropicGoogleCloud, gateway; &#96;j3()&#96; &#96;:431810&#96;).
 
 报告原文（version）：
 
 > &#42;&#42;Version&#42;&#42;: 2.1.300
 
+报告原文（direction）：
+
+> The API beta &#96;dangerous-tool-use-2026-09-03&#96; (&#96;YC&#96;, &#96;:92316&#96;) and the response field &#96;safeguard&#95;results&#96; (&#96;:96445&#96;) carry an &#96;evaluated{outcome:"flagged"&#124;"not&#95;flagged"}&#96; / &#96;skipped&#96; / &#96;unavailable&#96; verdict (&#96;AEo&#96;, &#96;:431576&#96;).
+
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)
+
+> The API beta &#96;dangerous-tool-use-2026-09-03&#96; (&#96;YC&#96;, &#96;:92316&#96;) and the response field &#96;safeguard&#95;results&#96; (&#96;:96445&#96;) carry an &#96;evaluated{outcome:"flagged"&#124;"not&#95;flagged"}&#96; / &#96;skipped&#96; / &#96;unavailable&#96; verdict (&#96;AEo&#96;, &#96;:431576&#96;).
+
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)
+
+> &#96;cE(tool)&#96; (&#96;:431829&#96;) returns &#96;"off"&#96;, &#96;"arbiter"&#96; (first party) or &#96;"arbiterWithLocalFallback"&#96; (third-party planes: bedrock, mantle, vertex, foundry, anthropicAws, anthropicGoogleCloud, gateway; &#96;j3()&#96; &#96;:431810&#96;).
+
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)
+
+> Six external modes, unchanged: &#96;TD = &#91;"acceptEdits","auto","bypassPermissions","default","dontAsk","plan"&#93;&#96; (&#96;:25394&#96;).
+
+代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L104)
+
+> const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;omp&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', '2', '--model', model, '--system-prompt-file', promptFile&#93;;
+
+代码：[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L112)
+
+> child = spawnProcess(cli, args, { env, cwd, detached: group, windowsHide: true, stdio: &#91;'pipe', 'pipe', 'pipe'&#93; });
+
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-compat.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
+
+<a id="mechanism-atis-pin-attribute"></a>
+## ATIS pin 评估上下文属性
+
+机制 ID：atis-pin-attribute
+
+### 当前报告来源 · 2.1.300 · ATIS pin 评估上下文属性
+
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/feature-flags.md)；评估时间：2026-10-22T09:49:12Z；审阅提交：9429ba2c51d9。
+
+评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
+
+机制：ATIS pin 评估属性：atisPin 是远程评估上下文的属性之一（进入缓存键），其变化触发 GrowthBook 重评估，另由开关锁定会话 ATIS。
+
+完整触发条件：共同前置为发生 GrowthBook 远程评估；在此前提下，评估上下文的 atisPin 属性发生变化时触发重评估，tengu&#95;kestrel&#95;moor 另锁定会话 ATIS。
+
+方向：云端 CLI → 服务端；触发：默认关闭／不触发；网关处理：不经过网关。
+
+当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
+
+默认 engine 的 CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC=1 经 Oj 关闭 GrowthBook，atisPin 只作为远程评估上下文属性随 eval 使用；无 eval 即不触发。网关只经 stdio 启动 CLI，不代理该属性或评估请求，额外启用时属 CLI 自发路径。
+
+发现时间：2026-10-14（上游报告提交日期）。
+
+报告原文（mechanism）：
+
+> The remote-eval cache is keyed on &#96;&#91;"id", "organizationUUID", "slackTagConnected", "atisPin", "ccrDerivedSurface"&#93;&#96;
+
+报告原文（trigger）：
+
+> &#96;tengu&#95;serene&#95;teacup&#96; (&#96;BW()&#96;, &#96;:142951&#96;) re-evaluates when the &#96;atisPin&#96; attribute changes.
+
+报告原文（version）：
+
+> &#42;&#42;Version&#42;&#42;: 2.1.300
+
+报告原文（direction）：
+
+> The remote-eval cache is keyed on &#96;&#91;"id", "organizationUUID", "slackTagConnected", "atisPin", "ccrDerivedSurface"&#93;&#96;
+
 关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/feature-flags.md)
 
-> &#42;&#42;ATIS pin.&#42;&#42; &#96;tengu&#95;serene&#95;teacup&#96; (&#96;BW()&#96;, &#96;:142951&#96;) re-evaluates when the &#96;atisPin&#96; attribute changes. &#96;tengu&#95;kestrel&#95;moor&#96; (&#96;r6s()&#96;, &#96;:142963&#96;) latches the conversation ATIS.
+> &#96;tengu&#95;serene&#95;teacup&#96; (&#96;BW()&#96;, &#96;:142951&#96;) re-evaluates when the &#96;atisPin&#96; attribute changes.
 
 关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/telemetry.md)
 
 > &#124; &#96;DISABLE&#95;TELEMETRY&#96; / &#96;DO&#95;NOT&#95;TRACK&#96; / &#96;CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC&#96; &#124; Disable 1P, Datadog, error tracking, GrowthBook (via &#96;Oj&#96;), BigQuery metrics (via &#96;LD&#96;), and the plugin telemetry mod &#124; &#96;:10162&#96;, &#96;:22061&#96;, &#96;:142788&#96;, &#96;:1470484&#96;, &#96;:1534612&#96; &#124;
 
-代码：[model-gateway/engine.mjs:90](https://github.com/KKBK-233/unbundle/blob/c95455119f8479636dc880f6267c135646b422d1/model-gateway/engine.mjs#L90)
+代码：[model-gateway/engine.mjs:92](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L92)
 
-> const env = {};     for (const k of &#91;'PATH', 'Path', 'SystemRoot', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP', 'LANG'&#93;) if (process.env&#91;k&#93;) env&#91;k&#93; = process.env&#91;k&#93;;     Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE&#95;CONFIG&#95;DIR: configDir,       CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',       ENABLE&#95;TOOL&#95;SEARCH: 'false', MCP&#95;TOOL&#95;TIMEOUT: String(timeoutMs &#124;&#124; 2147483647), CLAUDE&#95;CODE&#95;MAX&#95;OUTPUT&#95;TOKENS: String(maxOutputTokens) });
+> Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE&#95;CONFIG&#95;DIR: configDir,       CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',       ENABLE&#95;TOOL&#95;SEARCH: 'false', MCP&#95;TOOL&#95;TIMEOUT: String(timeoutMs &#124;&#124; 2147483647), CLAUDE&#95;CODE&#95;MAX&#95;OUTPUT&#95;TOKENS: String(maxOutputTokens) });
+
+代码：[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L112)
+
+> child = spawnProcess(cli, args, { env, cwd, detached: group, windowsHide: true, stdio: &#91;'pipe', 'pipe', 'pipe'&#93; });
+
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-compat.mjs、model-gateway/cli-events.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs、model-gateway/transport-check.mjs、model-gateway/wire-probe.mjs
 
 <a id="mechanism-auto-mode-classifier-beta-header"></a>
-## auto-mode classifier beta header
+## 自动模式分类器 beta 头
 
 机制 ID：auto-mode-classifier-beta-header
 
-### 当前报告来源 · 2.1.300 · auto-mode classifier beta header
+### 当前报告来源 · 2.1.300 · 自动模式分类器 beta 头
 
-[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)；评估时间：2026-10-22T03:13:15Z；审阅提交：c5ff84ac0652。
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)；评估时间：2026-10-22T10:03:06Z；审阅提交：9429ba2c51d9。
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
-机制：自动模式分类器 beta 头协议指纹：客户端调用自动模式分类器时在请求中携带 &#96;auto-mode-classifier-2026-07-16&#96; beta 头，标识该分类器请求类型。
+机制：自动模式分类器 beta 头协议指纹：调用自动模式分类器时在请求中携带 auto-mode-classifier-2026-07-16 beta 头，标识分类器请求类型。
 
-完整触发条件：自动模式分类器发起请求时（默认两阶段分类或严重度评分路径）。
+完整触发条件：进入自动模式并调用自动模式分类器（两阶段分类器，默认 both）时。
 
-方向：待补充；触发：默认关闭／不触发；网关处理：待核实。
+方向：云端 CLI → 服务端；触发：默认关闭／不触发；网关处理：不经过网关。
 
-当前有效性：当前配置不触发。历史评估结论：当前配置不触发。
+当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
 
-引擎固定以 &#96;--permission-mode dontAsk&#96; 启动 CLI；报告将 dontAsk 与 auto 列为不同模式，自动模式分类器及其 beta 头在默认配置下不会发起。网关仅经 stdio 启动 CLI，不介入其出站请求，但默认条件下无该信号。
+默认引擎固定 &#96;--permission-mode dontAsk&#96;，未进入 &#96;auto&#96;，自动模式分类器不运行，&#96;auto-mode-classifier-2026-07-16&#96; 头不会由此发出；若用户另行进入 auto，分类器请求由 CLI 直接发往服务端，不经过网关过滤。
 
 发现时间：2026-10-14（上游报告提交日期）。
 
@@ -85,7 +156,11 @@ atisPin 是 GrowthBook 评估上下文属性，tengu&#95;serene&#95;teacup 仅�
 
 报告原文（version）：
 
-> &#42;&#42;Version&#42;&#42;: 2.1.300 &#124; &#42;&#42;Build&#42;&#42;: &#96;2026-10-14T12:54:55Z&#96;
+> &#42;&#42;Version&#42;&#42;: 2.1.300
+
+报告原文（direction）：
+
+> Request: &#96;max&#95;tokens&#96; = &#96;(fast ? 256 : 64) + budget&#96;, stop sequence &#96;&lt;/severity&gt;&#96; or &#96;&lt;/block&gt;&#96;, &#96;querySource:"auto&#95;mode"&#96;, &#96;classifierStage:"xml&#95;s1"&#96; (&#96;:456600&#96;–&#96;:456630&#96;).
 
 关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)
 
@@ -99,30 +174,97 @@ atisPin 是 GrowthBook 评估上下文属性，tengu&#95;serene&#95;teacup 仅�
 
 > &#42;&#42;Two stages&#42;&#42; &#96;Gjo()&#96; (&#96;:457475&#96;): &#96;twoStageClassifier&#96; = &#96;"fast"&#96; &#124; &#96;"thinking"&#96; &#124; default &#96;"both"&#96;.
 
-代码：[model-gateway/engine.mjs:105](https://github.com/KKBK-233/unbundle/blob/c5ff84ac0652cef55683b4993fff57cca924b09b/model-gateway/engine.mjs#L105)
+代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L104)
 
-> '--no-chrome', '--permission-mode', 'dontAsk',
+> const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;omp&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', '2', '--model', model, '--system-prompt-file', promptFile&#93;;
+
+代码：[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L112)
+
+> child = spawnProcess(cli, args, { env, cwd, detached: group, windowsHide: true, stdio: &#91;'pipe', 'pipe', 'pipe'&#93; });
+
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-compat.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
+
+<a id="mechanism-auto-mode-classifier-context-meta"></a>
+## 自动模式分类器环境元数据
+
+机制 ID：auto-mode-classifier-context-meta
+
+### 当前报告来源 · 2.1.300 · 自动模式分类器环境元数据
+
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)；评估时间：2026-10-22T10:03:06Z；审阅提交：9429ba2c51d9。
+
+评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
+
+机制：自动模式分类器环境元数据：在分类器提示中按命令类型附加 repoVisibility、gitStatus 和 navigation 上下文行，承载仓库可见性、工作区状态和跨站导航信息。
+
+完整触发条件：自动模式分类器评估前，针对 exfil-capable git/gh 命令、work-destroying 命令或 Claude-in-Chrome 跨站导航时。
+
+方向：证据不足；触发：默认关闭／不触发；网关处理：不经过网关。
+
+当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
+
+默认 &#96;--permission-mode dontAsk&#96; 不进入 &#96;auto&#96;，分类器不运行，&#96;repoVisibility&#96;/&#96;gitStatus&#96;/&#96;navigation&#96; 上下文行不会附加；若触发，这些行由 CLI 构造分类器提示，网关不介入。
+
+发现时间：2026-10-14（上游报告提交日期）。
+
+报告原文（mechanism）：
+
+> &#42;&#42;NEW meta lines:&#42;&#42; &#96;repoVisibility&#96; before exfil-capable git/gh commands (&#96;"public"&#96; is authoritative), &#96;gitStatus&#96; before work-destroying commands (&#96;{"clean":true}&#96; clears the presume-dirty rule), and &#96;navigation:{from,to}&#96; for Claude-in-Chrome landings on another site.
+
+报告原文（trigger）：
+
+> &#96;repoVisibility&#96; before exfil-capable git/gh commands (&#96;"public"&#96; is authoritative), &#96;gitStatus&#96; before work-destroying commands (&#96;{"clean":true}&#96; clears the presume-dirty rule), and &#96;navigation:{from,to}&#96; for Claude-in-Chrome landings on another site.
+
+报告原文（version）：
+
+> &#42;&#42;Version&#42;&#42;: 2.1.300
+
+报告原文（direction）：
+
+> &#96;repoVisibility&#96; before exfil-capable git/gh commands (&#96;"public"&#96; is authoritative), &#96;gitStatus&#96; before work-destroying commands (&#96;{"clean":true}&#96; clears the presume-dirty rule), and &#96;navigation:{from,to}&#96; for Claude-in-Chrome landings on another site.
+
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)
+
+> &#42;&#42;NEW meta lines:&#42;&#42; &#96;repoVisibility&#96; before exfil-capable git/gh commands (&#96;"public"&#96; is authoritative), &#96;gitStatus&#96; before work-destroying commands (&#96;{"clean":true}&#96; clears the presume-dirty rule), and &#96;navigation:{from,to}&#96; for Claude-in-Chrome landings on another site.
+
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)
+
+> Six external modes, unchanged: &#96;TD = &#91;"acceptEdits","auto","bypassPermissions","default","dontAsk","plan"&#93;&#96; (&#96;:25394&#96;).
+
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)
+
+> &#42;&#42;Two stages&#42;&#42; &#96;Gjo()&#96; (&#96;:457475&#96;): &#96;twoStageClassifier&#96; = &#96;"fast"&#96; &#124; &#96;"thinking"&#96; &#124; default &#96;"both"&#96;.
+
+代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L104)
+
+> const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;omp&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', '2', '--model', model, '--system-prompt-file', promptFile&#93;;
+
+代码：[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L112)
+
+> child = spawnProcess(cli, args, { env, cwd, detached: group, windowsHide: true, stdio: &#91;'pipe', 'pipe', 'pipe'&#93; });
+
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-compat.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
 
 <a id="mechanism-background-dispatcher-tier-env"></a>
-## 后台调度层级环境标记
+## 后台调度订阅层级环境标记
 
 机制 ID：background-dispatcher-tier-env
 
-### 当前报告来源 · 2.1.300 · 后台调度订阅层级环境变量
+### 当前报告来源 · 2.1.300 · 后台调度订阅层级环境标记
 
-[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/environment-variables.md)；评估时间：2026-10-21T03:13:15Z；审阅提交：c95455119f84。
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/environment-variables.md)；评估时间：2026-10-22T09:45:06Z；审阅提交：9429ba2c51d9。
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
 机制：后台调度订阅层级环境标记：后台调度器把订阅类型和速率限制层级写入 CLAUDE&#95;BG&#95;DISPATCHER&#95;&#42; 环境变量，交给后台子进程。
 
-完整触发条件：后台调度器派生子进程时传递这两个环境变量；未启用后台调度器或无子进程时不触发。
+完整触发条件：后台调度器向后台子进程交接环境时，把订阅类型和速率限制层级写入 CLAUDE&#95;BG&#95;DISPATCHER&#95;&#42; 变量。
 
-方向：待补充；触发：默认关闭／不触发；网关处理：待核实。
+方向：组件内部传递；触发：默认关闭／不触发；网关处理：不经过网关。
 
-当前有效性：当前配置不触发。历史评估结论：当前配置不触发。
+当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
 
-报告只说明后台调度器派生子进程时把 BG&#95;DISPATCHER&#95;&#42; 交给 background children。网关以 --tools '' 禁用内置工具、--max-turns 2 且每轮独立进程，默认无后台任务派生子进程；该内部环境传递条件不成立，且非模型请求字段。
+默认每轮以 --tools ''、--setting-sources ''、--no-session-persistence、--max-turns 2 启动独立 CLI，不产生后台子进程交接；CLAUDE&#95;BG&#95;DISPATCHER&#95;&#42; 只在后台调度器向子进程传递环境时生成。网关仅通过 stdio 与 CLI 交互，不介入该内部环境。
 
 发现时间：2026-10-14（上游报告提交日期）。
 
@@ -132,69 +274,73 @@ atisPin 是 GrowthBook 评估上下文属性，tengu&#95;serene&#95;teacup 仅�
 
 报告原文（trigger）：
 
-> &#96;CLAUDE&#95;BG&#95;DISPATCHER&#95;SUBSCRIPTION&#95;TYPE&#96; / &#96;&#95;RATE&#95;LIMIT&#95;TIER&#96; are handed to background children (&#96;:102488–102491&#96;).
+> are handed to background children
 
 报告原文（version）：
 
 > &#42;&#42;Version&#42;&#42;: 2.1.300
+
+报告原文（direction）：
+
+> are handed to background children
 
 关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/environment-variables.md)
 
 > &#96;CLAUDE&#95;BG&#95;DISPATCHER&#95;SUBSCRIPTION&#95;TYPE&#96; / &#96;&#95;RATE&#95;LIMIT&#95;TIER&#96; are handed to background children (&#96;:102488–102491&#96;).
 
-代码：[model-gateway/engine.mjs:90](https://github.com/KKBK-233/unbundle/blob/c95455119f8479636dc880f6267c135646b422d1/model-gateway/engine.mjs#L90)
-
-> const env = {};     for (const k of &#91;'PATH', 'Path', 'SystemRoot', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP', 'LANG'&#93;) if (process.env&#91;k&#93;) env&#91;k&#93; = process.env&#91;k&#93;;     Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE&#95;CONFIG&#95;DIR: configDir,       CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',       ENABLE&#95;TOOL&#95;SEARCH: 'false', MCP&#95;TOOL&#95;TIMEOUT: String(timeoutMs &#124;&#124; 2147483647), CLAUDE&#95;CODE&#95;MAX&#95;OUTPUT&#95;TOKENS: String(maxOutputTokens) });
-
-代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/c95455119f8479636dc880f6267c135646b422d1/model-gateway/engine.mjs#L104)
+代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L104)
 
 > const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;omp&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', '2', '--model', model, '--system-prompt-file', promptFile&#93;;
 
-### 当前报告来源 · 2.1.300 · 后台调度层级环境标记
+代码：[model-gateway/engine.mjs:90](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L90)
 
-[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/plan-tier-gating.md)；评估时间：2026-10-22T03:11:38Z；审阅提交：c5ff84ac0652。
+> const env = {};     for (const k of &#91;'PATH', 'Path', 'SystemRoot', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP', 'LANG'&#93;) if (process.env&#91;k&#93;) env&#91;k&#93; = process.env&#91;k&#93;;     Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE&#95;CONFIG&#95;DIR: configDir,       CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',       ENABLE&#95;TOOL&#95;SEARCH: 'false', MCP&#95;TOOL&#95;TIMEOUT: String(timeoutMs &#124;&#124; 2147483647), CLAUDE&#95;CODE&#95;MAX&#95;OUTPUT&#95;TOKENS: String(maxOutputTokens) });
+
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-compat.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
+
+### 当前报告来源 · 2.1.300 · 后台调度订阅层级环境标记
+
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/plan-tier-gating.md)；评估时间：2026-10-22T10:00:45Z；审阅提交：9429ba2c51d9。
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
-机制：后台调度订阅层级环境标记：后台调度器把订阅类型和速率限制层级写入 CLAUDE&#95;BG&#95;DISPATCHER&#95;&#42; 环境变量，后台子进程在无 OAuth/FD token 且非 bg 快照时据此继承父会话计划。
+机制：后台调度订阅层级环境标记：仅当 CLAUDE&#95;CODE&#95;SESSION&#95;KIND 为 bg 时，从 CLAUDE&#95;BG&#95;DISPATCHER&#95;SUBSCRIPTION&#95;TYPE / CLAUDE&#95;BG&#95;DISPATCHER&#95;RATE&#95;LIMIT&#95;TIER 继承父会话计划与层级。
 
-完整触发条件：后台调度会话（CLAUDE&#95;CODE&#95;SESSION&#95;KIND=bg）且无 CLAUDE&#95;CODE&#95;OAUTH&#95;TOKEN、无 FD token、token 非来自 bg 快照时，读取调度器写入的订阅类型和速率限制层级环境变量，子进程继承父会话层级。
+完整触发条件：当无 CLAUDE&#95;CODE&#95;OAUTH&#95;TOKEN、无 FD token 且 token 非来自 bg 快照，并且 CLAUDE&#95;CODE&#95;SESSION&#95;KIND 为 bg 时，后台调度器写入的 CLAUDE&#95;BG&#95;DISPATCHER&#95;&#42; 被读取，子进程继承父计划/层级。
 
-方向：待补充；触发：默认关闭／不触发；网关处理：待核实。
+方向：组件内部传递；触发：默认关闭／不触发；网关处理：移除。
 
-当前有效性：当前配置不触发。历史评估结论：当前配置不触发。
+当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
 
-报告要求 CLAUDE&#95;CODE&#95;SESSION&#95;KIND=bg 且无 OAuth/FD token 时才读取调度层级；engine.mjs 以 -p、--no-session-persistence、--max-turns 2 单轮运行，子进程环境按固定白名单重建且不含 SESSION&#95;KIND，默认不产生后台调度，两个标记不会出现。
+默认未设 CLAUDE&#95;CODE&#95;SESSION&#95;KIND=bg，且 engine env 白名单不含 CLAUDE&#95;BG&#95;DISPATCHER&#95;&#42;；CLI 以 -p 独立进程运行，不会从父会话继承后台计划/层级，默认不触发。
 
 发现时间：2026-10-14（上游报告提交日期）。
 
 报告原文（mechanism）：
 
-> They read &#96;uOo()&#96; (&#96;102496&#96;), which returns &#96;CLAUDE&#95;BG&#95;DISPATCHER&#95;SUBSCRIPTION&#95;TYPE&#96; /  &#96;CLAUDE&#95;BG&#95;DISPATCHER&#95;RATE&#95;LIMIT&#95;TIER&#96; only when &#96;CLAUDE&#95;CODE&#95;SESSION&#95;KIND === "bg"&#96;. The dispatcher  sets them through &#96;JFs()&#96; (&#96;102485&#96;, key list &#96;Cgt&#96; &#96;102483&#96;). A bg-dispatched session therefore  inherits its parent's plan.
+> &#96;$E()&#96; (&#96;130948&#96;) and &#96;GE()&#96; (&#96;131019&#96;) are &#42;&#42;NEW&#42;&#42; fallbacks. They apply only when &#96;Iee()&#96; (&#96;130964&#96;)  holds: no &#96;CLAUDE&#95;CODE&#95;OAUTH&#95;TOKEN&#96;, no FD token (&#96;nn()&#96;), and the token did not come from a bg snapshot.  They read &#96;uOo()&#96; (&#96;102496&#96;), which returns &#96;CLAUDE&#95;BG&#95;DISPATCHER&#95;SUBSCRIPTION&#95;TYPE&#96; /  &#96;CLAUDE&#95;BG&#95;DISPATCHER&#95;RATE&#95;LIMIT&#95;TIER&#96; only when &#96;CLAUDE&#95;CODE&#95;SESSION&#95;KIND === "bg"&#96;. The dispatcher  sets them through &#96;JFs()&#96; (&#96;102485&#96;, key list &#96;Cgt&#96; &#96;102483&#96;). A bg-dispatched session therefore  inherits its parent's plan.
 
 报告原文（trigger）：
 
-> They apply only when &#96;Iee()&#96; (&#96;130964&#96;)  holds: no &#96;CLAUDE&#95;CODE&#95;OAUTH&#95;TOKEN&#96;, no FD token (&#96;nn()&#96;), and the token did not come from a bg snapshot.  They read &#96;uOo()&#96; (&#96;102496&#96;), which returns &#96;CLAUDE&#95;BG&#95;DISPATCHER&#95;SUBSCRIPTION&#95;TYPE&#96; /  &#96;CLAUDE&#95;BG&#95;DISPATCHER&#95;RATE&#95;LIMIT&#95;TIER&#96; only when &#96;CLAUDE&#95;CODE&#95;SESSION&#95;KIND === "bg"&#96;. The dispatcher  sets them through &#96;JFs()&#96; (&#96;102485&#96;, key list &#96;Cgt&#96; &#96;102483&#96;). A bg-dispatched session therefore  inherits its parent's plan.
+> &#96;$E()&#96; (&#96;130948&#96;) and &#96;GE()&#96; (&#96;131019&#96;) are &#42;&#42;NEW&#42;&#42; fallbacks. They apply only when &#96;Iee()&#96; (&#96;130964&#96;)  holds: no &#96;CLAUDE&#95;CODE&#95;OAUTH&#95;TOKEN&#96;, no FD token (&#96;nn()&#96;), and the token did not come from a bg snapshot.  They read &#96;uOo()&#96; (&#96;102496&#96;), which returns &#96;CLAUDE&#95;BG&#95;DISPATCHER&#95;SUBSCRIPTION&#95;TYPE&#96; /  &#96;CLAUDE&#95;BG&#95;DISPATCHER&#95;RATE&#95;LIMIT&#95;TIER&#96; only when &#96;CLAUDE&#95;CODE&#95;SESSION&#95;KIND === "bg"&#96;.
 
 报告原文（version）：
 
 > &#42;&#42;Version&#42;&#42;: 2.1.300
 
+报告原文（direction）：
+
+> A bg-dispatched session therefore  inherits its parent's plan.
+
 关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/plan-tier-gating.md)
 
-> &#96;CLAUDE&#95;BG&#95;DISPATCHER&#95;RATE&#95;LIMIT&#95;TIER&#96; only when &#96;CLAUDE&#95;CODE&#95;SESSION&#95;KIND === "bg"&#96;.
+> &#96;$E()&#96; (&#96;130948&#96;) and &#96;GE()&#96; (&#96;131019&#96;) are &#42;&#42;NEW&#42;&#42; fallbacks. They apply only when &#96;Iee()&#96; (&#96;130964&#96;)  holds: no &#96;CLAUDE&#95;CODE&#95;OAUTH&#95;TOKEN&#96;, no FD token (&#96;nn()&#96;), and the token did not come from a bg snapshot.  They read &#96;uOo()&#96; (&#96;102496&#96;), which returns &#96;CLAUDE&#95;BG&#95;DISPATCHER&#95;SUBSCRIPTION&#95;TYPE&#96; /  &#96;CLAUDE&#95;BG&#95;DISPATCHER&#95;RATE&#95;LIMIT&#95;TIER&#96; only when &#96;CLAUDE&#95;CODE&#95;SESSION&#95;KIND === "bg"&#96;. The dispatcher  sets them through &#96;JFs()&#96; (&#96;102485&#96;, key list &#96;Cgt&#96; &#96;102483&#96;). A bg-dispatched session therefore  inherits its parent's plan.
 
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/plan-tier-gating.md)
+代码：[model-gateway/engine.mjs:90](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L90)
 
-> holds: no &#96;CLAUDE&#95;CODE&#95;OAUTH&#95;TOKEN&#96;, no FD token (&#96;nn()&#96;), and the token did not come from a bg snapshot.
+> const env = {};     for (const k of &#91;'PATH', 'Path', 'SystemRoot', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP', 'LANG'&#93;) if (process.env&#91;k&#93;) env&#91;k&#93; = process.env&#91;k&#93;;     Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE&#95;CONFIG&#95;DIR: configDir,       CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',       ENABLE&#95;TOOL&#95;SEARCH: 'false', MCP&#95;TOOL&#95;TIMEOUT: String(timeoutMs &#124;&#124; 2147483647), CLAUDE&#95;CODE&#95;MAX&#95;OUTPUT&#95;TOKENS: String(maxOutputTokens) });
 
-代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/c5ff84ac0652cef55683b4993fff57cca924b09b/model-gateway/engine.mjs#L104)
-
-> const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,
-
-代码：[model-gateway/engine.mjs:90](https://github.com/KKBK-233/unbundle/blob/c5ff84ac0652cef55683b4993fff57cca924b09b/model-gateway/engine.mjs#L90)
-
-> const env = {};     for (const k of &#91;'PATH', 'Path', 'SystemRoot', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP', 'LANG'&#93;) if (process.env&#91;k&#93;) env&#91;k&#93; = process.env&#91;k&#93;;     Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE&#95;CONFIG&#95;DIR: configDir,
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-compat.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/wire-probe.mjs
 
 <a id="mechanism-bridge-host-profile"></a>
 ## Bridge host profile
@@ -211,9 +357,9 @@ atisPin 是 GrowthBook 评估上下文属性，tengu&#95;serene&#95;teacup 仅�
 
 完整触发条件：仅在桥接环境注册路径、GrowthBook tengu&#95;bridge&#95;host&#95;profile 非 off 或 remoteControl.shareHostProfile 覆盖、且无 remote-control 设置错误时附加 host 软件画像；默认 off，full 含 MCP 列表。
 
-方向：待补充；触发：默认关闭／不触发；网关处理：待核实。
+方向：旧记录待回填；触发：旧记录待回填；网关处理：旧记录待回填。
 
-当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
+当前有效性：待重评（报告核验未完成）。历史评估结论：当前配置不触发。
 
 host 画像只在桥接注册路径附加，GrowthBook tengu&#95;bridge&#95;host&#95;profile 默认 "off"；默认 engine 未启动 remote-control/桥接，故默认不收集也不发送。
 
@@ -240,7 +386,7 @@ host 画像只在桥接注册路径附加，GrowthBook tengu&#95;bridge&#95;host
 > const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;omp&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', '2', '--model', model, '--system-prompt-file', promptFile&#93;;
 
 <a id="mechanism-bridge-machine-id"></a>
-## 桥接机器 UUID 原样发送
+## 桥接 machine&#95;id 原样发送
 
 机制 ID：bridge-machine-id
 
@@ -254,9 +400,9 @@ host 画像只在桥接注册路径附加，GrowthBook tengu&#95;bridge&#95;host
 
 完整触发条件：仅在 claude remote-control 桥接启动或独立桥接路径注册环境、且 remoteControlMachineId 非空时，将其作为顶层 machine&#95;id 和 metadata.machine&#95;id 发送到 /v1/environments/bridge。
 
-方向：待补充；触发：默认关闭／不触发；网关处理：待核实。
+方向：旧记录待回填；触发：旧记录待回填；网关处理：旧记录待回填。
 
-当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
+当前有效性：待重评（报告核验未完成）。历史评估结论：当前配置不触发。
 
 报告把 machine&#95;id 限定于 claude remote-control 或独立桥接注册 /v1/environments/bridge；默认 engine 以 -p 启动一次性 CLI，未启用 remote-control/桥接，默认不进入注册路径。
 
@@ -282,21 +428,21 @@ host 画像只在桥接注册路径附加，GrowthBook tengu&#95;bridge&#95;host
 
 > const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;omp&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', '2', '--model', model, '--system-prompt-file', promptFile&#93;;
 
-### 当前报告来源 · 2.1.300 · 桥接机器 UUID 原样发送
+### 当前报告来源 · 2.1.300 · 桥接 machine&#95;id 原样发送
 
-[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/overview.md)；评估时间：2026-10-22T03:08:34Z；审阅提交：c5ff84ac0652。
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/overview.md)；评估时间：2026-10-22T09:52:11Z；审阅提交：9429ba2c51d9。
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
-机制：桥接环境机器 ID 透传：remoteControlMachineId 为 UUID，注册远程控制桥环境时原样发送。
+机制：桥接环境机器 ID 透传：remoteControlMachineId 为 UUID，在注册远程控制桥环境时原样发送到 POST /v1/environments/bridge。
 
-完整触发条件：身份初始化后，remoteControlMachineId 作为 UUID 不做哈希或截断，直接进入远程控制桥环境注册请求。
+完整触发条件：注册远程控制桥环境并调用 POST /v1/environments/bridge 时，remoteControlMachineId 以 UUID 原样发送。
 
-方向：待补充；触发：默认关闭／不触发；网关处理：待核实。
+方向：云端 CLI → 服务端；触发：默认关闭／不触发；网关处理：不经过网关。
 
-当前有效性：当前配置不触发。历史评估结论：当前配置不触发。
+当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
 
-报告称 remoteControlMachineId 随 POST /v1/environments/bridge 原样发送；控制项 tengu&#95;cobalt&#95;harbor 默认 false，默认部署不额外启用远程控制/桥接，engine 固定 -p 单次运行也未启用 bridge。必要触发条件不成立，UUID 不发送；不是网关过滤 UUID。
+Bridge 通道：注册 POST /v1/environments/bridge 需远程控制；默认 tengu&#95;cobalt&#95;harbor=false，网关以 -p 打印模式启动且未启用远程控制，故默认不发送 remoteControlMachineId。若显式启用，该请求由 CLI 直连，不经过网关。
 
 发现时间：2026-10-14（上游报告提交日期）。
 
@@ -310,7 +456,11 @@ host 画像只在桥接注册路径附加，GrowthBook tengu&#95;bridge&#95;host
 
 报告原文（version）：
 
-> 2.1.300
+> &#42;&#42;Version&#42;&#42;: 2.1.300
+
+报告原文（direction）：
+
+> The NEW &#96;remoteControlMachineId&#96; (a UUID) is sent raw on &#96;POST /v1/environments/bridge&#96;.
 
 关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/overview.md)
 
@@ -320,34 +470,36 @@ host 画像只在桥接注册路径附加，GrowthBook tengu&#95;bridge&#95;host
 
 > &#124; &#96;tengu&#95;cobalt&#95;harbor&#96; &#124; &#96;false&#96; &#124; k &#124; kept &#124; &#96;:290108&#96; &#124; Default Remote Control ON at startup (a6o()) &#42;(2.1.197 desc.)&#42; &#124;
 
-代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/c5ff84ac0652cef55683b4993fff57cca924b09b/model-gateway/engine.mjs#L104)
+代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L104)
 
-> const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;omp&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', '2', '--model', model, '--system-prompt-file', promptFile&#93;;
+> const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,
 
-代码：[model-gateway/engine.mjs:92](https://github.com/KKBK-233/unbundle/blob/c5ff84ac0652cef55683b4993fff57cca924b09b/model-gateway/engine.mjs#L92)
+代码：[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L112)
 
-> Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE&#95;CONFIG&#95;DIR: configDir,       CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',       ENABLE&#95;TOOL&#95;SEARCH: 'false', MCP&#95;TOOL&#95;TIMEOUT: String(timeoutMs &#124;&#124; 2147483647), CLAUDE&#95;CODE&#95;MAX&#95;OUTPUT&#95;TOKENS: String(maxOutputTokens) });
+> child = spawnProcess(cli, args, { env, cwd, detached: group, windowsHide: true, stdio: &#91;'pipe', 'pipe', 'pipe'&#93; });
+
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/cloud-server.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/server.mjs
 
 <a id="mechanism-bridge-owner-account-env"></a>
-## 桥接所有者账号环境变量
+## 桥接所有者账号环境标记
 
 机制 ID：bridge-owner-account-env
 
-### 当前报告来源 · 2.1.300 · 桥接所有者账号环境变量
+### 当前报告来源 · 2.1.300 · 桥接所有者账号环境标记
 
-[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/environment-variables.md)；评估时间：2026-10-21T03:13:15Z；审阅提交：c95455119f84。
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/environment-variables.md)；评估时间：2026-10-22T09:45:06Z；审阅提交：9429ba2c51d9。
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
 机制：桥接所有者账号环境标记：桥接重连与桥接环境变量携带 owner account 和 organization UUID，供后续桥接流程识别归属。
 
-完整触发条件：使用远程控制桥接并构造重连/桥接所有者环境时设置这些 OWNER&#95;&#42; 环境变量；普通非桥接会话不设置。
+完整触发条件：桥接重连或构造桥接环境变量时，把所有者账号与组织 UUID 写入 CLAUDE&#95;BRIDGE&#95;REATTACH&#95;&#42; / CLAUDE&#95;CODE&#95;BRIDGE&#95;&#42; 变量。
 
-方向：待补充；触发：默认关闭／不触发；网关处理：待核实。
+方向：组件内部传递；触发：默认关闭／不触发；网关处理：不经过网关。
 
-当前有效性：当前配置不触发。历史评估结论：当前配置不触发。
+当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
 
-报告将在桥接重连/所有者环境中设置的 OWNER&#95;&#42; 列为桥接身份载体；关联报告显示控制远程控制默认开启的 tengu&#95;cobalt&#95;harbor 默认为 false。网关固定参数也未启用远程控制/桥接，并以 --no-chrome 关闭 Chrome 路径，默认普通会话不构造该桥接环境。
+默认启动未启用远程控制/桥接，也无桥接重连；这些 owner/org 变量只在构造桥接子环境时由 CLI 写入。网关仅以白名单 env 启动独立 CLI 并走 stdio，不读取或改写该内部环境，故默认不产生该标记。
 
 发现时间：2026-10-14（上游报告提交日期）。
 
@@ -363,21 +515,27 @@ host 画像只在桥接注册路径附加，GrowthBook tengu&#95;bridge&#95;host
 
 > &#42;&#42;Version&#42;&#42;: 2.1.300
 
+报告原文（direction）：
+
+> carry the owner account and organization
+
 关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/environment-variables.md)
 
 > &#96;CLAUDE&#95;BRIDGE&#95;REATTACH&#95;OWNER&#95;ACCT&#96; / &#96;&#95;ORG&#96; (&#96;:376419–376420&#96;) and &#96;CLAUDE&#95;CODE&#95;BRIDGE&#95;OWNER&#95;ACCOUNT&#95;UUID&#96; / &#96;&#95;ORG&#95;UUID&#96; (&#96;:24581–24584&#96;) carry the owner account and organization.
 
 关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/feature-flags.md)
 
-> &#124; &#96;tengu&#95;cobalt&#95;harbor&#96; &#124; &#96;false&#96; &#124; k &#124; kept &#124; &#96;:290108&#96; &#124; Default Remote Control ON at startup (a6o()) &#42;(2.1.197 desc.)&#42; &#124;
+> &#124; &#96;tengu&#95;ccr&#95;bridge&#96; &#124; &#96;!1&#96; / &#96;n/a&#96; &#124; k,rb &#124; kept &#124; &#96;:289564&#96; &#124; CCR bridge mode (cloud-backed remote execution bridge) &#42;(2.1.197 desc.)&#42; &#124;
 
-代码：[model-gateway/engine.mjs:90](https://github.com/KKBK-233/unbundle/blob/c95455119f8479636dc880f6267c135646b422d1/model-gateway/engine.mjs#L90)
+代码：[model-gateway/engine.mjs:90](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L90)
 
 > const env = {};     for (const k of &#91;'PATH', 'Path', 'SystemRoot', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP', 'LANG'&#93;) if (process.env&#91;k&#93;) env&#91;k&#93; = process.env&#91;k&#93;;     Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE&#95;CONFIG&#95;DIR: configDir,       CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',       ENABLE&#95;TOOL&#95;SEARCH: 'false', MCP&#95;TOOL&#95;TIMEOUT: String(timeoutMs &#124;&#124; 2147483647), CLAUDE&#95;CODE&#95;MAX&#95;OUTPUT&#95;TOKENS: String(maxOutputTokens) });
 
-代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/c95455119f8479636dc880f6267c135646b422d1/model-gateway/engine.mjs#L104)
+代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L104)
 
 > const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;omp&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', '2', '--model', model, '--system-prompt-file', promptFile&#93;;
+
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-compat.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
 
 <a id="mechanism-ccr-heartbeat-probe-fields"></a>
 ## CCR 心跳探测字段
@@ -386,25 +544,25 @@ host 画像只在桥接注册路径附加，GrowthBook tengu&#95;bridge&#95;host
 
 ### 当前报告来源 · 2.1.300 · CCR 心跳探测字段
 
-[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)；评估时间：2026-10-20T03:12:07Z；审阅提交：1041cadac6fc。
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)；评估时间：2026-10-22T09:39:51Z；审阅提交：9429ba2c51d9。
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
-机制：CCR 心跳探测字段：Remote Control 的 CCRClient.sendHeartbeat() 在心跳体附加 supports&#95;heartbeat&#95;probe、current&#95;interval&#95;seconds 及 idle&#95;seconds（有样本时），并携带 session&#95;id、worker&#95;epoch。
+机制：CCR 心跳探测字段：Remote Control 的 CCRClient 心跳体携带 session&#95;id、worker&#95;epoch，并在探测开启时附加 supports&#95;heartbeat&#95;probe、current&#95;interval&#95;seconds 及 idle&#95;seconds。
 
-完整触发条件：Remote Control 使用 CCRClient 发送心跳，且 tengu&#95;ccr&#95;idle&#95;heartbeat 开启、传输非 outbound-only 时。
+完整触发条件：Remote Control 会话的 CCRClient 发送心跳，且 tengu&#95;ccr&#95;idle&#95;heartbeat 探测支持开启（outbound-only 传输强制关闭）；空闲跟踪器有样本时附加 idle&#95;seconds。
 
-方向：待补充；触发：默认关闭／不触发；网关处理：待核实。
+方向：本地客户端 → 网关；触发：默认关闭／不触发；网关处理：不经过网关。
 
 当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
 
-报告标明探测字段由 Remote Control 的 &#96;CCRClient.sendHeartbeat()&#96; 发送，且受 &#96;tengu&#95;ccr&#95;idle&#95;heartbeat&#96;（默认 false）控制；默认引擎未启用 Remote Control/&#96;--sdk-url&#96;，不发心跳，故未触发。
+默认 CLI 以 -p 单次推理启动，未启用 Remote Control/CCR，未设置 CLAUDE&#95;CODE&#95;REMOTE；报告要求 Remote Control 的 CCRClient 心跳且 tengu&#95;ccr&#95;idle&#95;heartbeat 开启才附加探测字段。该心跳为 CLI 自发到 Anthropic，不经过网关入站适配器，故默认不触发，网关未过滤。
 
 发现时间：2026-10-14（上游报告提交日期）。
 
 报告原文（mechanism）：
 
-> &#96;{session&#95;id, worker&#95;epoch}&#96; plus, when probe support is on, &#96;supports&#95;heartbeat&#95;probe: true&#96;, &#96;current&#95;interval&#95;seconds&#96;, and &#96;idle&#95;seconds&#96; if the idle tracker has a sample
+> &#96;CCRClient.sendHeartbeat()&#96; (module 1319), used by Remote Control &#124; &#96;{session&#95;id, worker&#95;epoch}&#96; plus, when probe support is on, &#96;supports&#95;heartbeat&#95;probe: true&#96;, &#96;current&#95;interval&#95;seconds&#96;, and &#96;idle&#95;seconds&#96; if the idle tracker has a sample
 
 报告原文（trigger）：
 
@@ -414,17 +572,27 @@ host 画像只在桥接注册路径附加，GrowthBook tengu&#95;bridge&#95;host
 
 > &#42;&#42;Version&#42;&#42;: 2.1.300
 
+报告原文（direction）：
+
+> The Remote Control transport sends a richer body
+
 关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)
 
 > &#124; &#96;CCRClient.sendHeartbeat()&#96; (module 1319), used by Remote Control &#124; &#96;{session&#95;id, worker&#95;epoch}&#96; plus, when probe support is on, &#96;supports&#95;heartbeat&#95;probe: true&#96;, &#96;current&#95;interval&#95;seconds&#96;, and &#96;idle&#95;seconds&#96; if the idle tracker has a sample &#124; &#96;:1046420-1046450&#96; &#124;
 
 关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)
 
-> - &#42;&#42;Probe fields are gated.&#42;&#42; &#96;advertiseHeartbeatProbeSupport&#96; comes from &#96;k("tengu&#95;ccr&#95;idle&#95;heartbeat", false)&#96;  (&#96;:1051142&#96;, passed in at &#96;:1051166&#96;) and is forced off for outbound-only transports (&#96;F = !e.outboundOnly&#96;,  &#96;:1049036&#96;, applied at &#96;:1049068&#96;). The capture therefore implies that flag was on for that session.
+> &#96;advertiseHeartbeatProbeSupport&#96; comes from &#96;k("tengu&#95;ccr&#95;idle&#95;heartbeat", false)&#96;  (&#96;:1051142&#96;, passed in at &#96;:1051166&#96;) and is forced off for outbound-only transports (&#96;F = !e.outboundOnly&#96;,  &#96;:1049036&#96;, applied at &#96;:1049068&#96;). The capture therefore implies that flag was on for that session.
 
-代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/1041cadac6fc7609c308a9da6dc5913402eb1904/model-gateway/engine.mjs#L104)
+代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L104)
 
 > const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;omp&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', '2', '--model', model, '--system-prompt-file', promptFile&#93;;
+
+代码：[model-gateway/engine.mjs:92](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L92)
+
+> Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE&#95;CONFIG&#95;DIR: configDir,       CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',       ENABLE&#95;TOOL&#95;SEARCH: 'false', MCP&#95;TOOL&#95;TIMEOUT: String(timeoutMs &#124;&#124; 2147483647), CLAUDE&#95;CODE&#95;MAX&#95;OUTPUT&#95;TOKENS: String(maxOutputTokens) });
+
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/cloud-server.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
 
 <a id="mechanism-ccr-idle-heartbeat-probe"></a>
 ## CCR idle heartbeat probe
@@ -441,9 +609,9 @@ host 画像只在桥接注册路径附加，GrowthBook tengu&#95;bridge&#95;host
 
 完整触发条件：CCR worker 空闲且 tengu&#95;ccr&#95;idle&#95;heartbeat 为 true 时广告 heartbeat-probe 支持；默认 false。
 
-方向：待补充；触发：默认关闭／不触发；网关处理：待核实。
+方向：旧记录待回填；触发：旧记录待回填；网关处理：旧记录待回填。
 
-当前有效性：当前配置不触发。历史评估结论：当前配置不触发。
+当前有效性：待核实（来源已修订）。历史评估结论：当前配置不触发。
 
 该机制要求 CCR worker 空闲且 tengu&#95;ccr&#95;idle&#95;heartbeat 为 true；报告明确该 flag 默认 false。默认网关以 -p 单轮方式启动官方 CLI，env 从空对象按白名单构造且未注入 CLAUDE&#95;CODE&#95;REMOTE/CCR worker 启动条件；因此默认不会广告 heartbeat-probe 支持。
 
@@ -474,25 +642,25 @@ host 画像只在桥接注册路径附加，GrowthBook tengu&#95;bridge&#95;host
 > const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;omp&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', '2', '--model', model, '--system-prompt-file', promptFile&#93;;
 
 <a id="mechanism-device-bind-attestation"></a>
-## 设备绑定证明
+## 会话设备绑定证明
 
 机制 ID：device-bind-attestation
 
-### 当前报告来源 · 2.1.300 · 设备绑定证明
+### 当前报告来源 · 2.1.300 · 会话设备绑定证明
 
-[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)；评估时间：2026-10-20T03:12:07Z；审阅提交：1041cadac6fc。
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)；评估时间：2026-10-22T09:39:51Z；审阅提交：9429ba2c51d9。
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
-机制：会话设备绑定证明：向 /v1/code/sessions/{id}/device 发送 target&#95;device&#95;id 与 bind&#95;attestation（含 kid 和 signature）及 bind&#95;attestation&#95;issued&#95;at，形成设备绑定凭证。
+机制：会话设备绑定证明：向 /v1/code/sessions/{id}/device 发送 target&#95;device&#95;id、bind&#95;attestation（kid、signature）及 bind&#95;attestation&#95;issued&#95;at，形成设备绑定凭证。
 
-完整触发条件：调用 POST /v1/code/sessions/{id}/device 进行设备绑定时。
+完整触发条件：客户端调用 /v1/code/sessions/{id}/device 进行会话设备绑定时发送。
 
-方向：待补充；触发：默认关闭／不触发；网关处理：待核实。
+方向：本地客户端 → 网关；触发：默认关闭／不触发；网关处理：不经过网关。
 
 当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
 
-报告触发点是调用会话设备绑定 POST &#96;/v1/code/sessions/{id}/device&#96;，需先有 ccr 会话；默认引擎仅以 &#96;-p&#96; 执行一次推理，未传 &#96;--sdk-url&#96; 也未建立 ccr 会话，默认不发送绑定证明，故未触发。
+默认 CLI 以 -p 单次推理启动，未建立 CCR 会话，未调用 /v1/code/sessions/{id}/device；报告要求设备绑定时才发送 bind&#95;attestation。该请求由 CLI 自发，不经过网关入站适配器，故默认不触发。
 
 发现时间：2026-10-14（上游报告提交日期）。
 
@@ -502,19 +670,29 @@ host 画像只在桥接注册路径附加，GrowthBook tengu&#95;bridge&#95;host
 
 报告原文（trigger）：
 
-> &#124; &#96;/v1/code/sessions/{id}/device&#96; &#124; POST &#124; &#42;&#42;NEW.&#42;&#42;
+> &#96;/v1/code/sessions/{id}/device&#96; &#124; POST &#124; &#42;&#42;NEW.&#42;&#42; Device bind:
 
 报告原文（version）：
 
 > &#42;&#42;Version&#42;&#42;: 2.1.300
 
+报告原文（direction）：
+
+> &#96;/v1/code/sessions/{id}/device&#96; &#124; POST &#124; &#42;&#42;NEW.&#42;&#42; Device bind:
+
 关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)
 
 > &#124; &#96;/v1/code/sessions/{id}/device&#96; &#124; POST &#124; &#42;&#42;NEW.&#42;&#42; Device bind: &#96;{target&#95;device&#95;id, bind&#95;attestation:{kid,signature}, bind&#95;attestation&#95;issued&#95;at, …}&#96; (&#96;:1518262&#96;) &#124;
 
-代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/1041cadac6fc7609c308a9da6dc5913402eb1904/model-gateway/engine.mjs#L104)
+代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L104)
 
 > const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;omp&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', '2', '--model', model, '--system-prompt-file', promptFile&#93;;
+
+代码：[model-gateway/engine.mjs:92](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L92)
+
+> Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE&#95;CONFIG&#95;DIR: configDir,       CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',       ENABLE&#95;TOOL&#95;SEARCH: 'false', MCP&#95;TOOL&#95;TIMEOUT: String(timeoutMs &#124;&#124; 2147483647), CLAUDE&#95;CODE&#95;MAX&#95;OUTPUT&#95;TOKENS: String(maxOutputTokens) });
+
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/cloud-server.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
 
 ### 当前报告来源 · 2.1.300 · Device bind attestation
 
@@ -526,9 +704,9 @@ host 画像只在桥接注册路径附加，GrowthBook tengu&#95;bridge&#95;host
 
 完整触发条件：仅在 tengu&#95;violin&#95;wood 开启、非 diskless 且已按账号生成/加载 P-256 设备密钥并向 /cowork/remote&#95;devices 注册后，创建会话时附加 target&#95;device&#95;id 与 bind&#95;attestation；否则不发送。
 
-方向：待补充；触发：默认关闭／不触发；网关处理：待核实。
+方向：旧记录待回填；触发：旧记录待回填；网关处理：旧记录待回填。
 
-当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
+当前有效性：待重评（报告核验未完成）。历史评估结论：当前配置不触发。
 
 设备绑定由 GrowthBook 主 gate tengu&#95;violin&#95;wood 控制，报告默认值 !1（关），并需按账号注册设备密钥。默认 engine 未启用远程设备绑定，默认不发送 target&#95;device&#95;id/bind&#95;attestation。
 
@@ -558,6 +736,69 @@ host 画像只在桥接注册路径附加，GrowthBook tengu&#95;bridge&#95;host
 
 > const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;omp&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', '2', '--model', model, '--system-prompt-file', promptFile&#93;;
 
+<a id="mechanism-environment-context-attachment"></a>
+## 环境附件工作目录与主机画像
+
+机制 ID：environment-context-attachment
+
+### 当前报告来源 · 2.1.300 · 环境附件工作目录与主机画像
+
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/system-prompt.md)；评估时间：2026-11-12T03:19:09Z；审阅提交：327237427977。
+
+评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
+
+机制：环境附件环境画像：每轮把工作目录、git 仓库、附加目录、平台、Shell、OS 版本和 scratchpad 渲染为用户 isMeta 消息随对话发送。
+
+完整触发条件：非 SIMPLE、非 bareFork、非 isolatedContext 时每轮渲染 environment 附件；字段变化发 # Environment update 增量，cwd 消失或重现时记录 tengu&#95;environment&#95;directory&#95;change。
+
+方向：本地客户端 → 网关；触发：待核实；网关处理：待核实。
+
+当前有效性：待核实。历史评估结论：待核实。
+
+复核未通过：2.1.300 报告支持该环境附件机制：每轮构建并以 user isMeta 渲染，Btt 排除 SIMPLE、bareFork、isolatedContext，字段变化发增量并记录 cwd 变化遥测。但候选评估的 status、handling、trigger&#95;state 均为 unknown，reason 明确称尚不能确定过滤状态，summary 却断言“未经过网关过滤”，把未知证据当成未过滤结论，且摘要与状态、理由矛盾；现有代码只展示网关启动 CLI 及 CLI 自身上游发送，未给出一致的过滤处理结论。
+
+发现时间：2026-10-14（上游报告提交日期）。
+
+报告原文（mechanism）：
+
+> Full: &#96;# Environment&#96; / &#96;You have been invoked in the following environment: &#96; + bullets (&#96;lgt&#96;, &#96;:388648&#96;). Delta: &#96;# Environment update&#96; + changed fields (&#96;ugt&#96;, &#96;:388698&#96;)
+
+报告原文（trigger）：
+
+> &#96;Btt&#96;: not SIMPLE, not &#96;bareFork&#96;, not &#96;isolatedContext&#96; (&#96;:554492&#96;)
+
+报告原文（version）：
+
+> &#42;&#42;Version&#42;&#42;: 2.1.300
+
+报告原文（direction）：
+
+> render as &#96;isMeta&#96; user messages (&#96;:588925&#96;)
+
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/system-prompt.md)
+
+> The attachment builders run per turn (&#96;:553890&#96;, &#96;hd("environment", …)&#96;, &#96;hd("model", …)&#96;, &#96;hd("session&#95;settings", …)&#96;) and render as &#96;isMeta&#96; user messages (&#96;:588925&#96;).
+
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/system-prompt.md)
+
+> &#124; &#96;environment&#96; &#124; &#96;YAn&#96; (&#96;:554512&#96;) via &#96;igt&#96; (&#96;:388577&#96;) &#124; &#96;Btt&#96;: not SIMPLE, not &#96;bareFork&#96;, not &#96;isolatedContext&#96; (&#96;:554492&#96;) &#124; Full: &#96;# Environment&#96; / &#96;You have been invoked in the following environment: &#96; + bullets (&#96;lgt&#96;, &#96;:388648&#96;). Delta: &#96;# Environment update&#96; + changed fields (&#96;ugt&#96;, &#96;:388698&#96;) &#124;
+
+代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/327237427977204476b665d465c69b4688059d25/model-gateway/engine.mjs#L104)
+
+> const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', discovery.builtin, '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;caller&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', String(discovery.enabled ? discovery.maxCalls + 2 : 2), '--model', model, '--system-prompt-file', promptFile&#93;;
+
+代码：[model-gateway/engine.mjs:94](https://github.com/KKBK-233/unbundle/blob/327237427977204476b665d465c69b4688059d25/model-gateway/engine.mjs#L94)
+
+> Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE&#95;CONFIG&#95;DIR: configDir,       CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',       ENABLE&#95;TOOL&#95;SEARCH: discovery.environment, MCP&#95;TOOL&#95;TIMEOUT: String(timeoutMs &#124;&#124; 2147483647), CLAUDE&#95;CODE&#95;MAX&#95;OUTPUT&#95;TOKENS: String(maxOutputTokens) });
+
+代码：[model-gateway/engine.mjs:113](https://github.com/KKBK-233/unbundle/blob/327237427977204476b665d465c69b4688059d25/model-gateway/engine.mjs#L113)
+
+> child = spawnProcess(cli, args, { env, cwd, detached: group, windowsHide: true, stdio: &#91;'pipe', 'pipe', 'pipe'&#93; });
+
+代码：[model-gateway/context.mjs:11](https://github.com/KKBK-233/unbundle/blob/327237427977204476b665d465c69b4688059d25/model-gateway/context.mjs#L11)
+
+> // 环境块说明：CLI 在对话末尾追加的环境信息描述的是云端服务器，最显眼却与工具实际所在位置相反，需显式消歧。
+
 <a id="mechanism-environment-runner-version-header"></a>
 ## 环境运行器版本头
 
@@ -565,142 +806,164 @@ host 画像只在桥接注册路径附加，GrowthBook tengu&#95;bridge&#95;host
 
 ### 当前报告来源 · 2.1.300 · 环境运行器版本头
 
-[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)；评估时间：2026-10-20T03:12:07Z；审阅提交：1041cadac6fc。
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)；评估时间：2026-10-22T09:39:51Z；审阅提交：9429ba2c51d9。
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
-机制：环境运行器版本头：桥接环境请求和 sign-commit 请求携带 x-environment-runner-version（如 shr-…），标明运行器版本。
+机制：环境运行器版本头：桥接环境请求及 sign-commit 请求携带 x-environment-runner-version（如 shr-…），标明运行器版本。
 
-完整触发条件：桥接环境注册、轮询、心跳等请求，以及 sign-commit 请求。
+完整触发条件：桥接环境客户端（module 1379）发起桥接环境请求时，使用 Bearer、anthropic-beta: environments-2025-11-01、x-environment-runner-version 及可选 X-Trusted-Device-Token；/v1/code/sessions/{id}/sign-commit 请求亦携带 x-environment-runner-version。
 
-方向：待补充；触发：默认关闭／不触发；网关处理：待核实。
+方向：本地客户端 → 网关；触发：默认关闭／不触发；网关处理：不经过网关。
 
 当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
 
-报告将该头放在桥接环境请求和 sign-commit 路径；默认引擎未传 &#96;--sdk-url&#96;、未启用 Remote Control/桥接，未执行环境注册、轮询或签名提交，默认不发送该头，故未触发。
+默认 CLI 未启用桥接环境或 sign-commit，启动参数无 bridge 相关；报告要求桥接环境客户端（module 1379）发起请求时携带 x-environment-runner-version。该请求由 CLI 自发，不经过网关入站适配器，故默认不触发。
 
 发现时间：2026-10-14（上游报告提交日期）。
 
 报告原文（mechanism）：
 
-> &#96;x-environment-runner-version&#96; and optional &#96;X-Trusted-Device-Token&#96; (&#96;:1075676-1075688&#96;).
+> Server-side git commit signing, &#96;x-environment-runner-version: shr-…&#96; (&#96;:605102&#96;)
 
 报告原文（trigger）：
 
-> &#96;x-environment-runner-version: shr-…&#96; (&#96;:605102&#96;)
+> Headers: &#96;Bearer&#96;, &#96;anthropic-beta: environments-2025-11-01&#96; (&#96;bPo.header&#96;), &#96;x-environment-runner-version&#96; and optional &#96;X-Trusted-Device-Token&#96; (&#96;:1075676-1075688&#96;).
 
 报告原文（version）：
 
 > &#42;&#42;Version&#42;&#42;: 2.1.300
+
+报告原文（direction）：
+
+> Headers: &#96;Bearer&#96;, &#96;anthropic-beta: environments-2025-11-01&#96; (&#96;bPo.header&#96;), &#96;x-environment-runner-version&#96; and optional &#96;X-Trusted-Device-Token&#96; (&#96;:1075676-1075688&#96;).
 
 关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)
 
 > ### 3.2 Bridge environments (module 1379 &#96;chunk-xtarwp8w.js&#96;) Headers: &#96;Bearer&#96;, &#96;anthropic-beta: environments-2025-11-01&#96; (&#96;bPo.header&#96;), &#96;x-environment-runner-version&#96; and optional &#96;X-Trusted-Device-Token&#96; (&#96;:1075676-1075688&#96;).
 
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)
-
-> &#124; &#96;/v1/code/sessions/{id}/sign-commit&#96; &#124; POST &#124; &#42;&#42;NEW.&#42;&#42; Server-side git commit signing, &#96;x-environment-runner-version: shr-…&#96; (&#96;:605102&#96;) &#124;
-
-代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/1041cadac6fc7609c308a9da6dc5913402eb1904/model-gateway/engine.mjs#L104)
+代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L104)
 
 > const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;omp&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', '2', '--model', model, '--system-prompt-file', promptFile&#93;;
 
-<a id="mechanism-feature-name-telemetry-enum"></a>
-## feature&#95;name 闭集遥测枚举
-
-机制 ID：feature-name-telemetry-enum
-
-### 当前报告来源 · 2.1.300 · feature&#95;name 闭集遥测枚举
-
-[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/codenames.md)；评估时间：2026-10-20T03:15:34Z；审阅提交：1041cadac6fc。
-
-评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
-
-机制：遥测 feature&#95;name 闭集枚举：tengu&#95;feature&#95;ok/bad/sad 事件使用由 gH、&#95;H、yH 合并的 1,431 项 feature&#95;name 闭集枚举。
-
-完整触发条件：发送 tengu&#95;feature&#95;ok/bad/sad 遥测事件时，feature&#95;name 取闭集枚举值。
-
-方向：待补充；触发：默认关闭／不触发；网关处理：待核实。
-
-当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
-
-feature&#95;name 闭集仅用于 tengu&#95;feature&#95;ok/bad/sad 等遥测事件；默认 engine 启动 CLI 时硬编码 CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC=1，报告控制矩阵说明该变量关闭 1P、Datadog 等遥测。默认配置不发送此类事件，故非字段被过滤，而是触发条件被阻止；用户额外开启遥测不属默认行为。
-
-发现时间：2026-10-14（上游报告提交日期）。
-
-报告原文（mechanism）：
-
-> &#96;feature&#95;name&#96; enum&#42;&#42; of 1,431 names
-
-报告原文（trigger）：
-
-> used by &#96;tengu&#95;feature&#95;ok/bad/sad&#96;.
-
-报告原文（version）：
-
-> &#42;&#42;Version&#42;&#42;: 2.1.300
-
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/codenames.md)
-
-> - &#42;&#42;Closed &#96;feature&#95;name&#96; enum&#42;&#42; of 1,431 names: &#96;gH&#96; (1,427, &#96;:135922&#96;) plus 4 names from &#96;&#95;H&#96;/&#96;yH&#96;, joined into &#96;Uk&#96; at &#96;:135928&#96;. This is a new codebook of internal feature  names (for example &#96;hfi&#95;&#42;&#96;, &#96;byoc&#95;&#42;&#96;, &#96;swarm&#95;&#42;&#96;, &#96;workshop&#95;&#42;&#96;, &#96;laptop&#95;memory&#95;&#42;&#96;, &#96;rtc&#95;&#42;&#96;, &#96;cedar&#95;ember&#96;,  &#96;shoji&#95;engine&#96;), used by &#96;tengu&#95;feature&#95;ok/bad/sad&#96;.
-
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/telemetry.md)
-
-> &#124; &#96;DISABLE&#95;TELEMETRY&#96; / &#96;DO&#95;NOT&#95;TRACK&#96; / &#96;CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC&#96; &#124; Disable 1P, Datadog, error tracking, GrowthBook (via &#96;Oj&#96;), BigQuery metrics (via &#96;LD&#96;), and the plugin telemetry mod &#124; &#96;:10162&#96;, &#96;:22061&#96;, &#96;:142788&#96;, &#96;:1470484&#96;, &#96;:1534612&#96; &#124;
-
-代码：[model-gateway/engine.mjs:92](https://github.com/KKBK-233/unbundle/blob/1041cadac6fc7609c308a9da6dc5913402eb1904/model-gateway/engine.mjs#L92)
+代码：[model-gateway/engine.mjs:92](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L92)
 
 > Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE&#95;CONFIG&#95;DIR: configDir,       CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',       ENABLE&#95;TOOL&#95;SEARCH: 'false', MCP&#95;TOOL&#95;TIMEOUT: String(timeoutMs &#124;&#124; 2147483647), CLAUDE&#95;CODE&#95;MAX&#95;OUTPUT&#95;TOKENS: String(maxOutputTokens) });
 
-<a id="mechanism-growthbook-authed-eval-endpoint"></a>
-## GB authed eval endpoint
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/cloud-server.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
 
-机制 ID：growthbook-authed-eval-endpoint
+<a id="mechanism-feature-name-telemetry-enum"></a>
+## 遥测 feature&#95;name 闭集枚举
 
-### 当前报告来源 · 2.1.300 · GB authed eval endpoint
+机制 ID：feature-name-telemetry-enum
 
-[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/feature-flags.md)；评估时间：2026-10-21T03:15:16Z；审阅提交：c95455119f84。
+### 当前报告来源 · 2.1.300 · 遥测 feature&#95;name 闭集枚举
+
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/codenames.md)；评估时间：2026-10-22T09:42:46Z；审阅提交：9429ba2c51d9。
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
-机制：GrowthBook 认证远程评估端点：启用后向 /api/eval-authed/{clientKey} 发送评估请求，并在可信工作区附加 OAuth 认证头。
+机制：遥测 feature&#95;name 闭集枚举：tengu&#95;feature&#95;ok/bad/sad 事件使用由 gH、&#95;H、yH 合并成的 1,431 项 feature&#95;name 闭集枚举。
 
-完整触发条件：GrowthBook 启用且 tengu&#95;gb&#95;eval&#95;authed&#95;enable 为真；可信工作区附加认证头，不可信仍访问 eval-authed 但不带认证头。
+完整触发条件：当客户端发出 tengu&#95;feature&#95;ok/bad/sad 遥测事件时，feature&#95;name 从 1,431 项闭集枚举中取值，承载内部功能名。
 
-方向：待补充；触发：默认关闭／不触发；网关处理：待核实。
+方向：证据不足；触发：默认关闭／不触发；网关处理：不经过网关。
 
-当前有效性：当前配置不触发。历史评估结论：当前配置不触发。
+当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
 
-该机制是 CLI 自发 GrowthBook 出站请求。默认网关在 engine.mjs 中注入 CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC=1；关联报告说明该变量关闭 GrowthBook（经 Oj），因此 tengu&#95;gb&#95;eval&#95;authed&#95;enable 不会被用于发起 /api/eval-authed/{clientKey}。网关本身不介入 CLI 出站 HTTP，但默认配置已阻止触发。
+feature&#95;name 仅随 CLI 的 tengu&#95;feature&#95;ok/bad/sad 遥测发出。网关默认注入 CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC=1，报告的控制矩阵称其关闭 1P、Datadog、错误上报等非必要流量，故默认不触发。若开启遥测也属 CLI 自发路径，不经过网关字段过滤。
 
 发现时间：2026-10-14（上游报告提交日期）。
 
 报告原文（mechanism）：
 
-> When &#96;tengu&#95;gb&#95;eval&#95;authed&#95;enable&#96; is on (read inside the class, &#96;:134017&#96;), the client POSTs to &#96;${host}/api/eval-authed/${clientKey}&#96;.
+> &#42;&#42;Closed &#96;feature&#95;name&#96; enum&#42;&#42; of 1,431 names: &#96;gH&#96; (1,427, &#96;:135922&#96;) plus 4 names from &#96;&#95;H&#96;/&#96;yH&#96;, joined into &#96;Uk&#96; at &#96;:135928&#96;
 
 报告原文（trigger）：
 
-> Only when the workspace is trusted (&#96;hasWorkspaceTrust()&#96;) does it first refresh OAuth and attach the auth headers; an untrusted workspace still hits &#96;eval-authed&#96;, just without them (&#96;:134026–134034&#96;).
+> used by &#96;tengu&#95;feature&#95;ok/bad/sad&#96;
 
 报告原文（version）：
 
 > &#42;&#42;Version&#42;&#42;: 2.1.300
 
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/feature-flags.md)
+报告原文（direction）：
 
-> &#42;&#42;Authenticated remote eval.&#42;&#42; When &#96;tengu&#95;gb&#95;eval&#95;authed&#95;enable&#96; is on (read inside the class, &#96;:134017&#96;), the client POSTs to &#96;${host}/api/eval-authed/${clientKey}&#96;. Only when the workspace is trusted (&#96;hasWorkspaceTrust()&#96;) does it first refresh OAuth and attach the auth headers; an untrusted workspace still hits &#96;eval-authed&#96;, just without them (&#96;:134026–134034&#96;). On a non-OK response or a throw it falls back to the stock &#96;/api/eval&#96; (&#96;:134036–134055&#96;).
+> used by &#96;tengu&#95;feature&#95;ok/bad/sad&#96;
+
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/codenames.md)
+
+> &#42;&#42;Closed &#96;feature&#95;name&#96; enum&#42;&#42; of 1,431 names: &#96;gH&#96; (1,427, &#96;:135922&#96;) plus 4 names from &#96;&#95;H&#96;/&#96;yH&#96;, joined into &#96;Uk&#96; at &#96;:135928&#96;
 
 关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/telemetry.md)
 
 > &#124; &#96;DISABLE&#95;TELEMETRY&#96; / &#96;DO&#95;NOT&#95;TRACK&#96; / &#96;CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC&#96; &#124; Disable 1P, Datadog, error tracking, GrowthBook (via &#96;Oj&#96;), BigQuery metrics (via &#96;LD&#96;), and the plugin telemetry mod &#124; &#96;:10162&#96;, &#96;:22061&#96;, &#96;:142788&#96;, &#96;:1470484&#96;, &#96;:1534612&#96; &#124;
 
-代码：[model-gateway/engine.mjs:90](https://github.com/KKBK-233/unbundle/blob/c95455119f8479636dc880f6267c135646b422d1/model-gateway/engine.mjs#L90)
+代码：[model-gateway/engine.mjs:93](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L93)
 
-> const env = {};     for (const k of &#91;'PATH', 'Path', 'SystemRoot', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP', 'LANG'&#93;) if (process.env&#91;k&#93;) env&#91;k&#93; = process.env&#91;k&#93;;     Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE&#95;CONFIG&#95;DIR: configDir,       CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',       ENABLE&#95;TOOL&#95;SEARCH: 'false', MCP&#95;TOOL&#95;TIMEOUT: String(timeoutMs &#124;&#124; 2147483647), CLAUDE&#95;CODE&#95;MAX&#95;OUTPUT&#95;TOKENS: String(maxOutputTokens) });
+> CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',
+
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-compat.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
+
+<a id="mechanism-growthbook-authed-eval-endpoint"></a>
+## GrowthBook 认证评估端点
+
+机制 ID：growthbook-authed-eval-endpoint
+
+### 当前报告来源 · 2.1.300 · GrowthBook 认证评估端点
+
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/feature-flags.md)；评估时间：2026-10-22T09:49:12Z；审阅提交：9429ba2c51d9。
+
+评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
+
+机制：GrowthBook 认证远程评估端点：开关启用后客户端向 ${host}/api/eval-authed/{clientKey} 发送评估请求；工作区可信时先刷新 OAuth 再附认证头，失败或非 OK 时回退 /api/eval。
+
+完整触发条件：共同前置为客户端发起 GrowthBook 远程评估且 tengu&#95;gb&#95;eval&#95;authed&#95;enable 为真（在解析类内部读取）；工作区可信时先刷新 OAuth 并附加认证头，不可信工作区仍请求 eval-authed 但无认证头；响应非 OK 或抛错回退 /api/eval。
+
+方向：云端 CLI → 服务端；触发：默认关闭／不触发；网关处理：不经过网关。
+
+当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
+
+默认 engine 向子 CLI 注入 CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC=1，报告明确其经 Oj 关闭 GrowthBook；eval-authed 以远程评估为前提，故默认不触发。网关只 spawn CLI 经 stdio 交互，不介入其 GrowthBook 出站 HTTP；额外启用时亦属 CLI 自发路径。
+
+发现时间：2026-10-14（上游报告提交日期）。
+
+报告原文（mechanism）：
+
+> the client POSTs to &#96;${host}/api/eval-authed/${clientKey}&#96;
+
+报告原文（trigger）：
+
+> When &#96;tengu&#95;gb&#95;eval&#95;authed&#95;enable&#96; is on (read inside the class, &#96;:134017&#96;)
+
+报告原文（version）：
+
+> &#42;&#42;Version&#42;&#42;: 2.1.300
+
+报告原文（direction）：
+
+> the client POSTs to &#96;${host}/api/eval-authed/${clientKey}&#96;
+
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/feature-flags.md)
+
+> When &#96;tengu&#95;gb&#95;eval&#95;authed&#95;enable&#96; is on (read inside the class, &#96;:134017&#96;), the client POSTs to &#96;${host}/api/eval-authed/${clientKey}&#96;.
+
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/telemetry.md)
+
+> &#124; &#96;DISABLE&#95;TELEMETRY&#96; / &#96;DO&#95;NOT&#95;TRACK&#96; / &#96;CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC&#96; &#124; Disable 1P, Datadog, error tracking, GrowthBook (via &#96;Oj&#96;), BigQuery metrics (via &#96;LD&#96;), and the plugin telemetry mod &#124; &#96;:10162&#96;, &#96;:22061&#96;, &#96;:142788&#96;, &#96;:1470484&#96;, &#96;:1534612&#96; &#124;
+
+代码：[model-gateway/engine.mjs:92](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L92)
+
+> Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE&#95;CONFIG&#95;DIR: configDir,       CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',       ENABLE&#95;TOOL&#95;SEARCH: 'false', MCP&#95;TOOL&#95;TIMEOUT: String(timeoutMs &#124;&#124; 2147483647), CLAUDE&#95;CODE&#95;MAX&#95;OUTPUT&#95;TOKENS: String(maxOutputTokens) });
+
+代码：[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L112)
+
+> child = spawnProcess(cli, args, { env, cwd, detached: group, windowsHide: true, stdio: &#91;'pipe', 'pipe', 'pipe'&#93; });
+
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-compat.mjs、model-gateway/cli-events.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs、model-gateway/transport-check.mjs、model-gateway/wire-probe.mjs
 
 <a id="mechanism-install-user-id-metadata"></a>
-## userID 元数据原样透传
+## 安装 userID 原样外发
 
 机制 ID：install-user-id-metadata
 
@@ -714,9 +977,9 @@ feature&#95;name 闭集仅用于 tengu&#95;feature&#95;ok/bad/sad 等遥测事�
 
 完整触发条件：在构造 Messages API metadata.user&#95;id 或各遥测入口时，总是读取持久 userID（无合法 64 位十六进制则随机生成并持久化），随后 Messages API 将其作为 device&#95;id 原样写入，1P/GrowthBook/OTel 另按各自通道发送。
 
-方向：待补充；触发：待核实；网关处理：待核实。
+方向：旧记录待回填；触发：旧记录待回填；网关处理：旧记录待回填。
 
-当前有效性：待核实（代码已变化）。历史评估结论：未过滤。
+当前有效性：待重评（报告核验未完成）。历史评估结论：未过滤。
 
 报告基准下，Messages API metadata.user&#95;id 由 CLI 自行构造出站；默认 engine 仅 spawn CLI，经 stdio 传输入并读事件，不代理或改写 CLI 到 Anthropic 的请求。essential-traffic 只关遥测，不关 Messages 推理；CLI 自发路径满足触发条件时未经过网关过滤。
 
@@ -742,21 +1005,21 @@ feature&#95;name 闭集仅用于 tengu&#95;feature&#95;ok/bad/sad 等遥测事�
 
 > child = spawnProcess(cli, args, { env, cwd, detached: group, windowsHide: true, stdio: &#91;'pipe', 'pipe', 'pipe'&#93; });
 
-### 当前报告来源 · 2.1.300 · userID 元数据原样透传
+### 当前报告来源 · 2.1.300 · 安装 userID 原样外发
 
-[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/overview.md)；评估时间：2026-10-22T03:08:34Z；审阅提交：c5ff84ac0652。
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/overview.md)；评估时间：2026-10-22T09:52:11Z；审阅提交：9429ba2c51d9。
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
-机制：持久安装用户标识透传：随机生成的 64 位十六进制 userID 作为账号或设备标识，随 Messages API metadata.user&#95;id、1P 事件、GrowthBook 和 OTel 原样发出。
+机制：持久安装用户标识透传：随机生成并持久化的 64 位十六进制 userID 作为 Messages API 的 metadata.user&#95;id 原样发出，并进入 1P 事件、GrowthBook 和 OTel。
 
-完整触发条件：身份初始化时生成随机 32 字节值，经 64 位十六进制校验并持久化到全局配置后，userID 不哈希、不截断，原样写入 Messages API metadata.user&#95;id、1P 事件、GrowthBook 与 OTel。
+完整触发条件：当持久化配置中的 userID 由 randomBytes(32) 生成并经过 64 位十六进制校验后，在 Messages API、1P 事件、GrowthBook、OTel 中作为 metadata.user&#95;id 或标识原样外发。
 
-方向：待补充；触发：待核实；网关处理：待核实。
+方向：云端 CLI → 服务端；触发：默认触发；网关处理：不经过网关。
 
-当前有效性：未过滤。历史评估结论：未过滤。
+当前有效性：待核实（代码已变化）。历史评估结论：未过滤。
 
-报告基准下，userID 原样进入 Messages API metadata.user&#95;id；默认环境仅停用非必要遥测/1P/GrowthBook/OTel，不禁核心 Messages API。引擎仅 spawn CLI 并以 stdio 交互，不代理其出站 HTTP，故该 CLI 自发路径满足条件时未经过网关过滤。
+Messages 通道默认由持凭据的 CLI 直接出站，网关只经 stdio 启动子进程、不代理该请求，metadata.user&#95;id 原样发送；CLI 自发路径，满足报告触发条件时未经过网关过滤。1P/GrowthBook 因注入 DISABLE&#95;NONESSENTIAL&#95;TRAFFIC=1 关闭，OTel 默认关闭，均不触发。
 
 发现时间：2026-10-14（上游报告提交日期）。
 
@@ -766,11 +1029,15 @@ feature&#95;name 闭集仅用于 tengu&#95;feature&#95;ok/bad/sad 等遥测事�
 
 报告原文（trigger）：
 
-> each produce &#96;randomBytes(32).toString("hex")&#96;, validated as 64-hex and persisted to the
+> (&#96;:115596&#96;) each produce &#96;randomBytes(32).toString("hex")&#96;, validated as 64-hex and persisted to the
 
 报告原文（version）：
 
-> 2.1.300
+> &#42;&#42;Version&#42;&#42;: 2.1.300
+
+报告原文（direction）：
+
+> &#96;userID&#96; still leaves raw (Messages API &#96;metadata.user&#95;id&#96;, 1P events, GrowthBook, OTel).
 
 关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/overview.md)
 
@@ -784,34 +1051,36 @@ feature&#95;name 闭集仅用于 tengu&#95;feature&#95;ok/bad/sad 等遥测事�
 
 > &#124; &#42;&#42;OpenTelemetry (user 3P)&#42;&#42; (module 1771) &#124; Metrics, logs and traces to the operator's own collector &#124; &#96;OTEL&#95;EXPORTER&#95;OTLP&#95;&#42;&#96;; &#42;&#42;NEW&#42;&#42; CCR relay &#96;/v1/code/sessions/{id}/worker/otlp/…&#96; (&#96;:194015&#96;) &#124; &#42;&#42;OFF&#42;&#42; &#124; &#96;CLAUDE&#95;CODE&#95;ENABLE&#95;TELEMETRY&#96; (&#96;isTelemetryEnabled&#96; &#96;Nt&#96;, &#96;:1470670&#96;) plus the &#96;OTEL&#95;&#42;&#96; family &#124;
 
-代码：[model-gateway/engine.mjs:92](https://github.com/KKBK-233/unbundle/blob/c5ff84ac0652cef55683b4993fff57cca924b09b/model-gateway/engine.mjs#L92)
+代码：[model-gateway/engine.mjs:93](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L93)
 
-> Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE&#95;CONFIG&#95;DIR: configDir,       CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',       ENABLE&#95;TOOL&#95;SEARCH: 'false', MCP&#95;TOOL&#95;TIMEOUT: String(timeoutMs &#124;&#124; 2147483647), CLAUDE&#95;CODE&#95;MAX&#95;OUTPUT&#95;TOKENS: String(maxOutputTokens) });
+> CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',
 
-代码：[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/c5ff84ac0652cef55683b4993fff57cca924b09b/model-gateway/engine.mjs#L112)
+代码：[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L112)
 
 > child = spawnProcess(cli, args, { env, cwd, detached: group, windowsHide: true, stdio: &#91;'pipe', 'pipe', 'pipe'&#93; });
 
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/cloud-server.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/server.mjs
+
 <a id="mechanism-low-priority-slow-protocol-headers"></a>
-## 低优先级慢速协议头
+## 低优先级慢速通道协议头
 
 机制 ID：low-priority-slow-protocol-headers
 
-### 当前报告来源 · 2.1.300 · 低优先级慢速协议头
+### 当前报告来源 · 2.1.300 · 低优先级慢速通道协议头
 
-[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/plan-tier-gating.md)；评估时间：2026-10-22T03:11:38Z；审阅提交：c5ff84ac0652。
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/plan-tier-gating.md)；评估时间：2026-10-22T10:00:45Z；审阅提交：9429ba2c51d9。
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
-机制：低优先级慢速通道协议头：服务端以 anthropic-ratelimit-unified-slow-&#42; 组头下发 treatment/control 与状态，客户端在低优先级激活时发送 anthropic-usage-limit: slow（历史 extended 值仍可用）。
+机制：低优先级慢速通道协议头：服务端 slow-&#42; 头下发 treatment/control，客户端激活后发送 anthropic-usage-limit: slow。
 
-完整触发条件：仅当消费者 OAuth（kt）成立，且 iL 或 tengu&#95;toasty&#95;breeze.enabled=true，并满足非 usage&#95;based、firstParty、交互式、非远程、非 $t()、five&#95;hour 资格；低优先级激活时请求携带 anthropic-usage-limit: slow，服务端 slow-offer 仅在 treatment 组报价。
+完整触发条件：消费者 OAuth（kt）且 firstParty、billingType 非 usage&#95;based、交互会话、非远程模式且非 $t()，限流类型为 five&#95;hour，低优先级开关 tengu&#95;toasty&#95;breeze.enabled === true 且服务端 slow-offer 为 treatment 时，激活后请求携带 anthropic-usage-limit: slow。
 
-方向：待补充；触发：默认关闭／不触发；网关处理：待核实。
+方向：多条路径（见证据）；触发：默认关闭／不触发；网关处理：不经过网关。
 
-当前有效性：当前配置不触发。历史评估结论：当前配置不触发。
+当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
 
-报告资格含交互式会话、消费者 OAuth 且 iL 或 tengu&#95;toasty&#95;breeze.enabled 为真；engine.mjs 以 -p 非交互运行、未设该 flag，默认不进入低优先级，anthropic-usage-limit: slow 不会发出；且该头由 CLI 直连 API，不经网关。
+该头在 CLI 激活低优先级后由其直连上游发送；但默认 engine 以 -p 非交互方式启动，报告要求交互会话且 flag/treatment 才触发，故默认不发送。网关只经 stdio 与 CLI 交互，不介入该出站头。
 
 发现时间：2026-10-14（上游报告提交日期）。
 
@@ -821,23 +1090,33 @@ feature&#95;name 闭集仅用于 tengu&#95;feature&#95;ok/bad/sad 等遥测事�
 
 报告原文（trigger）：
 
-> - Command &#96;I6o&#96; (&#96;476488&#96;), &#96;name: fve&#96; = &#96;"low-priority"&#96; (&#96;177349&#96;): &#96;"Continue now at lower priority  after reaching your session limit; run again to stop"&#96;. &#96;isEnabled: () =&gt; kt() &amp;&amp; (iL() &#124;&#124; Ept())&#96;,  hidden. Its name is an identifier, so &#96;&#95;facts.md&#96; §1.6 does not count it. - Gate &#96;Ept()&#96; (&#96;177366&#96;) is &#96;k("tengu&#95;toasty&#95;breeze", {}).enabled === !0&#96;. The flag object also supplies  copy and &#96;cooloffMinutes&#96; (clamped 0–1440, default 10, &#96;177391&#96;–&#96;177395&#96;). - Eligibility: &#96;Xvt()&#96; (&#96;934499&#96;) requires &#96;kt()&#96;, &#96;billingType !== "usage&#95;based"&#96;, &#96;Aa()&#96; (firstParty),  an interactive session, not remote mode and not &#96;$t()&#96;. &#96;kVe(limits)&#96; (&#96;934503&#96;) adds  &#96;rateLimitType === "five&#95;hour"&#96;.
+> Gate &#96;Ept()&#96; (&#96;177366&#96;) is &#96;k("tengu&#95;toasty&#95;breeze", {}).enabled === !0&#96;. The flag object also supplies  copy and &#96;cooloffMinutes&#96; (clamped 0–1440, default 10, &#96;177391&#96;–&#96;177395&#96;). - Eligibility: &#96;Xvt()&#96; (&#96;934499&#96;) requires &#96;kt()&#96;, &#96;billingType !== "usage&#95;based"&#96;, &#96;Aa()&#96; (firstParty),  an interactive session, not remote mode and not &#96;$t()&#96;. &#96;kVe(limits)&#96; (&#96;934503&#96;) adds  &#96;rateLimitType === "five&#95;hour"&#96;. - The server arms the offer through &#42;&#42;NEW&#42;&#42; headers &#96;anthropic-ratelimit-unified-slow-offer&#96;  (&#96;treatment&#96;&#124;&#96;control&#96;), &#96;-slow-status&#96; (&#96;active&#96;/&#96;not&#95;needed&#96;/&#96;slot&#95;busy&#96;/&#96;weekly&#95;limit&#96;/  &#96;budget&#95;exhausted&#96;/&#96;ineligible&#96;/&#96;off&#96;), &#96;-slow-retry-after&#96;, &#96;-slow-max-wait&#96;,  &#96;-slow-budget-utilization&#96; and &#96;-slow-budget-reset&#96; (&#96;177296&#96;–&#96;177337&#96;). None of them occur in 2.1.197.  &#96;EVe()&#96; (&#96;934618&#96;) offers only on &#96;treatment&#96;.
 
 报告原文（version）：
 
 > &#42;&#42;Version&#42;&#42;: 2.1.300
 
+报告原文（direction）：
+
+> - The server arms the offer through &#42;&#42;NEW&#42;&#42; headers &#96;anthropic-ratelimit-unified-slow-offer&#96;  (&#96;treatment&#96;&#124;&#96;control&#96;), &#96;-slow-status&#96; (&#96;active&#96;/&#96;not&#95;needed&#96;/&#96;slot&#95;busy&#96;/&#96;weekly&#95;limit&#96;/  &#96;budget&#95;exhausted&#96;/&#96;ineligible&#96;/&#96;off&#96;), &#96;-slow-retry-after&#96;, &#96;-slow-max-wait&#96;,  &#96;-slow-budget-utilization&#96; and &#96;-slow-budget-reset&#96; (&#96;177296&#96;–&#96;177337&#96;). None of them occur in 2.1.197.  &#96;EVe()&#96; (&#96;934618&#96;) offers only on &#96;treatment&#96;. &#96;lXo()&#96; logs &#96;tengu&#95;lowpri&#95;offer&#95;capable&#96; for either arm;  &#96;tengu&#95;lowpri&#95;offer&#95;withheld&#96; (&#96;934652&#96;) fires for a &#42;&#42;&#96;treatment&#96;&#42;&#42; arm suppressed by the cool-off  (&#96;TBe()&#96; set, &#96;reason: "cooloff"&#96;), not for &#96;control&#96;. - While active (&#96;iL()&#96; &#96;177442&#96;), requests carry &#42;&#42;&#96;anthropic-usage-limit: slow&#96;&#42;&#42; (&#96;wpt&#96;/&#96;PCr&#96;,  &#96;177294&#96;; set at &#96;182423&#96; and &#96;529644&#96;). The header name itself is &#42;&#42;not&#42;&#42; new: 2.1.197 already sent  &#96;anthropic-usage-limit: extended&#96; behind &#96;tengu&#95;lantern&#95;spool&#96; (&#96;2.1.197:595982&#96;), and 2.1.300 still  does (&#96;529645&#96;). The &#96;slow&#96; value is NEW.
+
 关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/plan-tier-gating.md)
 
-> an interactive session, not remote mode and not &#96;$t()&#96;. &#96;kVe(limits)&#96; (&#96;934503&#96;) adds
+> Gate &#96;Ept()&#96; (&#96;177366&#96;) is &#96;k("tengu&#95;toasty&#95;breeze", {}).enabled === !0&#96;. The flag object also supplies  copy and &#96;cooloffMinutes&#96; (clamped 0–1440, default 10, &#96;177391&#96;–&#96;177395&#96;). - Eligibility: &#96;Xvt()&#96; (&#96;934499&#96;) requires &#96;kt()&#96;, &#96;billingType !== "usage&#95;based"&#96;, &#96;Aa()&#96; (firstParty),  an interactive session, not remote mode and not &#96;$t()&#96;. &#96;kVe(limits)&#96; (&#96;934503&#96;) adds  &#96;rateLimitType === "five&#95;hour"&#96;. - The server arms the offer through &#42;&#42;NEW&#42;&#42; headers &#96;anthropic-ratelimit-unified-slow-offer&#96;  (&#96;treatment&#96;&#124;&#96;control&#96;), &#96;-slow-status&#96; (&#96;active&#96;/&#96;not&#95;needed&#96;/&#96;slot&#95;busy&#96;/&#96;weekly&#95;limit&#96;/  &#96;budget&#95;exhausted&#96;/&#96;ineligible&#96;/&#96;off&#96;), &#96;-slow-retry-after&#96;, &#96;-slow-max-wait&#96;,  &#96;-slow-budget-utilization&#96; and &#96;-slow-budget-reset&#96; (&#96;177296&#96;–&#96;177337&#96;). None of them occur in 2.1.197.  &#96;EVe()&#96; (&#96;934618&#96;) offers only on &#96;treatment&#96;.
 
 关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/plan-tier-gating.md)
 
-> - Gate &#96;Ept()&#96; (&#96;177366&#96;) is &#96;k("tengu&#95;toasty&#95;breeze", {}).enabled === !0&#96;.
+> - While active (&#96;iL()&#96; &#96;177442&#96;), requests carry &#42;&#42;&#96;anthropic-usage-limit: slow&#96;&#42;&#42; (&#96;wpt&#96;/&#96;PCr&#96;,  &#96;177294&#96;; set at &#96;182423&#96; and &#96;529644&#96;). The header name itself is &#42;&#42;not&#42;&#42; new: 2.1.197 already sent  &#96;anthropic-usage-limit: extended&#96; behind &#96;tengu&#95;lantern&#95;spool&#96; (&#96;2.1.197:595982&#96;), and 2.1.300 still  does (&#96;529645&#96;). The &#96;slow&#96; value is NEW.
 
-代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/c5ff84ac0652cef55683b4993fff57cca924b09b/model-gateway/engine.mjs#L104)
+代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L104)
 
-> const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',
+> const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;omp&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', '2', '--model', model, '--system-prompt-file', promptFile&#93;;
+
+代码：[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L112)
+
+> child = spawnProcess(cli, args, { env, cwd, detached: group, windowsHide: true, stdio: &#91;'pipe', 'pipe', 'pipe'&#93; });
+
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-compat.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/wire-probe.mjs
 
 <a id="mechanism-machine-id-error-prefix"></a>
 ## machineID 错误报告截断
@@ -854,9 +1133,9 @@ feature&#95;name 闭集仅用于 tengu&#95;feature&#95;ok/bad/sad 等遥测事�
 
 完整触发条件：在错误报告日志构造路径，读取持久化 machineID（无则随机生成）并截取前 12 个十六进制字符作为 host&#95;name&#95;redacted 放入 payload；不发送完整 machineID。
 
-方向：待补充；触发：默认关闭／不触发；网关处理：待核实。
+方向：旧记录待回填；触发：旧记录待回填；网关处理：旧记录待回填。
 
-当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
+当前有效性：待重评（报告核验未完成）。历史评估结论：当前配置不触发。
 
 默认 engine 设置 CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC=1；报告控制矩阵将其归为 essential-traffic 并关闭错误报告，且错误跟踪 flag tengu&#95;orford&#95;ness 默认 !1。host&#95;name&#95;redacted 的 machineID 前缀默认不发送。
 
@@ -888,19 +1167,19 @@ feature&#95;name 闭集仅用于 tengu&#95;feature&#95;ok/bad/sad 等遥测事�
 
 ### 当前报告来源 · 2.1.300 · machineID 错误报告截断
 
-[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/overview.md)；评估时间：2026-10-22T03:08:34Z；审阅提交：c5ff84ac0652。
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/overview.md)；评估时间：2026-10-22T09:52:11Z；审阅提交：9429ba2c51d9。
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
-机制：机器标识截断透传：持久化的 64 位十六进制 machineID 只以 12 字符前缀形式出现在错误报告中。
+机制：机器标识截断透传：持久化的随机 machineID 仅以 12 字符前缀出现在错误报告中。
 
-完整触发条件：身份初始化并持久化 machineID 后，触发错误报告时只截取前 12 个字符作为机器标识，不发送完整值。
+完整触发条件：发生错误报告时，持久化的随机 machineID 仅截取前 12 字符作为前缀随错误报告发送。
 
-方向：待补充；触发：默认关闭／不触发；网关处理：待核实。
+方向：云端 CLI → 服务端；触发：默认关闭／不触发；网关处理：不经过网关。
 
-当前有效性：当前配置不触发。历史评估结论：当前配置不触发。
+当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
 
-默认 engine 环境设置 CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC=1；报告控制矩阵明确其禁用 error tracking，且 Datadog 错误跟踪默认 OFF、受 tengu&#95;orford&#95;ness 等门控。默认配置下错误报告必要触发条件不成立，12 字符 machineID 前缀不会发出；这是触发控制而非网关截断。
+错误报告通道：Datadog error tracking 默认 OFF，tengu&#95;orford&#95;ness 默认 !1；网关注入 DISABLE&#95;NONESSENTIAL&#95;TRAFFIC=1 使 TMs 所需的 !iy() 不成立，machineID 前缀默认不发送。若显式开启，报告由 CLI 直连，不经网关过滤。
 
 发现时间：2026-10-14（上游报告提交日期）。
 
@@ -914,23 +1193,33 @@ feature&#95;name 闭集仅用于 tengu&#95;feature&#95;ok/bad/sad 等遥测事�
 
 报告原文（version）：
 
-> 2.1.300
+> &#42;&#42;Version&#42;&#42;: 2.1.300
+
+报告原文（direction）：
+
+> &#96;machineID&#96; leaves only as a 12-character prefix in error reports.
+
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/overview.md)
+
+> &#96;machineID&#96; leaves only as a 12-character prefix in error reports.
 
 关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/telemetry.md)
 
-> &#124; &#96;DISABLE&#95;TELEMETRY&#96; / &#96;DO&#95;NOT&#95;TRACK&#96; / &#96;CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC&#96; &#124; Disable 1P, Datadog, error tracking, GrowthBook (via &#96;Oj&#96;), BigQuery metrics (via &#96;LD&#96;), and the plugin telemetry mod &#124; &#96;:10162&#96;, &#96;:22061&#96;, &#96;:142788&#96;, &#96;:1470484&#96;, &#96;:1534612&#96; &#124;
+> &#124; &#42;&#42;Datadog error tracking&#42;&#42; (modules 331/333/334) &#124; Crash and &#96;logError&#96; reports with stack, fingerprint, frames &#124; &#96;https://browser-intake-us5-datadoghq.com/api/v2/logs&#96; (&#96;:349907&#96;), query &#96;dd-api-key&#96; (&#96;:349926&#96;) &#124; &#42;&#42;OFF&#42;&#42; &#124; flag &#96;tengu&#95;orford&#95;ness&#96; (default &#96;!1&#96;, &#96;:349389&#96;); &#96;DISABLE&#95;ERROR&#95;REPORTING&#96;; org restriction &#96;allow&#95;error&#95;reporting&#96;; min version &#96;2.1.193&#96; &#124;
 
 关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/telemetry.md)
 
-> &#124; &#42;&#42;OFF&#42;&#42; &#124; flag &#96;tengu&#95;orford&#95;ness&#96; (default &#96;!1&#96;, &#96;:349389&#96;); &#96;DISABLE&#95;ERROR&#95;REPORTING&#96;; org restriction &#96;allow&#95;error&#95;reporting&#96;; min version &#96;2.1.193&#96; &#124;
+> - &#96;!iy()&#96;
 
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/telemetry.md)
+代码：[model-gateway/engine.mjs:93](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L93)
 
-> &#42;&#42;machineID &#96;Umt()&#96;&#42;&#42; (&#96;:115581&#96;) &#42;&#42;is transmitted.&#42;&#42; Datadog error tracking sends &#96;host&#95;name&#95;redacted: Umt().slice(0, 12)&#96;, the first 12 hex characters (&#96;:350262&#96;).
+> CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',
 
-代码：[model-gateway/engine.mjs:92](https://github.com/KKBK-233/unbundle/blob/c5ff84ac0652cef55683b4993fff57cca924b09b/model-gateway/engine.mjs#L92)
+代码：[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L112)
 
-> Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE&#95;CONFIG&#95;DIR: configDir,       CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',       ENABLE&#95;TOOL&#95;SEARCH: 'false', MCP&#95;TOOL&#95;TIMEOUT: String(timeoutMs &#124;&#124; 2147483647), CLAUDE&#95;CODE&#95;MAX&#95;OUTPUT&#95;TOKENS: String(maxOutputTokens) });
+> child = spawnProcess(cli, args, { env, cwd, detached: group, windowsHide: true, stdio: &#91;'pipe', 'pipe', 'pipe'&#93; });
+
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/cloud-server.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/server.mjs
 
 <a id="mechanism-otel-user-email"></a>
 ## OTel user email
@@ -947,9 +1236,9 @@ feature&#95;name 闭集仅用于 tengu&#95;feature&#95;ok/bad/sad 等遥测事�
 
 完整触发条件：用户配置 OTel 导出且非 diskless 模式时，只要账号有 emailAddress，就无条件写入 OTel resource 的 user.email；企业网关 OIDC 覆盖时从 JWT 补充 user.&#42; 身份属性。
 
-方向：待补充；触发：默认关闭／不触发；网关处理：待核实。
+方向：旧记录待回填；触发：旧记录待回填；网关处理：旧记录待回填。
 
-当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
+当前有效性：待重评（报告核验未完成）。历史评估结论：当前配置不触发。
 
 报告将 user.email 限定于用户启用 3P OTel 且非 diskless；默认 engine 的环境白名单不传 CLAUDE&#95;CODE&#95;ENABLE&#95;TELEMETRY/OTEL&#95;&#42;，用户 OTel 默认 OFF，故默认不发送。
 
@@ -976,25 +1265,25 @@ feature&#95;name 闭集仅用于 tengu&#95;feature&#95;ok/bad/sad 等遥测事�
 > const env = {};     for (const k of &#91;'PATH', 'Path', 'SystemRoot', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP', 'LANG'&#93;) if (process.env&#91;k&#93;) env&#91;k&#93; = process.env&#91;k&#93;;     Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE&#95;CONFIG&#95;DIR: configDir,       CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',       ENABLE&#95;TOOL&#95;SEARCH: 'false', MCP&#95;TOOL&#95;TIMEOUT: String(timeoutMs &#124;&#124; 2147483647), CLAUDE&#95;CODE&#95;MAX&#95;OUTPUT&#95;TOKENS: String(maxOutputTokens) });
 
 <a id="mechanism-overage-scope-protocol-header"></a>
-## 超额范围协议头
+## 限流超额范围协议头
 
 机制 ID：overage-scope-protocol-header
 
-### 当前报告来源 · 2.1.300 · 超额范围协议头
+### 当前报告来源 · 2.1.300 · 限流超额范围协议头
 
-[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/plan-tier-gating.md)；评估时间：2026-10-22T03:11:38Z；审阅提交：c5ff84ac0652。
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/plan-tier-gating.md)；评估时间：2026-10-22T10:00:45Z；审阅提交：9429ba2c51d9。
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
-机制：限流超额范围协议头：服务端 anthropic-ratelimit-unified-overage-scope 取值 service、channel 或 group&#95;pool，客户端据此显示团队共享预算、渠道月度支出限额或普通超额文案。
+机制：限流超额范围协议头：服务端 anthropic-ratelimit-unified-overage-scope 取值 service、channel 或 group&#95;pool，客户端据此显示团队共享预算、渠道支出限额或普通超额文案。
 
-完整触发条件：仅当响应头 anthropic-ratelimit-unified-overage-scope 存在时解析为 service、channel 或 group&#95;pool；group&#95;pool 显示团队共享预算提示，channel 且触发 spend cap 显示渠道月度支出限额提示。
+完整触发条件：服务端响应携带 anthropic-ratelimit-unified-overage-scope 且值为 service、channel 或 group&#95;pool 时，客户端按 scope 显示对应共享预算/渠道限额文案。
 
-方向：待补充；触发：待核实；网关处理：待核实。
+方向：服务端 → CLI；触发：条件触发；网关处理：不经过网关。
 
-当前有效性：未过滤。历史评估结论：未过滤。
+当前有效性：待核实（代码已变化）。历史评估结论：未过滤。
 
-该机制是 CLI 解析服务端 anthropic-ratelimit-unified-overage-scope 响应头生成提示文案，属 CLI 直连 api.anthropic.com 路径；engine.mjs 仅以 stdio 启动独立 CLI，默认不设 ANTHROPIC&#95;BASE&#95;URL，网关不转发也不解析该响应头，未过滤，也未实际触发。
+该值是服务端响应头，不是客户端上传字段；CLI 直连上游时在进程内解析。网关仅用 stdio 启动并读取 CLI，不代理或过滤该响应头；默认是否出现取决于服务端返回，触发为条件性。
 
 发现时间：2026-10-14（上游报告提交日期）。
 
@@ -1004,27 +1293,25 @@ feature&#95;name 闭集仅用于 tengu&#95;feature&#95;ok/bad/sad 等遥测事�
 
 报告原文（trigger）：
 
-> - &#96;group&#95;pool&#96; → &#96;"You've hit your team's shared budget"&#96; with a raise-it-at-admin link (&#96;183155&#96;–&#96;183159&#96;). - &#96;channel&#96; + spend cap → &#96;"You've hit your channel's monthly spend limit · an org owner or channel manager  can raise it in the channel's Claude settings"&#96; (&#96;183052&#96;–&#96;183056&#96;, &#96;183168&#96;).
+> &#96;nh()&#96; (&#96;184317&#96;) parses the &#42;&#42;NEW&#42;&#42; header &#96;anthropic-ratelimit-unified-overage-scope&#96; (0 in 2.1.197) into &#96;service&#96; / &#96;channel&#96; / &#96;group&#95;pool&#96;. &#96;bS()&#96; (&#96;183137&#96;) uses it:
 
 报告原文（version）：
 
 > &#42;&#42;Version&#42;&#42;: 2.1.300
 
+报告原文（direction）：
+
+> &#96;nh()&#96; (&#96;184317&#96;) parses the &#42;&#42;NEW&#42;&#42; header &#96;anthropic-ratelimit-unified-overage-scope&#96; (0 in 2.1.197) into &#96;service&#96; / &#96;channel&#96; / &#96;group&#95;pool&#96;. &#96;bS()&#96; (&#96;183137&#96;) uses it:
+
 关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/plan-tier-gating.md)
 
-> &#96;nh()&#96; (&#96;184317&#96;) parses the &#42;&#42;NEW&#42;&#42; header &#96;anthropic-ratelimit-unified-overage-scope&#96; (0 in 2.1.197) into
+> &#96;nh()&#96; (&#96;184317&#96;) parses the &#42;&#42;NEW&#42;&#42; header &#96;anthropic-ratelimit-unified-overage-scope&#96; (0 in 2.1.197) into &#96;service&#96; / &#96;channel&#96; / &#96;group&#95;pool&#96;. &#96;bS()&#96; (&#96;183137&#96;) uses it:
 
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/plan-tier-gating.md)
-
-> - &#96;group&#95;pool&#96; → &#96;"You've hit your team's shared budget"&#96; with a raise-it-at-admin link (&#96;183155&#96;–&#96;183159&#96;).
-
-代码：[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/c5ff84ac0652cef55683b4993fff57cca924b09b/model-gateway/engine.mjs#L112)
+代码：[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L112)
 
 > child = spawnProcess(cli, args, { env, cwd, detached: group, windowsHide: true, stdio: &#91;'pipe', 'pipe', 'pipe'&#93; });
 
-代码：[model-gateway/engine.mjs:100](https://github.com/KKBK-233/unbundle/blob/c5ff84ac0652cef55683b4993fff57cca924b09b/model-gateway/engine.mjs#L100)
-
-> Object.assign(env, { ANTHROPIC&#95;BASE&#95;URL: testUpstream.baseUrl, ANTHROPIC&#95;AUTH&#95;TOKEN: testUpstream.token });
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-compat.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/wire-probe.mjs
 
 <a id="mechanism-peer-message-frommode-marker"></a>
 ## peer message fromMode
@@ -1041,9 +1328,9 @@ feature&#95;name 闭集仅用于 tengu&#95;feature&#95;ok/bad/sad 等遥测事�
 
 完整触发条件：peer messaging 可用且构造消息；tengu&#95;harbor&#95;kite&#95;mode&#95;emit 为 true 时发送 fromMode。
 
-方向：待补充；触发：待核实；网关处理：待核实。
+方向：旧记录待回填；触发：旧记录待回填；网关处理：旧记录待回填。
 
-当前有效性：未过滤。历史评估结论：未过滤。
+当前有效性：待核实（来源已修订）。历史评估结论：未过滤。
 
 报告显示 tengu&#95;harbor&#95;kite 与 tengu&#95;harbor&#95;kite&#95;mode&#95;emit 默认均为 true，跨会话 peer messaging 满足条件时会写入 fromMode。目标网关仅 spawn 独立 CLI、通过 stdin/stdout 交换消息并解析 stdout 事件，不检查或改写 CLI 自发的 peer 出站消息；这是 CLI 自发路径，满足报告触发条件时未经过网关过滤。未声称默认会话已实际构造消息。
 
@@ -1080,45 +1367,47 @@ feature&#95;name 闭集仅用于 tengu&#95;feature&#95;ok/bad/sad 等遥测事�
 
 ### 当前报告来源 · 2.1.300 · 计划层级环境覆盖
 
-[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/plan-tier-gating.md)；评估时间：2026-10-22T03:11:38Z；审阅提交：c5ff84ac0652。
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/plan-tier-gating.md)；评估时间：2026-10-22T10:00:45Z；审阅提交：9429ba2c51d9。
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
-机制：计划层级环境覆盖：存在 OAuth token 或托管/FD token 时，用 CLAUDE&#95;CODE&#95;SUBSCRIPTION&#95;TYPE 与 CLAUDE&#95;CODE&#95;RATE&#95;LIMIT&#95;TIER 覆盖 subscriptionType/rateLimitTier，bg 快照亦写入 process.env 并透传子进程。
+机制：计划层级环境覆盖：存在 OAuth 或托管/FD token 时，用 CLAUDE&#95;CODE&#95;SUBSCRIPTION&#95;TYPE 与 CLAUDE&#95;CODE&#95;RATE&#95;LIMIT&#95;TIER 覆盖 subscriptionType/rateLimitTier；后台认证快照写入 process.env 并透传子进程。
 
-完整触发条件：当设置 CLAUDE&#95;CODE&#95;OAUTH&#95;TOKEN 或存在托管/FD token 时读取两个环境变量并覆盖计划/层级；bg 认证快照也会把二者写入 process.env，且二者在子进程环境透传允许列表中。
+完整触发条件：当存在 CLAUDE&#95;CODE&#95;OAUTH&#95;TOKEN，或存在托管/FD token 时，读取 CLAUDE&#95;CODE&#95;SUBSCRIPTION&#95;TYPE 与 CLAUDE&#95;CODE&#95;RATE&#95;LIMIT&#95;TIER 覆盖订阅类型与限流层级。
 
-方向：待补充；触发：待核实；网关处理：移除。
+方向：组件内部传递；触发：默认关闭／不触发；网关处理：移除。
 
-当前有效性：已过滤。历史评估结论：已过滤。
+当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
 
-机制经 CLAUDE&#95;CODE&#95;SUBSCRIPTION&#95;TYPE / CLAUDE&#95;CODE&#95;RATE&#95;LIMIT&#95;TIER 覆盖计划层级；engine.mjs 只按固定白名单重建子进程环境，这两个变量与 CLAUDE&#95;CODE&#95;OAUTH&#95;TOKEN 都不传入，覆盖通道被去除；CLI 自有凭据中的计划显示不属此机制。
+默认 engine 仅复制少量系统 env 并显式赋值，未传入 CLAUDE&#95;CODE&#95;SUBSCRIPTION&#95;TYPE/RATE&#95;LIMIT&#95;TIER；即使 CLI 凭据存在，这两个覆盖变量为空，默认不触发。网关重建子进程环境，属移除而非请求字段过滤。
 
 发现时间：2026-10-14（上游报告提交日期）。
 
 报告原文（mechanism）：
 
-> When &#96;CLAUDE&#95;CODE&#95;OAUTH&#95;TOKEN&#96; is set (&#96;129943&#96;), or a managed/FD token is present (&#96;129951&#96;–&#96;129959&#96;), it reads: - &#96;CLAUDE&#95;CODE&#95;SUBSCRIPTION&#95;TYPE&#96; → &#96;subscriptionType&#96; (&#96;129948&#96;, &#96;129957&#96;) - &#96;CLAUDE&#95;CODE&#95;RATE&#95;LIMIT&#95;TIER&#96; → &#96;rateLimitTier&#96; (&#96;129949&#96;, &#96;129958&#96;)
+> &#96;H0()&#96; (&#96;129942&#96;) builds the token record. When &#96;CLAUDE&#95;CODE&#95;OAUTH&#95;TOKEN&#96; is set (&#96;129943&#96;), or a managed/FD token is present (&#96;129951&#96;–&#96;129959&#96;), it reads: - &#96;CLAUDE&#95;CODE&#95;SUBSCRIPTION&#95;TYPE&#96; → &#96;subscriptionType&#96; (&#96;129948&#96;, &#96;129957&#96;) - &#96;CLAUDE&#95;CODE&#95;RATE&#95;LIMIT&#95;TIER&#96; → &#96;rateLimitTier&#96; (&#96;129949&#96;, &#96;129958&#96;)
 
 报告原文（trigger）：
 
-> When &#96;CLAUDE&#95;CODE&#95;OAUTH&#95;TOKEN&#96; is set (&#96;129943&#96;), or a managed/FD token is present (&#96;129951&#96;–&#96;129959&#96;), it reads: - &#96;CLAUDE&#95;CODE&#95;SUBSCRIPTION&#95;TYPE&#96; → &#96;subscriptionType&#96; (&#96;129948&#96;, &#96;129957&#96;) - &#96;CLAUDE&#95;CODE&#95;RATE&#95;LIMIT&#95;TIER&#96; → &#96;rateLimitTier&#96; (&#96;129949&#96;, &#96;129958&#96;)  The bg auth-snapshot consumer also writes both onto &#96;process.env&#96; (&#96;100807&#96;–&#96;100808&#96;). Both names are on the child-env passthrough allowlists (&#96;102888&#96;, &#96;102965&#96;, &#96;165624&#96;, &#96;1646702&#96;).
+> &#96;H0()&#96; (&#96;129942&#96;) builds the token record. When &#96;CLAUDE&#95;CODE&#95;OAUTH&#95;TOKEN&#96; is set (&#96;129943&#96;), or a managed/FD token is present (&#96;129951&#96;–&#96;129959&#96;), it reads: - &#96;CLAUDE&#95;CODE&#95;SUBSCRIPTION&#95;TYPE&#96; → &#96;subscriptionType&#96; (&#96;129948&#96;, &#96;129957&#96;) - &#96;CLAUDE&#95;CODE&#95;RATE&#95;LIMIT&#95;TIER&#96; → &#96;rateLimitTier&#96; (&#96;129949&#96;, &#96;129958&#96;)
 
 报告原文（version）：
 
 > &#42;&#42;Version&#42;&#42;: 2.1.300
 
+报告原文（direction）：
+
+> The bg auth-snapshot consumer also writes both onto &#96;process.env&#96; (&#96;100807&#96;–&#96;100808&#96;).
+
 关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/plan-tier-gating.md)
 
-> When &#96;CLAUDE&#95;CODE&#95;OAUTH&#95;TOKEN&#96; is set (&#96;129943&#96;)
+> &#96;H0()&#96; (&#96;129942&#96;) builds the token record. When &#96;CLAUDE&#95;CODE&#95;OAUTH&#95;TOKEN&#96; is set (&#96;129943&#96;), or a managed/FD token is present (&#96;129951&#96;–&#96;129959&#96;), it reads: - &#96;CLAUDE&#95;CODE&#95;SUBSCRIPTION&#95;TYPE&#96; → &#96;subscriptionType&#96; (&#96;129948&#96;, &#96;129957&#96;) - &#96;CLAUDE&#95;CODE&#95;RATE&#95;LIMIT&#95;TIER&#96; → &#96;rateLimitTier&#96; (&#96;129949&#96;, &#96;129958&#96;)
 
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/plan-tier-gating.md)
+代码：[model-gateway/engine.mjs:90](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L90)
 
-> - &#96;CLAUDE&#95;CODE&#95;SUBSCRIPTION&#95;TYPE&#96; → &#96;subscriptionType&#96; (&#96;129948&#96;, &#96;129957&#96;)
+> const env = {};     for (const k of &#91;'PATH', 'Path', 'SystemRoot', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP', 'LANG'&#93;) if (process.env&#91;k&#93;) env&#91;k&#93; = process.env&#91;k&#93;;     Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE&#95;CONFIG&#95;DIR: configDir,       CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',       ENABLE&#95;TOOL&#95;SEARCH: 'false', MCP&#95;TOOL&#95;TIMEOUT: String(timeoutMs &#124;&#124; 2147483647), CLAUDE&#95;CODE&#95;MAX&#95;OUTPUT&#95;TOKENS: String(maxOutputTokens) });
 
-代码：[model-gateway/engine.mjs:90](https://github.com/KKBK-233/unbundle/blob/c5ff84ac0652cef55683b4993fff57cca924b09b/model-gateway/engine.mjs#L90)
-
-> const env = {};     for (const k of &#91;'PATH', 'Path', 'SystemRoot', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP', 'LANG'&#93;) if (process.env&#91;k&#93;) env&#91;k&#93; = process.env&#91;k&#93;;     Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE&#95;CONFIG&#95;DIR: configDir,
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-compat.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/wire-probe.mjs
 
 <a id="mechanism-plugin-telemetry-device-id"></a>
 ## Plugin telemetry deviceId
@@ -1135,9 +1424,9 @@ feature&#95;name 闭集仅用于 tengu&#95;feature&#95;ok/bad/sad 等遥测事�
 
 完整触发条件：仅 builtin/core 插件可调用该遥测能力，且 !iy() 为真并通过分析开关/策略检查时，读取配置 userID 作为 deviceId，携带账号、组织和 session POST 到硬编码 api.anthropic.com 批量事件接口。
 
-方向：待补充；触发：默认关闭／不触发；网关处理：待核实。
+方向：旧记录待回填；触发：旧记录待回填；网关处理：旧记录待回填。
 
-当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
+当前有效性：待重评（报告核验未完成）。历史评估结论：当前配置不触发。
 
 插件遥测可用性为 !iy()；默认 engine 设置 CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC=1，报告控制矩阵将其归为 essential-traffic 并关闭插件遥测。默认不以 userID 作为 deviceId 发送。
 
@@ -1168,72 +1457,78 @@ feature&#95;name 闭集仅用于 tengu&#95;feature&#95;ok/bad/sad 等遥测事�
 > const env = {};     for (const k of &#91;'PATH', 'Path', 'SystemRoot', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP', 'LANG'&#93;) if (process.env&#91;k&#93;) env&#91;k&#93; = process.env&#91;k&#93;;     Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE&#95;CONFIG&#95;DIR: configDir,       CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',       ENABLE&#95;TOOL&#95;SEARCH: 'false', MCP&#95;TOOL&#95;TIMEOUT: String(timeoutMs &#124;&#124; 2147483647), CLAUDE&#95;CODE&#95;MAX&#95;OUTPUT&#95;TOKENS: String(maxOutputTokens) });
 
 <a id="mechanism-safety-refusal-model-switch-header"></a>
-## x-cc-tender-quilt 拒绝切换头
+## 安全拒绝模型切换头
 
 机制 ID：safety-refusal-model-switch-header
 
-### 当前报告来源 · 2.1.300 · x-cc-tender-quilt 拒绝切换头
+### 当前报告来源 · 2.1.300 · 安全拒绝模型切换头
 
-[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/codenames.md)；评估时间：2026-10-20T03:15:34Z；审阅提交：1041cadac6fc。
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/codenames.md)；评估时间：2026-10-22T09:42:46Z；审阅提交：9429ba2c51d9。
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
-机制：安全拒绝模型切换头协议标记：请求头 x-cc-tender-quilt 与 convolute&#95;arcades/tender&#95;quilt 状态及拒绝后模型切换逻辑关联。
+机制：安全拒绝模型切换头协议标记：HTTP 头 x-cc-tender-quilt 与 convolute&#95;arcades/tender&#95;quilt 状态及拒绝后模型切换逻辑关联。
 
-完整触发条件：消息被标记为 cyber 或 frontier&#95;llm 拒绝类别并触发自动切换模型时。
+完整触发条件：在安全拒绝分类为 cyber 或 frontier&#95;llm 并触发模型切换时，QPe 返回 convolute&#95;arcades/tender&#95;quilt/none 状态；HTTP 头 x-cc-tender-quilt 与该状态关联。
 
-方向：待补充；触发：待核实；网关处理：待核实。
+方向：证据不足；触发：条件触发；网关处理：不经过网关。
 
 当前有效性：待核实（代码已变化）。历史评估结论：未过滤。
 
-报告称该头由 CLI 在 cyber/frontier&#95;llm 拒绝切换时生成；默认 engine 仅 spawn 独立 CLI 并经 stdio 交互，CLI 自行认证、直接向上游发请求，网关不解析或改写出站 HTTP 头。CLI 自发路径，满足报告触发条件时未经过网关过滤；默认配置未禁用该切换，但未声称实际触发。
+x-cc-tender-quilt 是 CLI 在安全拒绝后切换模型时自行附加的出站头；网关只通过 stdio 启动独立 CLI 并转交提示词，不代理该 HTTP 请求。默认不会必然遇到 cyber/frontier&#95;llm 拒绝，故属条件触发；属 CLI 自发路径，满足报告触发条件时未经过网关过滤。
 
 发现时间：2026-10-14（上游报告提交日期）。
 
 报告原文（mechanism）：
 
-> &#96;var Rl = "convolute&#95;arcades"&#96;, header &#96;x-cc-tender-quilt&#96;
+> &#96;var Rl = "convolute&#95;arcades"&#96;, header &#96;x-cc-tender-quilt&#96; (&#96;:179815–179816&#96;)
 
 报告原文（trigger）：
 
-> swaps the model only for refusal categories &#96;yy = new Set(&#91;"cyber","frontier&#95;llm"&#93;)&#96;
+> &#96;zEo()&#96; swaps the model only for refusal categories &#96;yy = new Set(&#91;"cyber","frontier&#95;llm"&#93;)&#96; (&#96;:179847–179856&#96;)
 
 报告原文（version）：
 
 > &#42;&#42;Version&#42;&#42;: 2.1.300
 
+报告原文（direction）：
+
+> header &#96;x-cc-tender-quilt&#96; (&#96;:179815–179816&#96;)
+
 关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/codenames.md)
 
-> &#42;&#42;NEW in 2.1.300 (0 occurrences in 2.1.197; see the correction below).&#42;&#42; &#96;var Rl = "convolute&#95;arcades"&#96;, header &#96;x-cc-tender-quilt&#96; (&#96;:179815–179816&#96;). &#96;QPe()&#96; returns &#96;"convolute&#95;arcades"&#96;, &#96;"tender&#95;quilt"&#96; or &#96;"none"&#96; (&#96;:179835&#96;). &#96;zEo()&#96; swaps the model only for refusal categories &#96;yy = new Set(&#91;"cyber","frontier&#95;llm"&#93;)&#96; (&#96;:179847–179856&#96;). The user string is &#96;"automatically switched from ${e} after a message was flagged — run /model to switch back"&#96; (&#96;:179813&#96;). Events &#96;tengu&#95;convolute&#95;arcades&#95;tools&#96;/&#96;&#95;retry&#96;/&#96;&#95;retry&#95;outcome&#96; (&#96;:751498&#96;, &#96;:757068&#96;).
+> &#96;var Rl = "convolute&#95;arcades"&#96;, header &#96;x-cc-tender-quilt&#96; (&#96;:179815–179816&#96;). &#96;QPe()&#96; returns &#96;"convolute&#95;arcades"&#96;, &#96;"tender&#95;quilt"&#96; or &#96;"none"&#96; (&#96;:179835&#96;). &#96;zEo()&#96; swaps the model only for refusal categories &#96;yy = new Set(&#91;"cyber","frontier&#95;llm"&#93;)&#96; (&#96;:179847–179856&#96;).
 
-代码：[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/1041cadac6fc7609c308a9da6dc5913402eb1904/model-gateway/engine.mjs#L112)
+代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L104)
+
+> const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,
+
+代码：[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L112)
 
 > child = spawnProcess(cli, args, { env, cwd, detached: group, windowsHide: true, stdio: &#91;'pipe', 'pipe', 'pipe'&#93; });
 
-代码：[model-gateway/cloud-server.mjs:8](https://github.com/KKBK-233/unbundle/blob/1041cadac6fc7609c308a9da6dc5913402eb1904/model-gateway/cloud-server.mjs#L8)
-
-> // 云端专用入口：官方 CLI 持有认证；网关仅检查登录布尔状态。
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-compat.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
 
 <a id="mechanism-self-hosted-runner-jwt-identity-env"></a>
-## 自托管运行器JWT身份环境变量
+## 自托管运行器JWT身份环境注入
 
 机制 ID：self-hosted-runner-jwt-identity-env
 
-### 当前报告来源 · 2.1.300 · 自托管运行器JWT身份环境变量
+### 当前报告来源 · 2.1.300 · 自托管运行器JWT身份环境注入
 
-[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/environment-variables.md)；评估时间：2026-10-21T03:13:15Z；审阅提交：c95455119f84。
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/environment-variables.md)；评估时间：2026-10-22T09:45:06Z；审阅提交：9429ba2c51d9。
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
 机制：自托管运行器 JWT 身份环境注入：从工单 JWT 的 account&#95;email、account&#95;id、jti 等 claims 生成 CLAUDE&#95;RUNNER&#95;&#42; 环境变量，交给 hook 脚本，承载账号与工单身份。
 
-完整触发条件：自托管运行器（BYOC）执行 hook 脚本，且工单 JWT 含 account&#95;email/account&#95;id 等 claims 时；普通云端会话或无 hook 场景不触发。
+完整触发条件：自托管运行器（BYOC）为 hook 脚本构造环境且持有工单 JWT 时，从 claims 写入 CLAUDE&#95;RUNNER&#95;&#42; 账号与工单标识变量。
 
-方向：待补充；触发：默认关闭／不触发；网关处理：待核实。
+方向：组件内部传递；触发：默认关闭／不触发；网关处理：不经过网关。
 
-当前有效性：当前配置不触发。历史评估结论：当前配置不触发。
+当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
 
-报告要求自托管运行器（BYOC）执行 hook 脚本，才从工单 JWT 生成 CLAUDE&#95;RUNNER&#95;&#42;。网关仅以 --setting-sources ''、--tools '' 等固定参数启动独立 CLI，环境仅白名单加固定项，默认未配置 BYOC runner 或 hook；该 CLI 内部环境注入条件不成立，且非模型请求字段。
+默认 Unbundle 启动参数未启用自托管运行器/BYOC，也没有工单 JWT；CLAUDE&#95;RUNNER&#95;&#42; 仅在该模式下由 CLI 为 hook 脚本构造，属于 CLI 内部子进程环境。网关只以白名单 env 启动独立 CLI 并走 stdio，不介入该路径，故默认不产生、也无过滤点。
 
 发现时间：2026-10-14（上游报告提交日期）。
 
@@ -1243,23 +1538,29 @@ feature&#95;name 闭集仅用于 tengu&#95;feature&#95;ok/bad/sad 等遥测事�
 
 报告原文（trigger）：
 
-> &#96;CLAUDE&#95;RUNNER&#95;ACCOUNT&#95;EMAIL&#96; / &#96;CLAUDE&#95;RUNNER&#95;ACCOUNT&#95;ID&#96; are set &#42;&#42;for&#42;&#42; self-hosted runner hook scripts, from the work order's JWT claims (&#96;claims.account&#95;email&#96;, &#96;claims.account&#95;id&#96;, &#96;:617889–617890&#96;), together with &#96;CLAUDE&#95;RUNNER&#95;ORDER&#95;ID&#96; = &#96;claims.jti&#96; and &#96;CLAUDE&#95;RUNNER&#95;POOL&#95;ID&#96;.
+> are set &#42;&#42;for&#42;&#42; self-hosted runner hook scripts, from the work order's JWT claims
 
 报告原文（version）：
 
 > &#42;&#42;Version&#42;&#42;: 2.1.300
 
+报告原文（direction）：
+
+> are set &#42;&#42;for&#42;&#42; self-hosted runner hook scripts
+
 关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/environment-variables.md)
 
 > &#96;CLAUDE&#95;RUNNER&#95;ACCOUNT&#95;EMAIL&#96; / &#96;CLAUDE&#95;RUNNER&#95;ACCOUNT&#95;ID&#96; are set &#42;&#42;for&#42;&#42; self-hosted runner hook scripts, from the work order's JWT claims (&#96;claims.account&#95;email&#96;, &#96;claims.account&#95;id&#96;, &#96;:617889–617890&#96;), together with &#96;CLAUDE&#95;RUNNER&#95;ORDER&#95;ID&#96; = &#96;claims.jti&#96; and &#96;CLAUDE&#95;RUNNER&#95;POOL&#95;ID&#96;.
 
-代码：[model-gateway/engine.mjs:90](https://github.com/KKBK-233/unbundle/blob/c95455119f8479636dc880f6267c135646b422d1/model-gateway/engine.mjs#L90)
+代码：[model-gateway/engine.mjs:90](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L90)
 
 > const env = {};     for (const k of &#91;'PATH', 'Path', 'SystemRoot', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP', 'LANG'&#93;) if (process.env&#91;k&#93;) env&#91;k&#93; = process.env&#91;k&#93;;     Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE&#95;CONFIG&#95;DIR: configDir,       CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',       ENABLE&#95;TOOL&#95;SEARCH: 'false', MCP&#95;TOOL&#95;TIMEOUT: String(timeoutMs &#124;&#124; 2147483647), CLAUDE&#95;CODE&#95;MAX&#95;OUTPUT&#95;TOKENS: String(maxOutputTokens) });
 
-代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/c95455119f8479636dc880f6267c135646b422d1/model-gateway/engine.mjs#L104)
+代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L104)
 
 > const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;omp&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', '2', '--model', model, '--system-prompt-file', promptFile&#93;;
+
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-compat.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
 
 <a id="mechanism-self-hosted-runner-version-header"></a>
 ## 自托管运行器版本头
@@ -1268,19 +1569,19 @@ feature&#95;name 闭集仅用于 tengu&#95;feature&#95;ok/bad/sad 等遥测事�
 
 ### 当前报告来源 · 2.1.300 · 自托管运行器版本头
 
-[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)；评估时间：2026-10-20T03:12:07Z；审阅提交：1041cadac6fc。
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)；评估时间：2026-10-22T09:39:51Z；审阅提交：9429ba2c51d9。
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
 机制：自托管运行器版本头：自托管 runner 控制面请求携带 x-self-hosted-runner-version，作为运行器版本协议指纹。
 
-完整触发条件：自托管 runner 的注册、轮询、spawn-hints、会话令牌、释放、注销等控制面请求。
+完整触发条件：自托管 runner 控制面客户端 cfn() 使用 ee()/B() 组装请求头时发送；worker 调用改用 K()，不带该版本头。
 
-方向：待补充；触发：默认关闭／不触发；网关处理：待核实。
+方向：本地客户端 → 网关；触发：默认关闭／不触发；网关处理：不经过网关。
 
 当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
 
-报告将 &#96;x-self-hosted-runner-version&#96; 限定在自托管 runner 控制面调用；默认网关是一次性 &#96;-p&#96; 推理进程，未运行 self-hosted runner 客户端或注册/轮询循环，默认不触发该控制面，故未发送。
+默认 CLI 未启用自托管 runner 控制面，启动参数和环境均无 runner 注册/轮询配置；报告要求 cfn() 用 ee()/B() 组装控制面请求时才带 x-self-hosted-runner-version。该请求由 CLI 自发，不经过网关入站适配器，故默认不触发。
 
 发现时间：2026-10-14（上游报告提交日期）。
 
@@ -1290,50 +1591,56 @@ feature&#95;name 闭集仅用于 tengu&#95;feature&#95;ok/bad/sad 等遥测事�
 
 报告原文（trigger）：
 
-> Calls carry the header &#96;x-self-hosted-runner-version&#96; (§4).
+> Client &#96;cfn()&#96; in module 432 (&#96;:600413-600720&#96;). Headers (&#96;ee()&#96;/&#96;B()&#96;, &#96;:600255-600273&#96;; worker calls use &#96;K()&#96; &#96;:600275&#96;, no runner-version header):
 
 报告原文（version）：
 
 > &#42;&#42;Version&#42;&#42;: 2.1.300
 
+报告原文（direction）：
+
+> Client &#96;cfn()&#96; in module 432 (&#96;:600413-600720&#96;).
+
 关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)
 
-> Calls carry the header &#96;x-self-hosted-runner-version&#96; (§4).
+> Client &#96;cfn()&#96; in module 432 (&#96;:600413-600720&#96;). Headers (&#96;ee()&#96;/&#96;B()&#96;, &#96;:600255-600273&#96;; worker calls use &#96;K()&#96; &#96;:600275&#96;, no runner-version header): &#96;Authorization: Bearer &lt;pool secret &#124; session token&gt;&#96;, &#96;anthropic-version: 2023-06-01&#96;, &#96;x-self-hosted-runner-version&#96; (0 occurrences in 2.1.197).
 
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)
-
-> &#124; &#96;/v1/code/runners/self-hosted/runners/register&#96; &#124; POST &#124; &#96;{runner&#95;version, use&#95;anthropic&#95;git&#95;proxy, server&#95;auto&#95;mode&#95;lists, client&#95;label?, lock&#95;to&#95;account&#95;id?}&#96; → &#96;runner&#95;id&#96; (&#96;:600435&#96;) &#124;
-
-代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/1041cadac6fc7609c308a9da6dc5913402eb1904/model-gateway/engine.mjs#L104)
+代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L104)
 
 > const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;omp&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', '2', '--model', model, '--system-prompt-file', promptFile&#93;;
 
+代码：[model-gateway/engine.mjs:92](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L92)
+
+> Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE&#95;CONFIG&#95;DIR: configDir,       CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',       ENABLE&#95;TOOL&#95;SEARCH: 'false', MCP&#95;TOOL&#95;TIMEOUT: String(timeoutMs &#124;&#124; 2147483647), CLAUDE&#95;CODE&#95;MAX&#95;OUTPUT&#95;TOKENS: String(maxOutputTokens) });
+
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/cloud-server.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
+
 <a id="mechanism-server-side-arbiter-beta-header"></a>
-## server-side arbiter beta header
+## 服务端仲裁器 beta 头
 
 机制 ID：server-side-arbiter-beta-header
 
-### 当前报告来源 · 2.1.300 · server-side arbiter beta header
+### 当前报告来源 · 2.1.300 · 服务端仲裁器 beta 头
 
-[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)；评估时间：2026-10-22T03:13:15Z；审阅提交：c5ff84ac0652。
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)；评估时间：2026-10-22T10:03:06Z；审阅提交：9429ba2c51d9。
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
-机制：服务端仲裁器 beta 头协议指纹：服务端分类器（arbiter）请求携带 &#96;dangerous-tool-use-2026-09-03&#96; beta 头，响应以 &#96;safeguard&#95;results&#96; 返回裁决。
+机制：服务端仲裁器 beta 头协议指纹：arbiter 请求携带 dangerous-tool-use-2026-09-03 beta 头，标识服务端分类器调用。
 
-完整触发条件：自动模式使用服务端分类器审查工具调用且 &#96;cE(tool)&#96; 返回 &#96;arbiter&#96; 或 &#96;arbiterWithLocalFallback&#96; 时。
+完整触发条件：自动模式调用服务端分类器（arbiter）时。
 
-方向：待补充；触发：默认关闭／不触发；网关处理：待核实。
+方向：云端 CLI → 服务端；触发：默认关闭／不触发；网关处理：不经过网关。
 
-当前有效性：当前配置不触发。历史评估结论：当前配置不触发。
+当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
 
-默认固定 &#96;--permission-mode dontAsk&#96;，未进入 auto 模式；报告把 server-side arbiter 归入自动模式分类器路径，因此该 beta 头与 safeguard&#95;results 请求在默认配置下不发起，网关也未介入 CLI 出站。
+默认 &#96;--permission-mode dontAsk&#96; 不进入 &#96;auto&#96;，服务端仲裁器不会被调用，&#96;dangerous-tool-use-2026-09-03&#96; beta 头不发送；若进入 auto，该头由 CLI 自行向服务端请求，不经过网关过滤。
 
 发现时间：2026-10-14（上游报告提交日期）。
 
 报告原文（mechanism）：
 
-> The API beta &#96;dangerous-tool-use-2026-09-03&#96; (&#96;YC&#96;, &#96;:92316&#96;) and the response field &#96;safeguard&#95;results&#96; (&#96;:96445&#96;) carry an &#96;evaluated{outcome:"flagged"&#124;"not&#95;flagged"}&#96; / &#96;skipped&#96; / &#96;unavailable&#96; verdict (&#96;AEo&#96;, &#96;:431576&#96;).
+> The API beta &#96;dangerous-tool-use-2026-09-03&#96; (&#96;YC&#96;, &#96;:92316&#96;)
 
 报告原文（trigger）：
 
@@ -1341,11 +1648,15 @@ feature&#95;name 闭集仅用于 tengu&#95;feature&#95;ok/bad/sad 等遥测事�
 
 报告原文（version）：
 
-> &#42;&#42;Version&#42;&#42;: 2.1.300 &#124; &#42;&#42;Build&#42;&#42;: &#96;2026-10-14T12:54:55Z&#96;
+> &#42;&#42;Version&#42;&#42;: 2.1.300
+
+报告原文（direction）：
+
+> The API beta &#96;dangerous-tool-use-2026-09-03&#96; (&#96;YC&#96;, &#96;:92316&#96;) and the response field &#96;safeguard&#95;results&#96; (&#96;:96445&#96;) carry an &#96;evaluated{outcome:"flagged"&#124;"not&#95;flagged"}&#96; / &#96;skipped&#96; / &#96;unavailable&#96; verdict (&#96;AEo&#96;, &#96;:431576&#96;).
 
 关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)
 
-> The model-based layer is the &#42;&#42;auto-mode classifier&#42;&#42;, and it was substantially rebuilt (graded severity, a consent-bar framework, a server-side "arbiter" path, and 72 SOFT-BLOCK rules where 2.1.197 had 55).
+> The API beta &#96;dangerous-tool-use-2026-09-03&#96; (&#96;YC&#96;, &#96;:92316&#96;)
 
 关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)
 
@@ -1353,15 +1664,17 @@ feature&#95;name 闭集仅用于 tengu&#95;feature&#95;ok/bad/sad 等遥测事�
 
 关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)
 
-> The API beta &#96;dangerous-tool-use-2026-09-03&#96; (&#96;YC&#96;, &#96;:92316&#96;) and the response field &#96;safeguard&#95;results&#96; (&#96;:96445&#96;) carry an &#96;evaluated{outcome:"flagged"&#124;"not&#95;flagged"}&#96; / &#96;skipped&#96; / &#96;unavailable&#96; verdict (&#96;AEo&#96;, &#96;:431576&#96;).
-
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)
-
 > Six external modes, unchanged: &#96;TD = &#91;"acceptEdits","auto","bypassPermissions","default","dontAsk","plan"&#93;&#96; (&#96;:25394&#96;).
 
-代码：[model-gateway/engine.mjs:105](https://github.com/KKBK-233/unbundle/blob/c5ff84ac0652cef55683b4993fff57cca924b09b/model-gateway/engine.mjs#L105)
+代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L104)
 
-> '--no-chrome', '--permission-mode', 'dontAsk',
+> const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;omp&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', '2', '--model', model, '--system-prompt-file', promptFile&#93;;
+
+代码：[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L112)
+
+> child = spawnProcess(cli, args, { env, cwd, detached: group, windowsHide: true, stdio: &#91;'pipe', 'pipe', 'pipe'&#93; });
+
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-compat.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
 
 <a id="mechanism-summon-sid-hmac"></a>
 ## Summon SID HMAC
@@ -1378,9 +1691,9 @@ feature&#95;name 闭集仅用于 tengu&#95;feature&#95;ok/bad/sad 等遥测事�
 
 完整触发条件：仅在 artifact-comment 的 summon-status 上报路径、当前 (sessionId, artifact slug) 尚无 sid 时，以 summonSidKey 对 sessionId+slug 做 HMAC-SHA256 并取前16位作为 sid 发送；密钥本身不离开本机。
 
-方向：待补充；触发：默认关闭／不触发；网关处理：待核实。
+方向：旧记录待回填；触发：旧记录待回填；网关处理：旧记录待回填。
 
-当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
+当前有效性：待重评（报告核验未完成）。历史评估结论：当前配置不触发。
 
 报告将 sid 限定于 artifact-comment 的 summon-status 通道；feature flags 显示 artifact comments 主 gate tengu&#95;teal&#95;corbel 和读取 gate tengu&#95;onyx&#95;sluice 默认 false。默认不生成或发送 summon sid。
 
@@ -1414,6 +1727,116 @@ feature&#95;name 闭集仅用于 tengu&#95;feature&#95;ok/bad/sad 等遥测事�
 
 > const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;omp&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', '2', '--model', model, '--system-prompt-file', promptFile&#93;;
 
+<a id="mechanism-tool-schema-strict-flag"></a>
+## 工具定义 strict 协议标记
+
+机制 ID：tool-schema-strict-flag
+
+### 当前报告来源 · 2.1.300 · 工具定义 strict 协议标记
+
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/tool-definitions.md)；评估时间：2026-11-12T03:09:12Z；审阅提交：327237427977。
+
+评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
+
+机制：工具定义 strict 协议标记：序列化发往 API 的工具定义时，在结构化输出 beta 可用且工具声明 strict 或 strictInputJSONSchema 并通过对应门槛时写入 strict:true，并可能替换 input&#95;schema。
+
+完整触发条件：序列化发往 API 的工具定义时，模型 beta 列表含 bae（structured-outputs-2025-12-15，需 tengu&#95;tool&#95;pear 与 rKn(model)）；随后若工具声明 strict:!0 且 Ywr(schema) 通过，或未走该分支但声明 strictInputJSONSchema 且 tengu&#95;structured&#95;output&#95;strict 开启，则写入 strict:true。
+
+方向：本地客户端 → 网关；触发：默认关闭／不触发；网关处理：不经过网关。
+
+当前有效性：当前配置不触发。历史评估结论：当前配置不触发。
+
+按报告默认 tengu&#95;tool&#95;pear=false、tengu&#95;structured&#95;output&#95;strict=false，且默认 --tools 为空，strict 标记不触发；若显式启用，strict 由 CLI 序列化后直接发往 Anthropic，网关仅以 stdio 启动 CLI 并转交输入，不检查该出站请求，故不在网关过滤范围。
+
+发现时间：2026-10-14（上游报告提交日期）。
+
+报告原文（mechanism）：
+
+> if (e.strict === !0) { let So = Ywr(Kn); if (So.ok) { Vn.strict = !0; Vn.input&#95;schema = So.schema } else warn(...) }  else if (e.strictInputJSONSchema &amp;&amp; k("tengu&#95;structured&#95;output&#95;strict", !1)) { Vn.strict = !0; ... }
+
+报告原文（trigger）：
+
+> The model's beta list contains &#96;bae&#96; (&#96;aKn&#96;, &#96;:127578&#96;). &#96;bae = k("structured&#95;outputs", "structured-outputs-2025-12-15")&#96;  (&#96;:92281&#96;), so the header string itself is flag-overridable. That beta is  attached only when &#96;tengu&#95;tool&#95;pear&#96; (default &#96;!1&#96;) &#42;&#42;and&#42;&#42; &#96;rKn(model)&#96; hold (&#96;:127468&#96;).  2. The tool declares &#96;strict:!0&#96;.  3. &#96;Ywr(schema)&#96; (&#96;:300383&#96;) accepts the schema. If it rejects it, the client logs &#42;"has strict: true but its  schema is not strict-compatible … sending non-strict"&#42;.   The flag still gates the feature, but now through the beta. 2.1.197 checked it inline. The same  &#42;&#42;8&#42;&#42; tools declare &#96;strict:!0&#96;: Bash, Read, Write, Edit, Grep, PowerShell, TodoWrite, ReportFindings.  &#96;strictInputJSONSchema&#96; is a second, NEW path, gated by &#96;tengu&#95;structured&#95;output&#95;strict&#96;.
+
+报告原文（version）：
+
+> &#42;&#42;Version&#42;&#42;: 2.1.300
+
+报告原文（direction）：
+
+> ## How Tool Schemas Are Serialised for the API
+
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/tool-definitions.md)
+
+> 1. The model's beta list contains &#96;bae&#96; (&#96;aKn&#96;, &#96;:127578&#96;). &#96;bae = k("structured&#95;outputs", "structured-outputs-2025-12-15")&#96;  (&#96;:92281&#96;), so the header string itself is flag-overridable. That beta is  attached only when &#96;tengu&#95;tool&#95;pear&#96; (default &#96;!1&#96;) &#42;&#42;and&#42;&#42; &#96;rKn(model)&#96; hold (&#96;:127468&#96;).
+
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/feature-flags.md)
+
+> &#124; &#96;tengu&#95;structured&#95;output&#95;strict&#96; &#124; &#96;false&#96; &#124; k &#124; NEW &#124; &#96;:446552&#96; &#124; Send strict:true tool input schemas. &#124;
+
+代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/327237427977204476b665d465c69b4688059d25/model-gateway/engine.mjs#L104)
+
+> const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', discovery.builtin, '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;caller&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', String(discovery.enabled ? discovery.maxCalls + 2 : 2), '--model', model, '--system-prompt-file', promptFile&#93;;     if (discovery.enabled) args.splice(args.indexOf('--allowedTools') + 1, 0, 'ToolSearch');
+
+代码：[model-gateway/engine.mjs:113](https://github.com/KKBK-233/unbundle/blob/327237427977204476b665d465c69b4688059d25/model-gateway/engine.mjs#L113)
+
+> child = spawnProcess(cli, args, { env, cwd, detached: group, windowsHide: true, stdio: &#91;'pipe', 'pipe', 'pipe'&#93; });
+
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/messages.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs、model-gateway/tool-definition-update.mjs、model-gateway/tool-search-config.mjs
+
+<a id="mechanism-tool-search-beta-headers"></a>
+## ToolSearch beta 头协议指纹
+
+机制 ID：tool-search-beta-headers
+
+### 当前报告来源 · 2.1.300 · ToolSearch beta 头协议指纹
+
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/tool-definitions.md)；评估时间：2026-11-12T03:09:12Z；审阅提交：327237427977。
+
+评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
+
+机制：ToolSearch beta 头协议指纹：ToolSearch 工具路径在请求中携带 advanced-tool-use-2025-11-20 与 tool-search-tool-2025-10-19 beta 头，标识客户端工具搜索能力。
+
+完整触发条件：ToolSearch 工具描述构造路径中（描述由 Wwr() 生成，toolSearchFetchRule 可切换描述变体），请求携带 advanced-tool-use-2025-11-20 与 tool-search-tool-2025-10-19 beta 头。
+
+方向：本地客户端 → 网关；触发：默认关闭／不触发；网关处理：不经过网关。
+
+当前有效性：当前配置不触发。历史评估结论：当前配置不触发。
+
+按报告 beta 头仅在 ToolSearch 描述/工具路径出现；默认 toolSearch=false，discovery.builtin 为空且不追加 ToolSearch，ENABLE&#95;TOOL&#95;SEARCH 设为 'false'，故默认不触发。若显式启用，CLI 自行向上游发送该请求，网关不介入其出站路径。
+
+发现时间：2026-10-14（上游报告提交日期）。
+
+报告原文（mechanism）：
+
+> Beta headers: &#96;advanced-tool-use-2025-11-20&#96; (&#96;hPo&#96;) and &#96;tool-search-tool-2025-10-19&#96; (&#96;gqn&#96;) (&#96;:92283&#96;–&#96;:92284&#96;).
+
+报告原文（trigger）：
+
+> The description is built by &#96;Wwr()&#96; (&#96;:365150&#96;) as &#96;c + (u$s() ? p : m) + h&#96;. When &#96;Po().toolSearchFetchRule&#96; is set (&#96;:113300&#96;), the variant &#96;p&#96; adds: &#42;"calling the tool fails with InputValidationError. When any instruction, system reminder, or other tool's description names a deferred tool, fetch it with query "select:&lt;name&gt;" before calling it."&#42; Query forms are unchanged: &#96;select:A,B&#96;, keyword, &#96;+require&#96;. Beta headers: &#96;advanced-tool-use-2025-11-20&#96; (&#96;hPo&#96;) and &#96;tool-search-tool-2025-10-19&#96; (&#96;gqn&#96;) (&#96;:92283&#96;–&#96;:92284&#96;).
+
+报告原文（version）：
+
+> &#42;&#42;Version&#42;&#42;: 2.1.300
+
+报告原文（direction）：
+
+> Beta headers: &#96;advanced-tool-use-2025-11-20&#96; (&#96;hPo&#96;) and &#96;tool-search-tool-2025-10-19&#96; (&#96;gqn&#96;) (&#96;:92283&#96;–&#96;:92284&#96;).
+
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/tool-definitions.md)
+
+> The description is built by &#96;Wwr()&#96; (&#96;:365150&#96;) as &#96;c + (u$s() ? p : m) + h&#96;. When &#96;Po().toolSearchFetchRule&#96; is set (&#96;:113300&#96;), the variant &#96;p&#96; adds: &#42;"calling the tool fails with InputValidationError. When any instruction, system reminder, or other tool's description names a deferred tool, fetch it with query "select:&lt;name&gt;" before calling it."&#42; Query forms are unchanged: &#96;select:A,B&#96;, keyword, &#96;+require&#96;. Beta headers: &#96;advanced-tool-use-2025-11-20&#96; (&#96;hPo&#96;) and &#96;tool-search-tool-2025-10-19&#96; (&#96;gqn&#96;) (&#96;:92283&#96;–&#96;:92284&#96;).
+
+代码：[model-gateway/tool-search-config.mjs:2](https://github.com/KKBK-233/unbundle/blob/327237427977204476b665d465c69b4688059d25/model-gateway/tool-search-config.mjs#L2)
+
+> export function toolSearchConfig({ toolSearch = false, maxToolSearchCalls = 8 } = {}) {   if (typeof toolSearch !== 'boolean') throw new Error('toolSearch 必须为布尔值');   if (!Number.isSafeInteger(maxToolSearchCalls) &#124;&#124; maxToolSearchCalls &lt; 1 &#124;&#124; maxToolSearchCalls &gt; 64) throw new Error('maxToolSearchCalls 必须为 1..64');   return { enabled: toolSearch, maxCalls: maxToolSearchCalls, builtin: toolSearch ? 'ToolSearch' : '', environment: toolSearch ? 'true' : 'false' }; }
+
+代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/327237427977204476b665d465c69b4688059d25/model-gateway/engine.mjs#L104)
+
+> const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', discovery.builtin, '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;caller&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', String(discovery.enabled ? discovery.maxCalls + 2 : 2), '--model', model, '--system-prompt-file', promptFile&#93;;     if (discovery.enabled) args.splice(args.indexOf('--allowedTools') + 1, 0, 'ToolSearch');
+
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/messages.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs、model-gateway/tool-definition-update.mjs、model-gateway/tool-search-config.mjs
+
 <a id="mechanism-trusted-device-token"></a>
 ## 可信设备令牌头
 
@@ -1421,25 +1844,25 @@ feature&#95;name 闭集仅用于 tengu&#95;feature&#95;ok/bad/sad 等遥测事�
 
 ### 当前报告来源 · 2.1.300 · 可信设备令牌头
 
-[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)；评估时间：2026-10-20T03:12:07Z；审阅提交：1041cadac6fc。
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)；评估时间：2026-10-22T09:39:51Z；审阅提交：9429ba2c51d9。
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
-机制：可信设备令牌头透传：将 X-Trusted-Device-Token 随 CCR CRUD、桥接、桥接环境、inbox、move-to-cloud 和 GitHub PR 请求发送，供服务端识别可信设备。
+机制：可信设备令牌头：存在可信设备令牌时，X-Trusted-Device-Token 随 CCR CRUD、桥接、桥接环境、inbox、move-to-cloud 和 GitHub PR 请求发送。
 
-完整触发条件：当存在可信设备令牌时，上述请求附加该头。
+完整触发条件：仅在存在可信设备令牌时，CCR CRUD、桥接、桥接环境、inbox、move-to-cloud 或 GitHub PR 调用才附加该头。
 
-方向：待补充；触发：默认关闭／不触发；网关处理：待核实。
+方向：本地客户端 → 网关；触发：默认关闭／不触发；网关处理：不经过网关。
 
 当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
 
-报告将该头限定在 CCR CRUD、bridge、bridge-environment、inbox、move-to-cloud 和 GitHub PR 路径，且需已有令牌；默认引擎只启动普通 &#96;claude -p&#96;，未传 &#96;--sdk-url&#96; 或建立 CCR/桥接会话，默认配置不进入这些路径，故未触发，非网关过滤。
+默认未启用 CCR/桥接等调用，也未提供可信设备令牌；报告要求存在 X-Trusted-Device-Token 时相关请求才附加。该请求由 CLI 自发，不经过网关入站适配器，故默认不触发，网关未过滤。
 
 发现时间：2026-10-14（上游报告提交日期）。
 
 报告原文（mechanism）：
 
-> &#96;X-Trusted-Device-Token&#96; occurs &#42;&#42;27×&#42;&#42; in 2.1.300 (5× in 2.1.197). It now rides on the CCR CRUD, bridge, bridge-environment, inbox, move-to-cloud and github-PR calls.
+> It now rides on the CCR CRUD, bridge, bridge-environment, inbox, move-to-cloud and github-PR calls.
 
 报告原文（trigger）：
 
@@ -1449,17 +1872,27 @@ feature&#95;name 闭集仅用于 tengu&#95;feature&#95;ok/bad/sad 等遥测事�
 
 > &#42;&#42;Version&#42;&#42;: 2.1.300
 
+报告原文（direction）：
+
+> It now rides on the CCR CRUD, bridge, bridge-environment, inbox, move-to-cloud and github-PR calls.
+
 关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)
 
-> &#96;X-Trusted-Device-Token&#96; occurs &#42;&#42;27×&#42;&#42; in 2.1.300 (5× in 2.1.197). It now rides on the CCR CRUD, bridge, bridge-environment, inbox, move-to-cloud and github-PR calls.
+> Both add &#96;X-Trusted-Device-Token&#96; when one is present.
 
 关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)
 
-> Both add &#96;X-Trusted-Device-Token&#96; when one is present. Session ids must start with &#96;cse&#95;&#96; (&#96;:881171&#96;).
+> It now rides on the CCR CRUD, bridge, bridge-environment, inbox, move-to-cloud and github-PR calls.
 
-代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/1041cadac6fc7609c308a9da6dc5913402eb1904/model-gateway/engine.mjs#L104)
+代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L104)
 
 > const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;omp&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', '2', '--model', model, '--system-prompt-file', promptFile&#93;;
+
+代码：[model-gateway/engine.mjs:92](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L92)
+
+> Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE&#95;CONFIG&#95;DIR: configDir,       CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',       ENABLE&#95;TOOL&#95;SEARCH: 'false', MCP&#95;TOOL&#95;TIMEOUT: String(timeoutMs &#124;&#124; 2147483647), CLAUDE&#95;CODE&#95;MAX&#95;OUTPUT&#95;TOKENS: String(maxOutputTokens) });
+
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/cloud-server.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
 
 ### 当前报告来源 · 2.1.300 · Trusted device token
 
@@ -1471,9 +1904,9 @@ feature&#95;name 闭集仅用于 tengu&#95;feature&#95;ok/bad/sad 等遥测事�
 
 完整触发条件：仅 Claude.ai 订阅用户且 Jn() 成立、非 CLAUDE&#95;CODE&#95;REMOTE 云端容器；若环境变量或凭证存储有 device&#95;token，则在桥接、PR 订阅、CCR 等已接入请求带 X-Trusted-Device-Token；报告未发现 Messages API 路径。
 
-方向：待补充；触发：默认关闭／不触发；网关处理：待核实。
+方向：旧记录待回填；触发：旧记录待回填；网关处理：旧记录待回填。
 
-当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
+当前有效性：待重评（报告核验未完成）。历史评估结论：当前配置不触发。
 
 报告列出的 X-Trusted-Device-Token 仅用于桥接、PR 订阅、CCR 等路径，未发现 Messages API 路径；默认 engine 无这些路径，环境白名单也不传 CLAUDE&#95;TRUSTED&#95;DEVICE&#95;TOKEN。默认不触发。
 
@@ -1522,7 +1955,7 @@ feature&#95;name 闭集仅用于 tengu&#95;feature&#95;ok/bad/sad 等遥测事�
 
 完整触发条件：计费归属头默认启用；可由 CLAUDE&#95;CODE&#95;ATTRIBUTION&#95;HEADER 环境变量或 tengu&#95;attribution&#95;header 特性开关关闭。
 
-方向：待补充；触发：待核实；网关处理：部分处理。
+方向：旧记录待回填；触发：旧记录待回填；网关处理：旧记录待回填。
 
 当前有效性：待核实（代码已变化）。历史评估结论：部分过滤。
 
@@ -1564,7 +1997,7 @@ feature&#95;name 闭集仅用于 tengu&#95;feature&#95;ok/bad/sad 等遥测事�
 
 完整触发条件：每次发往 Anthropic API 的请求都会在 system 数组首个元素注入该计费头，位于身份行和系统提示之前。
 
-方向：待补充；触发：待核实；网关处理：部分处理。
+方向：旧记录待回填；触发：旧记录待回填；网关处理：旧记录待回填。
 
 当前有效性：待核实（代码已变化）。历史评估结论：部分过滤。
 
@@ -1611,7 +2044,7 @@ Anthropic 入站顶层 system 块开头的 x-anthropic-billing-header 行会被 
 
 完整触发条件：计费归属头启用时，cc&#95;entrypoint 取环境变量或 unknown；cc&#95;workload 仅在 getWorkload() 有值时出现。
 
-方向：待补充；触发：待核实；网关处理：部分处理。
+方向：旧记录待回填；触发：旧记录待回填；网关处理：旧记录待回填。
 
 当前有效性：待核实（代码已变化）。历史评估结论：部分过滤。
 
@@ -1653,7 +2086,7 @@ Anthropic 入站顶层 system 块开头的 x-anthropic-billing-header 行会被 
 
 完整触发条件：每次发往 Anthropic API 的请求在 system 首个计费头写入 cc&#95;entrypoint；报告观察值为 cli。
 
-方向：待补充；触发：待核实；网关处理：部分处理。
+方向：旧记录待回填；触发：旧记录待回填；网关处理：旧记录待回填。
 
 当前有效性：待核实（代码已变化）。历史评估结论：部分过滤。
 
@@ -1700,7 +2133,7 @@ cc&#95;entrypoint 随 billing 行在 Anthropic 顶层 system 块开头被 fromAn
 
 完整触发条件：构造 API 请求时，从 messagesForAPI 提取首条用户消息并在注入合成消息之前计算指纹。
 
-方向：待补充；触发：待核实；网关处理：部分处理。
+方向：旧记录待回填；触发：旧记录待回填；网关处理：旧记录待回填。
 
 当前有效性：待核实（代码已变化）。历史评估结论：部分过滤。
 
@@ -1742,7 +2175,7 @@ cc&#95;entrypoint 随 billing 行在 Anthropic 顶层 system 块开头被 fromAn
 
 完整触发条件：每次请求生成 cc&#95;version 时，从对话首条用户消息取固定索引字符参与哈希，生成三字符十六进制后缀。
 
-方向：待补充；触发：待核实；网关处理：部分处理。
+方向：旧记录待回填；触发：旧记录待回填；网关处理：旧记录待回填。
 
 当前有效性：待核实（代码已变化）。历史评估结论：部分过滤。
 
@@ -1789,7 +2222,7 @@ cc&#95;version 位于 billing 行时，Anthropic 入站顶层 system 块首行�
 
 完整触发条件：仅当 feature('NATIVE&#95;CLIENT&#95;ATTESTATION') 为真且计费头发出时，cch=00000 被写入；发送前由 Bun 原生栈替换。
 
-方向：待补充；触发：待核实；网关处理：部分处理。
+方向：旧记录待回填；触发：旧记录待回填；网关处理：旧记录待回填。
 
 当前有效性：待核实（代码已变化）。历史评估结论：部分过滤。
 
@@ -1831,7 +2264,7 @@ cc&#95;version 位于 billing 行时，Anthropic 入站顶层 system 块首行�
 
 完整触发条件：请求路径含 /v1/messages、带 anthropic-version 头且请求体含 cch=00000 占位符时激活；哈希覆盖整个序列化请求体。
 
-方向：待补充；触发：待核实；网关处理：部分处理。
+方向：旧记录待回填；触发：旧记录待回填；网关处理：旧记录待回填。
 
 当前有效性：待核实（代码已变化）。历史评估结论：部分过滤。
 
@@ -1874,7 +2307,7 @@ Anthropic 入站顶层 system 文本块开头的 billing 行会被 fromAnthropic
 
 完整触发条件：仅当 ANTHROPIC&#95;BASE&#95;URL 已设置且主机不是 api.anthropic.com 时进入标记路径；随后若主机命中解码域名清单或包含实验室关键词，日期句撇号才改为对应近形字符，否则保持普通撇号。
 
-方向：待补充；触发：待核实；网关处理：待核实。
+方向：旧记录待回填；触发：旧记录待回填；网关处理：旧记录待回填。
 
 当前有效性：待核实（代码已变化）。历史评估结论：待核实。
 
@@ -1916,7 +2349,7 @@ Anthropic 入站顶层 system 文本块开头的 billing 行会被 fromAnthropic
 
 完整触发条件：构造系统提示日期句且 gate() 为假；配置了 ANTHROPIC&#95;BASE&#95;URL 且主机精确匹配 KNOWN&#95;HOSTS 或以 .KNOWN&#95;HOST 结尾，或主机包含 LAB&#95;KEYWORDS 时，按命中组合选撇号；未命中则用 ASCII 撇号。
 
-方向：待补充；触发：待核实；网关处理：待核实。
+方向：旧记录待回填；触发：旧记录待回填；网关处理：旧记录待回填。
 
 当前有效性：待核实（代码已变化）。历史评估结论：待核实。
 
@@ -1959,7 +2392,7 @@ Anthropic 入站顶层 system 文本块开头的 billing 行会被 fromAnthropic
 
 完整触发条件：仅当 ANTHROPIC&#95;BASE&#95;URL 已设置且指向非官方主机时进入标记路径；在此基础上，系统时区为 Asia/Shanghai 或 Asia/Urumqi 时，日期分隔符由 - 改为 /。
 
-方向：待补充；触发：待核实；网关处理：待核实。
+方向：旧记录待回填；触发：旧记录待回填；网关处理：旧记录待回填。
 
 当前有效性：待核实（代码已变化）。历史评估结论：待核实。
 
@@ -2001,7 +2434,7 @@ Anthropic 入站顶层 system 文本块开头的 billing 行会被 fromAnthropic
 
 完整触发条件：构造系统提示日期句且 gate() 为假；系统时区为 Asia/Shanghai 或 Asia/Urumqi 时，将日期字符串中的 - 全部替换为 /，否则保持原分隔符。
 
-方向：待补充；触发：待核实；网关处理：待核实。
+方向：旧记录待回填；触发：旧记录待回填；网关处理：旧记录待回填。
 
 当前有效性：待核实（代码已变化）。历史评估结论：待核实。
 
