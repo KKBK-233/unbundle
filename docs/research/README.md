@@ -5,6 +5,108 @@
 
 证据程度：报告描述＋源码静态评估。没有真实流量验证，不代表检测到了服务器实际发送行为。
 
+<a id="mechanism-anthropic-cache-keepalive-response-header"></a>
+## anthropic-cache-keepalive 响应头
+
+机制 ID：anthropic-cache-keepalive-response-header
+
+### 当前报告来源 · 2.1.300 · anthropic-cache-keepalive 响应头
+
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/api-endpoints.md)；评估时间：2026-11-14T03:16:27Z；审阅提交：0f6041e85c9b。
+
+评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
+
+机制：缓存保活响应头：Messages 响应以 anthropic-cache-keepalive: active 通知客户端武装 cache&#95;touch。
+
+完整触发条件：服务端在 Messages 响应中返回 anthropic-cache-keepalive: active。
+
+方向：服务端 → CLI；触发：条件触发；网关处理：不经过网关。
+
+当前有效性：未过滤。历史评估结论：未过滤。
+
+这是上游服务端到 CLI 的条件响应头，不是客户端上传字段。网关 SSE 只写 content-type 与 cache-control，不生成也不复制该头；若上游返回，走 CLI 直连路径，未经网关过滤。
+
+发现时间：2026-10-14（上游报告提交日期）。
+
+报告原文（mechanism）：
+
+> the response header &#96;anthropic-cache-keepalive: active&#96;
+
+报告原文（trigger）：
+
+> the response header &#96;anthropic-cache-keepalive: active&#96;
+
+报告原文（version）：
+
+> &#42;&#42;Version&#42;&#42;: 2.1.300
+
+报告原文（direction）：
+
+> the response header &#96;anthropic-cache-keepalive: active&#96;
+
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/api-endpoints.md)
+
+> armed when the response header &#96;anthropic-cache-keepalive: active&#96; is seen (&#96;:394191&#96;, &#96;:394360&#96;)
+
+代码：[model-gateway/anthropic.mjs:81](https://github.com/KKBK-233/unbundle/blob/0f6041e85c9b27e4e6f14322e18a58300aa73e37/model-gateway/anthropic.mjs#L81)
+
+> res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
+
+代码：[model-gateway/engine.mjs:113](https://github.com/KKBK-233/unbundle/blob/0f6041e85c9b27e4e6f14322e18a58300aa73e37/model-gateway/engine.mjs#L113)
+
+> child = spawnProcess(cli, args, { env, cwd, detached: group, windowsHide: true, stdio: &#91;'pipe', 'pipe', 'pipe'&#93; });
+
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/cli-output-audit.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/messages.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
+
+<a id="mechanism-anthropic-google-cloud-provider-plane"></a>
+## Anthropic Google Cloud 平面
+
+机制 ID：anthropic-google-cloud-provider-plane
+
+### 当前报告来源 · 2.1.300 · Anthropic Google Cloud 平面
+
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/api-endpoints.md)；评估时间：2026-11-14T03:16:27Z；审阅提交：0f6041e85c9b。
+
+评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
+
+机制：Anthropic Google Cloud 提供方平面：选择该平面时请求发往 claude.googleapis.com，路径含 project/location/workspace，使用 Google bearer token。
+
+完整触发条件：当 Ie() 选择 anthropicGoogleCloud（由 CLAUDE&#95;CODE&#95;USE&#95;ANTHROPIC&#95;GOOGLE&#95;CLOUD 等配置）且 workspaceId 提供时。
+
+方向：本地客户端 → 网关；触发：默认关闭／不触发；网关处理：不经过网关。
+
+当前有效性：当前配置不触发。历史评估结论：当前配置不触发。
+
+默认 env 白名单未设 CLAUDE&#95;CODE&#95;USE&#95;ANTHROPIC&#95;GOOGLE&#95;CLOUD 及 Google 项目、位置、工作区，Ie() 不会选 anthropicGoogleCloud，仍走 firstParty；若启用，该提供方请求由 CLI 直连 claude.googleapis.com，不经网关。
+
+发现时间：2026-10-14（上游报告提交日期）。
+
+报告原文（mechanism）：
+
+> &#96;https://claude.googleapis.com&#96;
+
+报告原文（trigger）：
+
+> &#96;CLAUDE&#95;CODE&#95;USE&#95;ANTHROPIC&#95;GOOGLE&#95;CLOUD&#96;, &#96;ANTHROPIC&#95;GOOGLE&#95;CLOUD&#95;{BASE&#95;URL,PROJECT,LOCATION,WORKSPACE&#95;ID}&#96;
+
+报告原文（version）：
+
+> &#42;&#42;Version&#42;&#42;: 2.1.300
+
+报告原文（direction）：
+
+> &#96;https://claude.googleapis.com&#96;
+
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/environment-variables.md)
+
+> &#124; &#42;&#42;&#96;CLAUDE&#95;CODE&#95;USE&#95;ANTHROPIC&#95;GOOGLE&#95;CLOUD&#96;&#42;&#42; &#124; bool (&#96;K&#96;) &#124; Selects the plane. Its display label is "Claude Platform on Google Cloud" (&#96;:21678&#96;). It is the 4th check in &#96;Ie()&#96; (&#96;:21729&#96;): gateway → bedrock → foundry → anthropicAws → &#42;&#42;anthropicGoogleCloud&#42;&#42; → mantle → vertex → firstParty &#124;
+
+代码：[model-gateway/engine.mjs:94](https://github.com/KKBK-233/unbundle/blob/0f6041e85c9b27e4e6f14322e18a58300aa73e37/model-gateway/engine.mjs#L94)
+
+> Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE&#95;CONFIG&#95;DIR: configDir,       CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',       ENABLE&#95;TOOL&#95;SEARCH: discovery.environment, MCP&#95;TOOL&#95;TIMEOUT: String(timeoutMs &#124;&#124; 2147483647), CLAUDE&#95;CODE&#95;MAX&#95;OUTPUT&#95;TOKENS: String(maxOutputTokens) });
+
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/cli-output-audit.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/messages.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
+
 <a id="mechanism-arbiter-safeguard-results-field"></a>
 ## 仲裁器 safeguard&#95;results 裁决字段
 
@@ -83,7 +185,7 @@
 
 方向：云端 CLI → 服务端；触发：默认关闭／不触发；网关处理：不经过网关。
 
-当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
+当前有效性：待重评（报告核验未完成）。历史评估结论：当前配置不触发。
 
 默认 engine 的 CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC=1 经 Oj 关闭 GrowthBook，atisPin 只作为远程评估上下文属性随 eval 使用；无 eval 即不触发。网关只经 stdio 启动 CLI，不代理该属性或评估请求，额外启用时属 CLI 自发路径。
 
@@ -262,7 +364,7 @@
 
 方向：组件内部传递；触发：默认关闭／不触发；网关处理：不经过网关。
 
-当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
+当前有效性：待重评（报告核验未完成）。历史评估结论：当前配置不触发。
 
 默认每轮以 --tools ''、--setting-sources ''、--no-session-persistence、--max-turns 2 启动独立 CLI，不产生后台子进程交接；CLAUDE&#95;BG&#95;DISPATCHER&#95;&#42; 只在后台调度器向子进程传递环境时生成。网关仅通过 stdio 与 CLI 交互，不介入该内部环境。
 
@@ -497,7 +599,7 @@ Bridge 通道：注册 POST /v1/environments/bridge 需远程控制；默认 ten
 
 方向：组件内部传递；触发：默认关闭／不触发；网关处理：不经过网关。
 
-当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
+当前有效性：待重评（报告核验未完成）。历史评估结论：当前配置不触发。
 
 默认启动未启用远程控制/桥接，也无桥接重连；这些 owner/org 变量只在构造桥接子环境时由 CLI 写入。网关仅以白名单 env 启动独立 CLI 并走 stdio，不读取或改写该内部环境，故默认不产生该标记。
 
@@ -537,36 +639,36 @@ Bridge 通道：注册 POST /v1/environments/bridge 需远程控制；默认 ten
 
 依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-compat.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
 
-<a id="mechanism-ccr-heartbeat-probe-fields"></a>
-## CCR 心跳探测字段
+<a id="mechanism-cache-keepalive-touch-beta"></a>
+## cache&#95;touch 缓存保活 beta
 
-机制 ID：ccr-heartbeat-probe-fields
+机制 ID：cache-keepalive-touch-beta
 
-### 当前报告来源 · 2.1.300 · CCR 心跳探测字段
+### 当前报告来源 · 2.1.300 · cache&#95;touch 缓存保活 beta
 
-[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)；评估时间：2026-10-22T09:39:51Z；审阅提交：9429ba2c51d9。
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/api-endpoints.md)；评估时间：2026-11-14T03:16:27Z；审阅提交：0f6041e85c9b。
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
-机制：CCR 心跳探测字段：Remote Control 的 CCRClient 心跳体携带 session&#95;id、worker&#95;epoch，并在探测开启时附加 supports&#95;heartbeat&#95;probe、current&#95;interval&#95;seconds 及 idle&#95;seconds。
+机制：缓存保活请求 beta 头：收到 active 响应头后向 /v1/messages/cache&#95;touch 发送 {request&#95;id}，并携带 cache-keepalive-2026-09-03 beta 头。
 
-完整触发条件：Remote Control 会话的 CCRClient 发送心跳，且 tengu&#95;ccr&#95;idle&#95;heartbeat 探测支持开启（outbound-only 传输强制关闭）；空闲跟踪器有样本时附加 idle&#95;seconds。
+完整触发条件：收到响应头 anthropic-cache-keepalive: active 时武装。
 
-方向：本地客户端 → 网关；触发：默认关闭／不触发；网关处理：不经过网关。
+方向：本地客户端 → 网关；触发：条件触发；网关处理：不经过网关。
 
-当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
+当前有效性：未过滤。历史评估结论：未过滤。
 
-默认 CLI 以 -p 单次推理启动，未启用 Remote Control/CCR，未设置 CLAUDE&#95;CODE&#95;REMOTE；报告要求 Remote Control 的 CCRClient 心跳且 tengu&#95;ccr&#95;idle&#95;heartbeat 开启才附加探测字段。该心跳为 CLI 自发到 Anthropic，不经过网关入站适配器，故默认不触发，网关未过滤。
+报告仅在上游响应出现 anthropic-cache-keepalive: active 时武装 cache&#95;touch；默认网关不产生该头，故默认不触发。触发时 CLI 自发请求 /v1/messages/cache&#95;touch，满足报告条件时未经过网关过滤。
 
 发现时间：2026-10-14（上游报告提交日期）。
 
 报告原文（mechanism）：
 
-> &#96;CCRClient.sendHeartbeat()&#96; (module 1319), used by Remote Control &#124; &#96;{session&#95;id, worker&#95;epoch}&#96; plus, when probe support is on, &#96;supports&#95;heartbeat&#95;probe: true&#96;, &#96;current&#95;interval&#95;seconds&#96;, and &#96;idle&#95;seconds&#96; if the idle tracker has a sample
+> Cache keep-alive ping, body &#96;{request&#95;id}&#96;, betas &#96;oauth-2025-04-20,cache-keepalive-2026-09-03&#96;
 
 报告原文（trigger）：
 
-> &#96;advertiseHeartbeatProbeSupport&#96; comes from &#96;k("tengu&#95;ccr&#95;idle&#95;heartbeat", false)&#96;  (&#96;:1051142&#96;, passed in at &#96;:1051166&#96;) and is forced off for outbound-only transports (&#96;F = !e.outboundOnly&#96;,  &#96;:1049036&#96;, applied at &#96;:1049068&#96;).
+> armed when the response header &#96;anthropic-cache-keepalive: active&#96; is seen
 
 报告原文（version）：
 
@@ -574,25 +676,74 @@ Bridge 通道：注册 POST /v1/environments/bridge 需远程控制；默认 ten
 
 报告原文（direction）：
 
-> The Remote Control transport sends a richer body
+> Cache keep-alive ping, body &#96;{request&#95;id}&#96;, betas &#96;oauth-2025-04-20,cache-keepalive-2026-09-03&#96;
 
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/api-endpoints.md)
 
-> &#124; &#96;CCRClient.sendHeartbeat()&#96; (module 1319), used by Remote Control &#124; &#96;{session&#95;id, worker&#95;epoch}&#96; plus, when probe support is on, &#96;supports&#95;heartbeat&#95;probe: true&#96;, &#96;current&#95;interval&#95;seconds&#96;, and &#96;idle&#95;seconds&#96; if the idle tracker has a sample &#124; &#96;:1046420-1046450&#96; &#124;
+> &#124; &#96;/v1/messages/cache&#95;touch&#96; &#124; POST &#124; &#42;&#42;NEW.&#42;&#42; Cache keep-alive ping, body &#96;{request&#95;id}&#96;, betas &#96;oauth-2025-04-20,cache-keepalive-2026-09-03&#96; (&#96;A$(&#91;fEe,bI&#93;)&#96;, &#96;:394659-394667&#96;); armed when the response header &#96;anthropic-cache-keepalive: active&#96; is seen (&#96;:394191&#96;, &#96;:394360&#96;) &#124;
 
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)
+代码：[model-gateway/engine.mjs:113](https://github.com/KKBK-233/unbundle/blob/0f6041e85c9b27e4e6f14322e18a58300aa73e37/model-gateway/engine.mjs#L113)
 
-> &#96;advertiseHeartbeatProbeSupport&#96; comes from &#96;k("tengu&#95;ccr&#95;idle&#95;heartbeat", false)&#96;  (&#96;:1051142&#96;, passed in at &#96;:1051166&#96;) and is forced off for outbound-only transports (&#96;F = !e.outboundOnly&#96;,  &#96;:1049036&#96;, applied at &#96;:1049068&#96;). The capture therefore implies that flag was on for that session.
+> child = spawnProcess(cli, args, { env, cwd, detached: group, windowsHide: true, stdio: &#91;'pipe', 'pipe', 'pipe'&#93; });
 
-代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L104)
+代码：[model-gateway/anthropic.mjs:81](https://github.com/KKBK-233/unbundle/blob/0f6041e85c9b27e4e6f14322e18a58300aa73e37/model-gateway/anthropic.mjs#L81)
 
-> const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;omp&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', '2', '--model', model, '--system-prompt-file', promptFile&#93;;
+> res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
 
-代码：[model-gateway/engine.mjs:92](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L92)
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/cli-output-audit.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/messages.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
 
-> Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE&#95;CONFIG&#95;DIR: configDir,       CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',       ENABLE&#95;TOOL&#95;SEARCH: 'false', MCP&#95;TOOL&#95;TIMEOUT: String(timeoutMs &#124;&#124; 2147483647), CLAUDE&#95;CODE&#95;MAX&#95;OUTPUT&#95;TOKENS: String(maxOutputTokens) });
+<a id="mechanism-ccr-heartbeat-probe-fields"></a>
+## CCR 心跳探测字段
 
-依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/cloud-server.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
+机制 ID：ccr-heartbeat-probe-fields
+
+### 当前报告来源 · 2.1.300 · CCR 心跳探测字段
+
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/api-endpoints.md)；评估时间：2026-11-14T03:16:27Z；审阅提交：0f6041e85c9b。
+
+评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
+
+机制：CCR 心跳探测字段：Remote Control 的 CCRClient 心跳体携带 session&#95;id、worker&#95;epoch，并在探测开启时附加 supports&#95;heartbeat&#95;probe、current&#95;interval&#95;seconds 及 idle&#95;seconds。
+
+完整触发条件：Remote Control 的 CCRClient.sendHeartbeat 且 tengu&#95;ccr&#95;idle&#95;heartbeat 为真、传输非 outboundOnly 时附加探测字段。
+
+方向：本地客户端 → 网关；触发：默认关闭／不触发；网关处理：不经过网关。
+
+当前有效性：当前配置不触发。历史评估结论：当前配置不触发。
+
+探测字段要求 Remote Control 的 CCRClient 且 tengu&#95;ccr&#95;idle&#95;heartbeat 为真；报告称该 flag 默认 false，默认 engine 未启用远程控制或 CCR，故不发送。若触发，心跳由 CLI 直连上游。
+
+发现时间：2026-10-14（上游报告提交日期）。
+
+报告原文（mechanism）：
+
+> &#96;{session&#95;id, worker&#95;epoch}&#96; plus, when probe support is on, &#96;supports&#95;heartbeat&#95;probe: true&#96;, &#96;current&#95;interval&#95;seconds&#96;, and &#96;idle&#95;seconds&#96; if the idle tracker has a sample
+
+报告原文（trigger）：
+
+> &#96;advertiseHeartbeatProbeSupport&#96; comes from &#96;k("tengu&#95;ccr&#95;idle&#95;heartbeat", false)&#96;
+
+报告原文（version）：
+
+> &#42;&#42;Version&#42;&#42;: 2.1.300
+
+报告原文（direction）：
+
+> &#96;CCRClient.sendHeartbeat()&#96; (module 1319), used by Remote Control
+
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/api-endpoints.md)
+
+> &#96;CCRClient.sendHeartbeat()&#96; (module 1319), used by Remote Control
+
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/api-endpoints.md)
+
+> &#96;advertiseHeartbeatProbeSupport&#96; comes from &#96;k("tengu&#95;ccr&#95;idle&#95;heartbeat", false)&#96;
+
+代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/0f6041e85c9b27e4e6f14322e18a58300aa73e37/model-gateway/engine.mjs#L104)
+
+> const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', discovery.builtin, '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;caller&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', String(discovery.enabled ? discovery.maxCalls + 2 : 2), '--model', model, '--system-prompt-file', promptFile&#93;;
+
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/cli-output-audit.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/messages.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
 
 <a id="mechanism-ccr-idle-heartbeat-probe"></a>
 ## CCR idle heartbeat probe
@@ -658,7 +809,7 @@ Bridge 通道：注册 POST /v1/environments/bridge 需远程控制；默认 ten
 
 方向：本地客户端 → 网关；触发：默认关闭／不触发；网关处理：不经过网关。
 
-当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
+当前有效性：待核实（来源已修订）。历史评估结论：当前配置不触发。
 
 默认 CLI 以 -p 单次推理启动，未建立 CCR 会话，未调用 /v1/code/sessions/{id}/device；报告要求设备绑定时才发送 bind&#95;attestation。该请求由 CLI 自发，不经过网关入站适配器，故默认不触发。
 
@@ -800,35 +951,35 @@ Bridge 通道：注册 POST /v1/environments/bridge 需远程控制；默认 ten
 > // 环境块说明：CLI 在对话末尾追加的环境信息描述的是云端服务器，最显眼却与工具实际所在位置相反，需显式消歧。
 
 <a id="mechanism-environment-runner-version-header"></a>
-## 环境运行器版本头
+## x-environment-runner-version 头
 
 机制 ID：environment-runner-version-header
 
-### 当前报告来源 · 2.1.300 · 环境运行器版本头
+### 当前报告来源 · 2.1.300 · x-environment-runner-version 头
 
-[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)；评估时间：2026-10-22T09:39:51Z；审阅提交：9429ba2c51d9。
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/api-endpoints.md)；评估时间：2026-11-14T03:16:27Z；审阅提交：0f6041e85c9b。
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
-机制：环境运行器版本头：桥接环境请求及 sign-commit 请求携带 x-environment-runner-version（如 shr-…），标明运行器版本。
+机制：环境运行器版本头：桥接环境请求携带 x-environment-runner-version，标识运行器版本。
 
-完整触发条件：桥接环境客户端（module 1379）发起桥接环境请求时，使用 Bearer、anthropic-beta: environments-2025-11-01、x-environment-runner-version 及可选 X-Trusted-Device-Token；/v1/code/sessions/{id}/sign-commit 请求亦携带 x-environment-runner-version。
+完整触发条件：桥接环境请求使用 Bearer 与 environments-2025-11-01 beta 头时发送。
 
 方向：本地客户端 → 网关；触发：默认关闭／不触发；网关处理：不经过网关。
 
-当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
+当前有效性：当前配置不触发。历史评估结论：当前配置不触发。
 
-默认 CLI 未启用桥接环境或 sign-commit，启动参数无 bridge 相关；报告要求桥接环境客户端（module 1379）发起请求时携带 x-environment-runner-version。该请求由 CLI 自发，不经过网关入站适配器，故默认不触发。
+报告仅让桥接环境请求（Bearer 与 environments-2025-11-01）携带 x-environment-runner-version；默认 engine 未启用桥接或远程控制，不调用 /v1/environments/bridge，故不触发。若触发为 CLI 直连上游，网关不介入。
 
 发现时间：2026-10-14（上游报告提交日期）。
 
 报告原文（mechanism）：
 
-> Server-side git commit signing, &#96;x-environment-runner-version: shr-…&#96; (&#96;:605102&#96;)
+> &#96;x-environment-runner-version&#96; and optional &#96;X-Trusted-Device-Token&#96;
 
 报告原文（trigger）：
 
-> Headers: &#96;Bearer&#96;, &#96;anthropic-beta: environments-2025-11-01&#96; (&#96;bPo.header&#96;), &#96;x-environment-runner-version&#96; and optional &#96;X-Trusted-Device-Token&#96; (&#96;:1075676-1075688&#96;).
+> &#96;anthropic-beta: environments-2025-11-01&#96; (&#96;bPo.header&#96;)
 
 报告原文（version）：
 
@@ -836,21 +987,17 @@ Bridge 通道：注册 POST /v1/environments/bridge 需远程控制；默认 ten
 
 报告原文（direction）：
 
+> &#96;x-environment-runner-version&#96; and optional &#96;X-Trusted-Device-Token&#96;
+
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/api-endpoints.md)
+
 > Headers: &#96;Bearer&#96;, &#96;anthropic-beta: environments-2025-11-01&#96; (&#96;bPo.header&#96;), &#96;x-environment-runner-version&#96; and optional &#96;X-Trusted-Device-Token&#96; (&#96;:1075676-1075688&#96;).
 
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)
+代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/0f6041e85c9b27e4e6f14322e18a58300aa73e37/model-gateway/engine.mjs#L104)
 
-> ### 3.2 Bridge environments (module 1379 &#96;chunk-xtarwp8w.js&#96;) Headers: &#96;Bearer&#96;, &#96;anthropic-beta: environments-2025-11-01&#96; (&#96;bPo.header&#96;), &#96;x-environment-runner-version&#96; and optional &#96;X-Trusted-Device-Token&#96; (&#96;:1075676-1075688&#96;).
+> const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', discovery.builtin, '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;caller&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', String(discovery.enabled ? discovery.maxCalls + 2 : 2), '--model', model, '--system-prompt-file', promptFile&#93;;
 
-代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L104)
-
-> const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;omp&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', '2', '--model', model, '--system-prompt-file', promptFile&#93;;
-
-代码：[model-gateway/engine.mjs:92](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L92)
-
-> Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE&#95;CONFIG&#95;DIR: configDir,       CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',       ENABLE&#95;TOOL&#95;SEARCH: 'false', MCP&#95;TOOL&#95;TIMEOUT: String(timeoutMs &#124;&#124; 2147483647), CLAUDE&#95;CODE&#95;MAX&#95;OUTPUT&#95;TOKENS: String(maxOutputTokens) });
-
-依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/cloud-server.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/cli-output-audit.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/messages.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
 
 <a id="mechanism-feature-name-telemetry-enum"></a>
 ## 遥测 feature&#95;name 闭集枚举
@@ -869,7 +1016,7 @@ Bridge 通道：注册 POST /v1/environments/bridge 需远程控制；默认 ten
 
 方向：证据不足；触发：默认关闭／不触发；网关处理：不经过网关。
 
-当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
+当前有效性：待重评（报告核验未完成）。历史评估结论：当前配置不触发。
 
 feature&#95;name 仅随 CLI 的 tengu&#95;feature&#95;ok/bad/sad 遥测发出。网关默认注入 CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC=1，报告的控制矩阵称其关闭 1P、Datadog、错误上报等非必要流量，故默认不触发。若开启遥测也属 CLI 自发路径，不经过网关字段过滤。
 
@@ -912,6 +1059,54 @@ feature&#95;name 仅随 CLI 的 tengu&#95;feature&#95;ok/bad/sad 遥测发出。
 
 ### 当前报告来源 · 2.1.300 · GrowthBook 认证评估端点
 
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/api-endpoints.md)；评估时间：2026-11-14T03:16:27Z；审阅提交：0f6041e85c9b。
+
+评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
+
+机制：GrowthBook 认证远程评估端点：开关启用后向 /api/eval-authed/{clientKey} 发送带 OAuth 头的评估请求，失败回退 /api/eval。
+
+完整触发条件：仅当 tengu&#95;gb&#95;eval&#95;authed&#95;enable 启用时使用；否则或失败时回退 /api/eval。
+
+方向：本地客户端 → 网关；触发：默认关闭／不触发；网关处理：不经过网关。
+
+当前有效性：当前配置不触发。历史评估结论：当前配置不触发。
+
+默认 engine 固定 CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC=1，报告控制矩阵称其关闭 GrowthBook；且 tengu&#95;gb&#95;eval&#95;authed&#95;enable 默认 false，故认证评估不发送。若启用也由 CLI 直连 /api/eval-authed，不经网关。
+
+发现时间：2026-10-14（上游报告提交日期）。
+
+报告原文（mechanism）：
+
+> Authenticated remote eval (POST with OAuth headers) behind flag &#96;tengu&#95;gb&#95;eval&#95;authed&#95;enable&#96; (default &#96;!1&#96;); falls back to &#96;/api/eval&#96; on error
+
+报告原文（trigger）：
+
+> behind flag &#96;tengu&#95;gb&#95;eval&#95;authed&#95;enable&#96; (default &#96;!1&#96;); falls back to &#96;/api/eval&#96; on error
+
+报告原文（version）：
+
+> &#42;&#42;Version&#42;&#42;: 2.1.300
+
+报告原文（direction）：
+
+> Authenticated remote eval (POST with OAuth headers)
+
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/api-endpoints.md)
+
+> &#124; &#96;/api/eval-authed/{clientKey}&#96; &#124; &#96;api.anthropic.com&#96; &#124; &#42;&#42;NEW.&#42;&#42; Authenticated remote eval (POST with OAuth headers) behind flag &#96;tengu&#95;gb&#95;eval&#95;authed&#95;enable&#96; (default &#96;!1&#96;); falls back to &#96;/api/eval&#96; on error (&#96;:134018-134054&#96;) &#124;
+
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/telemetry.md)
+
+> &#124; &#96;DISABLE&#95;TELEMETRY&#96; / &#96;DO&#95;NOT&#95;TRACK&#96; / &#96;CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC&#96; &#124; Disable 1P, Datadog, error tracking, GrowthBook (via &#96;Oj&#96;), BigQuery metrics (via &#96;LD&#96;), and the plugin telemetry mod &#124; &#96;:10162&#96;, &#96;:22061&#96;, &#96;:142788&#96;, &#96;:1470484&#96;, &#96;:1534612&#96; &#124;
+
+代码：[model-gateway/engine.mjs:94](https://github.com/KKBK-233/unbundle/blob/0f6041e85c9b27e4e6f14322e18a58300aa73e37/model-gateway/engine.mjs#L94)
+
+> Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE&#95;CONFIG&#95;DIR: configDir,       CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',       ENABLE&#95;TOOL&#95;SEARCH: discovery.environment, MCP&#95;TOOL&#95;TIMEOUT: String(timeoutMs &#124;&#124; 2147483647), CLAUDE&#95;CODE&#95;MAX&#95;OUTPUT&#95;TOKENS: String(maxOutputTokens) });
+
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/cli-output-audit.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/messages.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
+
+### 当前报告来源 · 2.1.300 · GrowthBook 认证评估端点
+
 [原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/feature-flags.md)；评估时间：2026-10-22T09:49:12Z；审阅提交：9429ba2c51d9。
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
@@ -922,7 +1117,7 @@ feature&#95;name 仅随 CLI 的 tengu&#95;feature&#95;ok/bad/sad 遥测发出。
 
 方向：云端 CLI → 服务端；触发：默认关闭／不触发；网关处理：不经过网关。
 
-当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
+当前有效性：待重评（报告核验未完成）。历史评估结论：当前配置不触发。
 
 默认 engine 向子 CLI 注入 CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC=1，报告明确其经 Oj 关闭 GrowthBook；eval-authed 以远程评估为前提，故默认不触发。网关只 spawn CLI 经 stdio 交互，不介入其 GrowthBook 出站 HTTP；额外启用时亦属 CLI 自发路径。
 
@@ -1473,7 +1668,7 @@ Messages 通道默认由持凭据的 CLI 直接出站，网关只经 stdio 启�
 
 方向：证据不足；触发：条件触发；网关处理：不经过网关。
 
-当前有效性：待核实（代码已变化）。历史评估结论：未过滤。
+当前有效性：待重评（报告核验未完成）。历史评估结论：未过滤。
 
 x-cc-tender-quilt 是 CLI 在安全拒绝后切换模型时自行附加的出站头；网关只通过 stdio 启动独立 CLI 并转交提示词，不代理该 HTTP 请求。默认不会必然遇到 cyber/frontier&#95;llm 拒绝，故属条件触发；属 CLI 自发路径，满足报告触发条件时未经过网关过滤。
 
@@ -1526,7 +1721,7 @@ x-cc-tender-quilt 是 CLI 在安全拒绝后切换模型时自行附加的出站
 
 方向：组件内部传递；触发：默认关闭／不触发；网关处理：不经过网关。
 
-当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
+当前有效性：待重评（报告核验未完成）。历史评估结论：当前配置不触发。
 
 默认 Unbundle 启动参数未启用自托管运行器/BYOC，也没有工单 JWT；CLAUDE&#95;RUNNER&#95;&#42; 仅在该模式下由 CLI 为 hook 脚本构造，属于 CLI 内部子进程环境。网关只以白名单 env 启动独立 CLI 并走 stdio，不介入该路径，故默认不产生、也无过滤点。
 
@@ -1563,35 +1758,35 @@ x-cc-tender-quilt 是 CLI 在安全拒绝后切换模型时自行附加的出站
 依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-compat.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
 
 <a id="mechanism-self-hosted-runner-version-header"></a>
-## 自托管运行器版本头
+## x-self-hosted-runner-version 头
 
 机制 ID：self-hosted-runner-version-header
 
-### 当前报告来源 · 2.1.300 · 自托管运行器版本头
+### 当前报告来源 · 2.1.300 · x-self-hosted-runner-version 头
 
-[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)；评估时间：2026-10-22T09:39:51Z；审阅提交：9429ba2c51d9。
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/api-endpoints.md)；评估时间：2026-11-14T03:16:27Z；审阅提交：0f6041e85c9b。
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
-机制：自托管运行器版本头：自托管 runner 控制面请求携带 x-self-hosted-runner-version，作为运行器版本协议指纹。
+机制：自托管运行器版本头：控制面请求在 Authorization 与 anthropic-version 之外携带 x-self-hosted-runner-version，标识运行器版本。
 
-完整触发条件：自托管 runner 控制面客户端 cfn() 使用 ee()/B() 组装请求头时发送；worker 调用改用 K()，不带该版本头。
+完整触发条件：调用自托管运行器控制面且使用 ee()/B() 组装请求头时附加；worker 调用使用 K() 时不带该头。
 
 方向：本地客户端 → 网关；触发：默认关闭／不触发；网关处理：不经过网关。
 
-当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
+当前有效性：当前配置不触发。历史评估结论：当前配置不触发。
 
-默认 CLI 未启用自托管 runner 控制面，启动参数和环境均无 runner 注册/轮询配置；报告要求 cfn() 用 ee()/B() 组装控制面请求时才带 x-self-hosted-runner-version。该请求由 CLI 自发，不经过网关入站适配器，故默认不触发。
+默认 engine 以普通 -p 模式启动 CLI，未设置自托管运行器参数或环境，未调用自托管控制面，故不附加该版本头；若作为自托管运行器调用，CLI 自行直连上游，不经过网关。
 
 发现时间：2026-10-14（上游报告提交日期）。
 
 报告原文（mechanism）：
 
-> &#96;x-self-hosted-runner-version&#96; (0 occurrences in 2.1.197).
+> &#96;x-self-hosted-runner-version&#96; (0 occurrences in 2.1.197)
 
 报告原文（trigger）：
 
-> Client &#96;cfn()&#96; in module 432 (&#96;:600413-600720&#96;). Headers (&#96;ee()&#96;/&#96;B()&#96;, &#96;:600255-600273&#96;; worker calls use &#96;K()&#96; &#96;:600275&#96;, no runner-version header):
+> worker calls use &#96;K()&#96; &#96;:600275&#96;, no runner-version header
 
 报告原文（version）：
 
@@ -1599,21 +1794,25 @@ x-cc-tender-quilt 是 CLI 在安全拒绝后切换模型时自行附加的出站
 
 报告原文（direction）：
 
-> Client &#96;cfn()&#96; in module 432 (&#96;:600413-600720&#96;).
+> Headers (&#96;ee()&#96;/&#96;B()&#96;, &#96;:600255-600273&#96;; worker calls use &#96;K()&#96; &#96;:600275&#96;, no runner-version header)
 
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/api-endpoints.md)
 
-> Client &#96;cfn()&#96; in module 432 (&#96;:600413-600720&#96;). Headers (&#96;ee()&#96;/&#96;B()&#96;, &#96;:600255-600273&#96;; worker calls use &#96;K()&#96; &#96;:600275&#96;, no runner-version header): &#96;Authorization: Bearer &lt;pool secret &#124; session token&gt;&#96;, &#96;anthropic-version: 2023-06-01&#96;, &#96;x-self-hosted-runner-version&#96; (0 occurrences in 2.1.197).
+> &#96;x-self-hosted-runner-version&#96; (0 occurrences in 2.1.197).
 
-代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L104)
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/api-endpoints.md)
 
-> const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;omp&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', '2', '--model', model, '--system-prompt-file', promptFile&#93;;
+> Client &#96;cfn()&#96; in module 432 (&#96;:600413-600720&#96;). Headers (&#96;ee()&#96;/&#96;B()&#96;, &#96;:600255-600273&#96;; worker calls use &#96;K()&#96; &#96;:600275&#96;, no runner-version header):
 
-代码：[model-gateway/engine.mjs:92](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L92)
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/api-endpoints.md)
 
-> Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE&#95;CONFIG&#95;DIR: configDir,       CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',       ENABLE&#95;TOOL&#95;SEARCH: 'false', MCP&#95;TOOL&#95;TIMEOUT: String(timeoutMs &#124;&#124; 2147483647), CLAUDE&#95;CODE&#95;MAX&#95;OUTPUT&#95;TOKENS: String(maxOutputTokens) });
+> A whole &#96;/v1/code/runners/self-hosted/&#42;&#96; control plane: register,
 
-依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/cloud-server.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
+代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/0f6041e85c9b27e4e6f14322e18a58300aa73e37/model-gateway/engine.mjs#L104)
+
+> const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', discovery.builtin, '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;caller&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', String(discovery.enabled ? discovery.maxCalls + 2 : 2), '--model', model, '--system-prompt-file', promptFile&#93;;
+
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/cli-output-audit.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/messages.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
 
 <a id="mechanism-server-side-arbiter-beta-header"></a>
 ## 服务端仲裁器 beta 头
@@ -1838,31 +2037,31 @@ x-cc-tender-quilt 是 CLI 在安全拒绝后切换模型时自行附加的出站
 依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/messages.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs、model-gateway/tool-definition-update.mjs、model-gateway/tool-search-config.mjs
 
 <a id="mechanism-trusted-device-token"></a>
-## 可信设备令牌头
+## X-Trusted-Device-Token 头
 
 机制 ID：trusted-device-token
 
-### 当前报告来源 · 2.1.300 · 可信设备令牌头
+### 当前报告来源 · 2.1.300 · X-Trusted-Device-Token 头
 
-[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)；评估时间：2026-10-22T09:39:51Z；审阅提交：9429ba2c51d9。
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/api-endpoints.md)；评估时间：2026-11-14T03:16:27Z；审阅提交：0f6041e85c9b。
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
 机制：可信设备令牌头：存在可信设备令牌时，X-Trusted-Device-Token 随 CCR CRUD、桥接、桥接环境、inbox、move-to-cloud 和 GitHub PR 请求发送。
 
-完整触发条件：仅在存在可信设备令牌时，CCR CRUD、桥接、桥接环境、inbox、move-to-cloud 或 GitHub PR 调用才附加该头。
+完整触发条件：存在可信设备令牌时；v2/v1 CCR 请求均会附加。
 
 方向：本地客户端 → 网关；触发：默认关闭／不触发；网关处理：不经过网关。
 
-当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
+当前有效性：当前配置不触发。历史评估结论：当前配置不触发。
 
-默认未启用 CCR/桥接等调用，也未提供可信设备令牌；报告要求存在 X-Trusted-Device-Token 时相关请求才附加。该请求由 CLI 自发，不经过网关入站适配器，故默认不触发，网关未过滤。
+报告仅在存在可信设备令牌且发起 CCR CRUD、桥接、桥接环境、inbox、move-to-cloud 或 GitHub PR 调用时附带；默认 engine 未启用这些远程路径，也不转发入站头，故默认不触发。若触发为 CLI 直连上游。
 
 发现时间：2026-10-14（上游报告提交日期）。
 
 报告原文（mechanism）：
 
-> It now rides on the CCR CRUD, bridge, bridge-environment, inbox, move-to-cloud and github-PR calls.
+> CCR CRUD, bridge, bridge-environment, inbox, move-to-cloud and github-PR calls.
 
 报告原文（trigger）：
 
@@ -1874,25 +2073,21 @@ x-cc-tender-quilt 是 CLI 在安全拒绝后切换模型时自行附加的出站
 
 报告原文（direction）：
 
-> It now rides on the CCR CRUD, bridge, bridge-environment, inbox, move-to-cloud and github-PR calls.
+> Both add &#96;X-Trusted-Device-Token&#96; when one is present.
 
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/api-endpoints.md)
 
 > Both add &#96;X-Trusted-Device-Token&#96; when one is present.
 
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/api-endpoints.md)
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/api-endpoints.md)
 
-> It now rides on the CCR CRUD, bridge, bridge-environment, inbox, move-to-cloud and github-PR calls.
+> &#96;X-Trusted-Device-Token&#96; occurs &#42;&#42;27×&#42;&#42; in 2.1.300 (5× in 2.1.197). It now rides on the CCR CRUD, bridge, bridge-environment, inbox, move-to-cloud and github-PR calls.
 
-代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L104)
+代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/0f6041e85c9b27e4e6f14322e18a58300aa73e37/model-gateway/engine.mjs#L104)
 
-> const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;omp&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', '2', '--model', model, '--system-prompt-file', promptFile&#93;;
+> const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', discovery.builtin, '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;caller&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', String(discovery.enabled ? discovery.maxCalls + 2 : 2), '--model', model, '--system-prompt-file', promptFile&#93;;
 
-代码：[model-gateway/engine.mjs:92](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L92)
-
-> Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE&#95;CONFIG&#95;DIR: configDir,       CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',       ENABLE&#95;TOOL&#95;SEARCH: 'false', MCP&#95;TOOL&#95;TIMEOUT: String(timeoutMs &#124;&#124; 2147483647), CLAUDE&#95;CODE&#95;MAX&#95;OUTPUT&#95;TOKENS: String(maxOutputTokens) });
-
-依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/cloud-server.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/cli-output-audit.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/messages.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
 
 ### 当前报告来源 · 2.1.300 · Trusted device token
 

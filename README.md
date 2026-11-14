@@ -55,27 +55,30 @@ npm run doctor
 
 固定研究上游：[wtfwhs/tengu-decoded](https://github.com/wtfwhs/tengu-decoded)；报告版本：2.1.300（不代表官方最新发布版本）；读取提交：`7ede2930a00e`。
 
-去重后 **31 项机制**；**28 项含待重评来源**；**0 项存在来源结论差异**；**9 条来源记录待回填字段**。最近保存的报告核验记录：2026-11-12T03:19:09Z。
+去重后 **34 项机制**；**25 项含待重评来源**；**0 项存在来源结论差异**；**9 条来源记录待回填字段**。最近保存的报告核验记录：2026-11-14T03:16:27Z。
 
 研究快照：部分完成，保留旧评估及其基准，待重评项不作当前确定结论。
 
 | 报告版本 | 机制 | 信号方向 | 默认触发 | 网关处理 | 评估状态 | 证据 |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2.1.300 | 协议指纹 · anthropic-cache-keepalive 响应头 | 服务端 → CLI | 条件触发 | 不经过网关 | 未过滤 | [1 份来源](docs/research/README.md#mechanism-anthropic-cache-keepalive-response-header) |
+| 2.1.300 | 环境标记 · Anthropic Google Cloud 平面 | 本地客户端 → 网关 | 默认关闭／不触发 | 不经过网关 | 默认关闭／不触发 | [1 份来源](docs/research/README.md#mechanism-anthropic-google-cloud-provider-plane) |
 | 2.1.300 | 协议指纹 · 仲裁器 safeguard&#95;results 裁决字段 | 服务端 → CLI | 待重评 | 待重评 | 待核实（代码已变化） | [1 份来源](docs/research/README.md#mechanism-arbiter-safeguard-results-field) |
-| 2.1.300 | 环境标记 · ATIS pin 评估上下文属性 | 云端 CLI → 服务端 | 待重评 | 待重评 | 待核实（代码已变化） | [1 份来源](docs/research/README.md#mechanism-atis-pin-attribute) |
+| 2.1.300 | 环境标记 · ATIS pin 评估上下文属性 | 云端 CLI → 服务端 | 待重评 | 待重评 | 待重评（报告核验未完成） | [1 份来源](docs/research/README.md#mechanism-atis-pin-attribute) |
 | 2.1.300 | 协议指纹 · 自动模式分类器 beta 头 | 云端 CLI → 服务端 | 待重评 | 待重评 | 待核实（代码已变化） | [1 份来源](docs/research/README.md#mechanism-auto-mode-classifier-beta-header) |
 | 2.1.300 | 环境标记 · 自动模式分类器环境元数据 | 证据不足 | 待重评 | 待重评 | 待核实（代码已变化） | [1 份来源](docs/research/README.md#mechanism-auto-mode-classifier-context-meta) |
-| 2.1.300 | 环境标记 · 后台调度订阅层级环境标记 | 组件内部传递 | 待重评 | 待重评 | 待核实（代码已变化） | [2 份来源](docs/research/README.md#mechanism-background-dispatcher-tier-env) |
+| 2.1.300 | 环境标记 · 后台调度订阅层级环境标记 | 组件内部传递 | 待重评 | 待重评 | 待重评（报告核验未完成） | [2 份来源](docs/research/README.md#mechanism-background-dispatcher-tier-env) |
 | 2.1.300 | 环境标记 · Bridge host profile | 旧记录待回填 | 待重评 | 待重评 | 待重评（报告核验未完成） | [1 份来源](docs/research/README.md#mechanism-bridge-host-profile) |
 | 2.1.300 | 环境标记 · 桥接 machine&#95;id 原样发送 | 云端 CLI → 服务端（部分旧记录待回填） | 待重评 | 待重评 | 待重评（报告核验未完成） | [2 份来源](docs/research/README.md#mechanism-bridge-machine-id) |
-| 2.1.300 | 环境标记 · 桥接所有者账号环境标记 | 组件内部传递 | 待重评 | 待重评 | 待核实（代码已变化） | [1 份来源](docs/research/README.md#mechanism-bridge-owner-account-env) |
-| 2.1.300 | 环境标记 · CCR 心跳探测字段 | 本地客户端 → 网关 | 待重评 | 待重评 | 待核实（代码已变化） | [1 份来源](docs/research/README.md#mechanism-ccr-heartbeat-probe-fields) |
+| 2.1.300 | 环境标记 · 桥接所有者账号环境标记 | 组件内部传递 | 待重评 | 待重评 | 待重评（报告核验未完成） | [1 份来源](docs/research/README.md#mechanism-bridge-owner-account-env) |
+| 2.1.300 | 协议指纹 · cache&#95;touch 缓存保活 beta | 本地客户端 → 网关 | 条件触发 | 不经过网关 | 未过滤 | [1 份来源](docs/research/README.md#mechanism-cache-keepalive-touch-beta) |
+| 2.1.300 | 协议指纹 · CCR 心跳探测字段 | 本地客户端 → 网关 | 默认关闭／不触发 | 不经过网关 | 默认关闭／不触发 | [1 份来源](docs/research/README.md#mechanism-ccr-heartbeat-probe-fields) |
 | 2.1.300 | 协议指纹 · CCR idle heartbeat probe | 旧记录待回填 | 待重评 | 待重评 | 待核实（来源已修订） | [1 份来源](docs/research/README.md#mechanism-ccr-idle-heartbeat-probe) |
 | 2.1.300 | 协议指纹 · 会话设备绑定证明 | 本地客户端 → 网关（部分旧记录待回填） | 待重评 | 待重评 | 待重评（报告核验未完成） | [2 份来源](docs/research/README.md#mechanism-device-bind-attestation) |
 | 2.1.300 | 环境标记 · 环境附件工作目录与主机画像 | 本地客户端 → 网关 | 待核实 | 待核实 | 待核实 | [1 份来源](docs/research/README.md#mechanism-environment-context-attachment) |
-| 2.1.300 | 协议指纹 · 环境运行器版本头 | 本地客户端 → 网关 | 待重评 | 待重评 | 待核实（代码已变化） | [1 份来源](docs/research/README.md#mechanism-environment-runner-version-header) |
-| 2.1.300 | 协议指纹 · 遥测 feature&#95;name 闭集枚举 | 证据不足 | 待重评 | 待重评 | 待核实（代码已变化） | [1 份来源](docs/research/README.md#mechanism-feature-name-telemetry-enum) |
-| 2.1.300 | 协议指纹 · GrowthBook 认证评估端点 | 云端 CLI → 服务端 | 待重评 | 待重评 | 待核实（代码已变化） | [1 份来源](docs/research/README.md#mechanism-growthbook-authed-eval-endpoint) |
+| 2.1.300 | 协议指纹 · x-environment-runner-version 头 | 本地客户端 → 网关 | 默认关闭／不触发 | 不经过网关 | 默认关闭／不触发 | [1 份来源](docs/research/README.md#mechanism-environment-runner-version-header) |
+| 2.1.300 | 协议指纹 · 遥测 feature&#95;name 闭集枚举 | 证据不足 | 待重评 | 待重评 | 待重评（报告核验未完成） | [1 份来源](docs/research/README.md#mechanism-feature-name-telemetry-enum) |
+| 2.1.300 | 协议指纹 · GrowthBook 认证评估端点 | 本地客户端 → 网关 | 默认关闭／不触发 | 不经过网关 | 当前配置不触发；部分来源待重评 | [2 份来源](docs/research/README.md#mechanism-growthbook-authed-eval-endpoint) |
 | 2.1.300 | 环境标记 · 安装 userID 原样外发 | 云端 CLI → 服务端（部分旧记录待回填） | 待重评 | 待重评 | 待重评（报告核验未完成） | [2 份来源](docs/research/README.md#mechanism-install-user-id-metadata) |
 | 2.1.300 | 协议指纹 · 低优先级慢速通道协议头 | 多条路径（见证据） | 待重评 | 待重评 | 待核实（代码已变化） | [1 份来源](docs/research/README.md#mechanism-low-priority-slow-protocol-headers) |
 | 2.1.300 | 环境标记 · machineID 错误报告截断 | 云端 CLI → 服务端（部分旧记录待回填） | 待重评 | 待重评 | 待重评（报告核验未完成） | [2 份来源](docs/research/README.md#mechanism-machine-id-error-prefix) |
@@ -84,14 +87,14 @@ npm run doctor
 | 2.1.300 | 协议指纹 · peer message fromMode | 旧记录待回填 | 待重评 | 待重评 | 待核实（来源已修订） | [1 份来源](docs/research/README.md#mechanism-peer-message-frommode-marker) |
 | 2.1.300 | 环境标记 · 计划层级环境覆盖 | 组件内部传递 | 待重评 | 待重评 | 待核实（代码已变化） | [1 份来源](docs/research/README.md#mechanism-plan-tier-env-override) |
 | 2.1.300 | 环境标记 · Plugin telemetry deviceId | 旧记录待回填 | 待重评 | 待重评 | 待重评（报告核验未完成） | [1 份来源](docs/research/README.md#mechanism-plugin-telemetry-device-id) |
-| 2.1.300 | 协议指纹 · 安全拒绝模型切换头 | 证据不足 | 待重评 | 待重评 | 待核实（代码已变化） | [1 份来源](docs/research/README.md#mechanism-safety-refusal-model-switch-header) |
-| 2.1.300 | 环境标记 · 自托管运行器JWT身份环境注入 | 组件内部传递 | 待重评 | 待重评 | 待核实（代码已变化） | [1 份来源](docs/research/README.md#mechanism-self-hosted-runner-jwt-identity-env) |
-| 2.1.300 | 协议指纹 · 自托管运行器版本头 | 本地客户端 → 网关 | 待重评 | 待重评 | 待核实（代码已变化） | [1 份来源](docs/research/README.md#mechanism-self-hosted-runner-version-header) |
+| 2.1.300 | 协议指纹 · 安全拒绝模型切换头 | 证据不足 | 待重评 | 待重评 | 待重评（报告核验未完成） | [1 份来源](docs/research/README.md#mechanism-safety-refusal-model-switch-header) |
+| 2.1.300 | 环境标记 · 自托管运行器JWT身份环境注入 | 组件内部传递 | 待重评 | 待重评 | 待重评（报告核验未完成） | [1 份来源](docs/research/README.md#mechanism-self-hosted-runner-jwt-identity-env) |
+| 2.1.300 | 协议指纹 · x-self-hosted-runner-version 头 | 本地客户端 → 网关 | 默认关闭／不触发 | 不经过网关 | 默认关闭／不触发 | [1 份来源](docs/research/README.md#mechanism-self-hosted-runner-version-header) |
 | 2.1.300 | 协议指纹 · 服务端仲裁器 beta 头 | 云端 CLI → 服务端 | 待重评 | 待重评 | 待核实（代码已变化） | [1 份来源](docs/research/README.md#mechanism-server-side-arbiter-beta-header) |
 | 2.1.300 | 协议指纹 · Summon SID HMAC | 旧记录待回填 | 待重评 | 待重评 | 待重评（报告核验未完成） | [1 份来源](docs/research/README.md#mechanism-summon-sid-hmac) |
 | 2.1.300 | 协议指纹 · 工具定义 strict 协议标记 | 本地客户端 → 网关 | 默认关闭／不触发 | 不经过网关 | 默认关闭／不触发 | [1 份来源](docs/research/README.md#mechanism-tool-schema-strict-flag) |
 | 2.1.300 | 协议指纹 · ToolSearch beta 头协议指纹 | 本地客户端 → 网关 | 默认关闭／不触发 | 不经过网关 | 默认关闭／不触发 | [1 份来源](docs/research/README.md#mechanism-tool-search-beta-headers) |
-| 2.1.300 | 环境标记 · 可信设备令牌头 | 本地客户端 → 网关（部分旧记录待回填） | 待重评 | 待重评 | 待重评（报告核验未完成） | [2 份来源](docs/research/README.md#mechanism-trusted-device-token) |
+| 2.1.300 | 环境标记 · X-Trusted-Device-Token 头 | 本地客户端 → 网关 | 默认关闭／不触发 | 不经过网关 | 当前配置不触发；部分来源待重评 | [2 份来源](docs/research/README.md#mechanism-trusted-device-token) |
 
 [完整条件、原文引用、代码证据与历史来源](docs/research/README.md)。发现时间按上游报告首发／首次可查提交记账，不代表机制引入时间。
 
