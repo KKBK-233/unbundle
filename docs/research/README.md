@@ -108,35 +108,35 @@
 依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/cli-output-audit.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/messages.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
 
 <a id="mechanism-arbiter-safeguard-results-field"></a>
-## 仲裁器 safeguard&#95;results 裁决字段
+## 仲裁器 safeguard&#95;results 响应
 
 机制 ID：arbiter-safeguard-results-field
 
-### 当前报告来源 · 2.1.300 · 仲裁器 safeguard&#95;results 裁决字段
+### 当前报告来源 · 2.1.300 · 仲裁器 safeguard&#95;results 响应
 
-[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)；评估时间：2026-10-22T10:03:06Z；审阅提交：9429ba2c51d9。
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/security-model.md)；评估时间：2026-11-15T03:26:33Z；审阅提交：747f1900a697。
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
 机制：仲裁器 safeguard&#95;results 响应协议指纹：服务端分类器响应携带 evaluated、skipped 或 unavailable 裁决。
 
-完整触发条件：自动模式调用服务端分类器（cE 返回 arbiter 或 arbiterWithLocalFallback）并返回裁决时。
+完整触发条件：arbiter 服务端分类器返回响应时，响应中的 safeguard&#95;results 给出 evaluated、skipped 或 unavailable 裁决。
 
 方向：服务端 → CLI；触发：默认关闭／不触发；网关处理：不经过网关。
 
-当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
+当前有效性：当前配置不触发。历史评估结论：当前配置不触发。
 
-默认 &#96;--permission-mode dontAsk&#96; 不进入 &#96;auto&#96;，仲裁器不调用，&#96;safeguard&#95;results&#96; 不会出现在该会话；且它是服务端对 CLI 的响应字段，不是客户端上传，网关不解析该响应。
+safeguard&#95;results 是 arbiter 服务端响应字段，不是本地入站上传；默认不启用自动模式，arbiter 不触发，故无该响应。服务端响应直接回 CLI，网关只读 CLI stdio 事件。
 
 发现时间：2026-10-14（上游报告提交日期）。
 
 报告原文（mechanism）：
 
-> The API beta &#96;dangerous-tool-use-2026-09-03&#96; (&#96;YC&#96;, &#96;:92316&#96;) and the response field &#96;safeguard&#95;results&#96; (&#96;:96445&#96;) carry an &#96;evaluated{outcome:"flagged"&#124;"not&#95;flagged"}&#96; / &#96;skipped&#96; / &#96;unavailable&#96; verdict (&#96;AEo&#96;, &#96;:431576&#96;).
+> the response field &#96;safeguard&#95;results&#96; (&#96;:96445&#96;) carry an &#96;evaluated{outcome:"flagged"&#124;"not&#95;flagged"}&#96; / &#96;skipped&#96; / &#96;unavailable&#96; verdict
 
 报告原文（trigger）：
 
-> &#96;cE(tool)&#96; (&#96;:431829&#96;) returns &#96;"off"&#96;, &#96;"arbiter"&#96; (first party) or &#96;"arbiterWithLocalFallback"&#96; (third-party planes: bedrock, mantle, vertex, foundry, anthropicAws, anthropicGoogleCloud, gateway; &#96;j3()&#96; &#96;:431810&#96;).
+> the response field &#96;safeguard&#95;results&#96; (&#96;:96445&#96;)
 
 报告原文（version）：
 
@@ -144,29 +144,29 @@
 
 报告原文（direction）：
 
+> the response field &#96;safeguard&#95;results&#96; (&#96;:96445&#96;)
+
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/security-model.md)
+
 > The API beta &#96;dangerous-tool-use-2026-09-03&#96; (&#96;YC&#96;, &#96;:92316&#96;) and the response field &#96;safeguard&#95;results&#96; (&#96;:96445&#96;) carry an &#96;evaluated{outcome:"flagged"&#124;"not&#95;flagged"}&#96; / &#96;skipped&#96; / &#96;unavailable&#96; verdict (&#96;AEo&#96;, &#96;:431576&#96;).
 
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/security-model.md)
 
-> The API beta &#96;dangerous-tool-use-2026-09-03&#96; (&#96;YC&#96;, &#96;:92316&#96;) and the response field &#96;safeguard&#95;results&#96; (&#96;:96445&#96;) carry an &#96;evaluated{outcome:"flagged"&#124;"not&#95;flagged"}&#96; / &#96;skipped&#96; / &#96;unavailable&#96; verdict (&#96;AEo&#96;, &#96;:431576&#96;).
+> User-facing copy: &#42;"Auto mode held this command for the server-side classifier to review"&#42; (&#96;Ddn&#96;, &#96;:25531&#96;).
 
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)
+代码：[model-gateway/engine.mjs:105](https://github.com/KKBK-233/unbundle/blob/747f1900a6973ea9c6ffa1bc6bdd4e4ac19c2fca/model-gateway/engine.mjs#L105)
 
-> &#96;cE(tool)&#96; (&#96;:431829&#96;) returns &#96;"off"&#96;, &#96;"arbiter"&#96; (first party) or &#96;"arbiterWithLocalFallback"&#96; (third-party planes: bedrock, mantle, vertex, foundry, anthropicAws, anthropicGoogleCloud, gateway; &#96;j3()&#96; &#96;:431810&#96;).
+> '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',
 
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)
-
-> Six external modes, unchanged: &#96;TD = &#91;"acceptEdits","auto","bypassPermissions","default","dontAsk","plan"&#93;&#96; (&#96;:25394&#96;).
-
-代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L104)
-
-> const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;omp&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', '2', '--model', model, '--system-prompt-file', promptFile&#93;;
-
-代码：[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L112)
+代码：[model-gateway/engine.mjs:113](https://github.com/KKBK-233/unbundle/blob/747f1900a6973ea9c6ffa1bc6bdd4e4ac19c2fca/model-gateway/engine.mjs#L113)
 
 > child = spawnProcess(cli, args, { env, cwd, detached: group, windowsHide: true, stdio: &#91;'pipe', 'pipe', 'pipe'&#93; });
 
-依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-compat.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
+代码：[model-gateway/engine.mjs:129](https://github.com/KKBK-233/unbundle/blob/747f1900a6973ea9c6ffa1bc6bdd4e4ac19c2fca/model-gateway/engine.mjs#L129)
+
+> lines = readline.createInterface({ input: child.stdout });
+
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-probe.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/messages.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
 
 <a id="mechanism-atis-pin-attribute"></a>
 ## ATIS pin 评估上下文属性
@@ -226,25 +226,25 @@
 依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-compat.mjs、model-gateway/cli-events.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs、model-gateway/transport-check.mjs、model-gateway/wire-probe.mjs
 
 <a id="mechanism-auto-mode-classifier-beta-header"></a>
-## 自动模式分类器 beta 头
+## 自动模式分类器 beta 头协议指纹
 
 机制 ID：auto-mode-classifier-beta-header
 
-### 当前报告来源 · 2.1.300 · 自动模式分类器 beta 头
+### 当前报告来源 · 2.1.300 · 自动模式分类器 beta 头协议指纹
 
-[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)；评估时间：2026-10-22T10:03:06Z；审阅提交：9429ba2c51d9。
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/security-model.md)；评估时间：2026-11-15T03:26:33Z；审阅提交：747f1900a697。
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
-机制：自动模式分类器 beta 头协议指纹：调用自动模式分类器时在请求中携带 auto-mode-classifier-2026-07-16 beta 头，标识分类器请求类型。
+机制：自动模式分类器 beta 头协议指纹：调用自动模式分类器时，请求携带 auto-mode-classifier-2026-07-16 beta 头，标识该请求为分类器调用。
 
-完整触发条件：进入自动模式并调用自动模式分类器（两阶段分类器，默认 both）时。
+完整触发条件：自动模式分类器请求被发起时，请求使用 querySource:auto&#95;mode 与 classifierStage:xml&#95;s1，并携带 auto-mode-classifier-2026-07-16 beta 头。
 
 方向：云端 CLI → 服务端；触发：默认关闭／不触发；网关处理：不经过网关。
 
-当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
+当前有效性：当前配置不触发。历史评估结论：当前配置不触发。
 
-默认引擎固定 &#96;--permission-mode dontAsk&#96;，未进入 &#96;auto&#96;，自动模式分类器不运行，&#96;auto-mode-classifier-2026-07-16&#96; 头不会由此发出；若用户另行进入 auto，分类器请求由 CLI 直接发往服务端，不经过网关过滤。
+网关用 &#96;--permission-mode dontAsk&#96; 和空 setting-sources 启动独立 CLI，默认不进入 auto 模式，自动模式分类器请求条件不成立；该 beta 头随 CLI 自发请求直连服务，不经网关。
 
 发现时间：2026-10-14（上游报告提交日期）。
 
@@ -254,7 +254,7 @@
 
 报告原文（trigger）：
 
-> &#42;&#42;Two stages&#42;&#42; &#96;Gjo()&#96; (&#96;:457475&#96;): &#96;twoStageClassifier&#96; = &#96;"fast"&#96; &#124; &#96;"thinking"&#96; &#124; default &#96;"both"&#96;.
+> &#96;querySource:"auto&#95;mode"&#96;, &#96;classifierStage:"xml&#95;s1"&#96;
 
 报告原文（version）：
 
@@ -262,29 +262,29 @@
 
 报告原文（direction）：
 
-> Request: &#96;max&#95;tokens&#96; = &#96;(fast ? 256 : 64) + budget&#96;, stop sequence &#96;&lt;/severity&gt;&#96; or &#96;&lt;/block&gt;&#96;, &#96;querySource:"auto&#95;mode"&#96;, &#96;classifierStage:"xml&#95;s1"&#96; (&#96;:456600&#96;–&#96;:456630&#96;).
+> Request: &#96;max&#95;tokens&#96; = &#96;(fast ? 256 : 64) + budget&#96;, stop sequence &#96;&lt;/severity&gt;&#96; or &#96;&lt;/block&gt;&#96;, &#96;querySource:"auto&#95;mode"&#96;, &#96;classifierStage:"xml&#95;s1"&#96;
 
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/security-model.md)
 
 > &#42;&#42;Beta header&#42;&#42; &#96;auto-mode-classifier-2026-07-16&#96; (&#96;wPo&#96;, &#96;:92315&#96;). &#42;&#42;NEW&#42;&#42;.
 
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/security-model.md)
 
-> Six external modes, unchanged: &#96;TD = &#91;"acceptEdits","auto","bypassPermissions","default","dontAsk","plan"&#93;&#96; (&#96;:25394&#96;).
+> Request: &#96;max&#95;tokens&#96; = &#96;(fast ? 256 : 64) + budget&#96;, stop sequence &#96;&lt;/severity&gt;&#96; or &#96;&lt;/block&gt;&#96;, &#96;querySource:"auto&#95;mode"&#96;, &#96;classifierStage:"xml&#95;s1"&#96; (&#96;:456600&#96;–&#96;:456630&#96;).
 
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/security-model.md)
 
-> &#42;&#42;Two stages&#42;&#42; &#96;Gjo()&#96; (&#96;:457475&#96;): &#96;twoStageClassifier&#96; = &#96;"fast"&#96; &#124; &#96;"thinking"&#96; &#124; default &#96;"both"&#96;.
+> &#96;q0e()&#96; (&#96;:731673&#96;) computes &#96;canEnterAuto&#96; from &#96;tengu&#95;auto&#95;mode&#95;config.enabled&#96; (&#96;"disabled"&#96; → reason &#96;circuit-breaker&#96;), &#96;disableAutoMode&#96; (reason &#96;settings&#96;), &#96;disableFastMode&#96; together with &#96;/fast&#96; (reason &#96;fast-mode&#96;), and model support (reason &#96;model&#96;).
 
-代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L104)
+代码：[model-gateway/engine.mjs:105](https://github.com/KKBK-233/unbundle/blob/747f1900a6973ea9c6ffa1bc6bdd4e4ac19c2fca/model-gateway/engine.mjs#L105)
 
-> const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;omp&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', '2', '--model', model, '--system-prompt-file', promptFile&#93;;
+> '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',
 
-代码：[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L112)
+代码：[model-gateway/engine.mjs:113](https://github.com/KKBK-233/unbundle/blob/747f1900a6973ea9c6ffa1bc6bdd4e4ac19c2fca/model-gateway/engine.mjs#L113)
 
 > child = spawnProcess(cli, args, { env, cwd, detached: group, windowsHide: true, stdio: &#91;'pipe', 'pipe', 'pipe'&#93; });
 
-依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-compat.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-probe.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/messages.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
 
 <a id="mechanism-auto-mode-classifier-context-meta"></a>
 ## 自动模式分类器环境元数据
@@ -293,19 +293,19 @@
 
 ### 当前报告来源 · 2.1.300 · 自动模式分类器环境元数据
 
-[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)；评估时间：2026-10-22T10:03:06Z；审阅提交：9429ba2c51d9。
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/security-model.md)；评估时间：2026-11-15T03:26:33Z；审阅提交：747f1900a697。
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
-机制：自动模式分类器环境元数据：在分类器提示中按命令类型附加 repoVisibility、gitStatus 和 navigation 上下文行，承载仓库可见性、工作区状态和跨站导航信息。
+机制：自动模式分类器环境元数据：在分类器提示中按命令类型附加 repoVisibility、gitStatus 和 navigation 行，承载仓库可见性、工作区状态和跨站导航信息。
 
-完整触发条件：自动模式分类器评估前，针对 exfil-capable git/gh 命令、work-destroying 命令或 Claude-in-Chrome 跨站导航时。
+完整触发条件：自动模式分类器构造提示并发送时，若配置启用 repoVisibility/gitStatus，则分别在可外传 git/gh 命令、破坏性命令前附加 repoVisibility、gitStatus；Claude-in-Chrome 跨站跳转附加 navigation。
 
-方向：证据不足；触发：默认关闭／不触发；网关处理：不经过网关。
+方向：云端 CLI → 服务端；触发：默认关闭／不触发；网关处理：不经过网关。
 
-当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
+当前有效性：当前配置不触发。历史评估结论：当前配置不触发。
 
-默认 &#96;--permission-mode dontAsk&#96; 不进入 &#96;auto&#96;，分类器不运行，&#96;repoVisibility&#96;/&#96;gitStatus&#96;/&#96;navigation&#96; 上下文行不会附加；若触发，这些行由 CLI 构造分类器提示，网关不介入。
+repoVisibility/gitStatus/navigation 仅随自动模式分类器提示发送；默认 dontAsk 且 setting-sources 为空，不进入 auto 模式，分类器请求不触发。即使触发也属 CLI 自发上游请求，网关只经 stdio 收事件。
 
 发现时间：2026-10-14（上游报告提交日期）。
 
@@ -315,7 +315,7 @@
 
 报告原文（trigger）：
 
-> &#96;repoVisibility&#96; before exfil-capable git/gh commands (&#96;"public"&#96; is authoritative), &#96;gitStatus&#96; before work-destroying commands (&#96;{"clean":true}&#96; clears the presume-dirty rule), and &#96;navigation:{from,to}&#96; for Claude-in-Chrome landings on another site.
+> &#96;repoVisibility:true&#96;, &#96;gitStatusType:true&#96;, &#96;gitStatusUploads:false&#96;
 
 报告原文（version）：
 
@@ -323,29 +323,25 @@
 
 报告原文（direction）：
 
-> &#96;repoVisibility&#96; before exfil-capable git/gh commands (&#96;"public"&#96; is authoritative), &#96;gitStatus&#96; before work-destroying commands (&#96;{"clean":true}&#96; clears the presume-dirty rule), and &#96;navigation:{from,to}&#96; for Claude-in-Chrome landings on another site.
+> &#42;&#42;NEW meta lines:&#42;&#42; &#96;repoVisibility&#96; before exfil-capable git/gh commands (&#96;"public"&#96; is authoritative), &#96;gitStatus&#96; before work-destroying commands (&#96;{"clean":true}&#96; clears the presume-dirty rule), and &#96;navigation:{from,to}&#96; for Claude-in-Chrome landings on another site.
 
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/security-model.md)
 
 > &#42;&#42;NEW meta lines:&#42;&#42; &#96;repoVisibility&#96; before exfil-capable git/gh commands (&#96;"public"&#96; is authoritative), &#96;gitStatus&#96; before work-destroying commands (&#96;{"clean":true}&#96; clears the presume-dirty rule), and &#96;navigation:{from,to}&#96; for Claude-in-Chrome landings on another site.
 
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/security-model.md)
 
-> Six external modes, unchanged: &#96;TD = &#91;"acceptEdits","auto","bypassPermissions","default","dontAsk","plan"&#93;&#96; (&#96;:25394&#96;).
+> &#96;q0e()&#96; (&#96;:731673&#96;) computes &#96;canEnterAuto&#96; from &#96;tengu&#95;auto&#95;mode&#95;config.enabled&#96; (&#96;"disabled"&#96; → reason &#96;circuit-breaker&#96;), &#96;disableAutoMode&#96; (reason &#96;settings&#96;), &#96;disableFastMode&#96; together with &#96;/fast&#96; (reason &#96;fast-mode&#96;), and model support (reason &#96;model&#96;).
 
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)
+代码：[model-gateway/engine.mjs:105](https://github.com/KKBK-233/unbundle/blob/747f1900a6973ea9c6ffa1bc6bdd4e4ac19c2fca/model-gateway/engine.mjs#L105)
 
-> &#42;&#42;Two stages&#42;&#42; &#96;Gjo()&#96; (&#96;:457475&#96;): &#96;twoStageClassifier&#96; = &#96;"fast"&#96; &#124; &#96;"thinking"&#96; &#124; default &#96;"both"&#96;.
+> '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',
 
-代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L104)
-
-> const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;omp&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', '2', '--model', model, '--system-prompt-file', promptFile&#93;;
-
-代码：[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L112)
+代码：[model-gateway/engine.mjs:113](https://github.com/KKBK-233/unbundle/blob/747f1900a6973ea9c6ffa1bc6bdd4e4ac19c2fca/model-gateway/engine.mjs#L113)
 
 > child = spawnProcess(cli, args, { env, cwd, detached: group, windowsHide: true, stdio: &#91;'pipe', 'pipe', 'pipe'&#93; });
 
-依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-compat.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-probe.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/messages.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
 
 <a id="mechanism-background-dispatcher-tier-env"></a>
 ## 后台调度订阅层级环境标记
@@ -412,7 +408,7 @@
 
 方向：组件内部传递；触发：默认关闭／不触发；网关处理：移除。
 
-当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
+当前有效性：待重评（报告核验未完成）。历史评估结论：当前配置不触发。
 
 默认未设 CLAUDE&#95;CODE&#95;SESSION&#95;KIND=bg，且 engine env 白名单不含 CLAUDE&#95;BG&#95;DISPATCHER&#95;&#42;；CLI 以 -p 独立进程运行，不会从父会话继承后台计划/层级，默认不触发。
 
@@ -488,7 +484,7 @@ host 画像只在桥接注册路径附加，GrowthBook tengu&#95;bridge&#95;host
 > const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;omp&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', '2', '--model', model, '--system-prompt-file', promptFile&#93;;
 
 <a id="mechanism-bridge-machine-id"></a>
-## 桥接 machine&#95;id 原样发送
+## remoteControlMachineId 原样随桥接注册请求发送
 
 机制 ID：bridge-machine-id
 
@@ -530,21 +526,21 @@ host 画像只在桥接注册路径附加，GrowthBook tengu&#95;bridge&#95;host
 
 > const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;omp&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', '2', '--model', model, '--system-prompt-file', promptFile&#93;;
 
-### 当前报告来源 · 2.1.300 · 桥接 machine&#95;id 原样发送
+### 当前报告来源 · 2.1.300 · remoteControlMachineId 原样随桥接注册请求发送
 
-[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/overview.md)；评估时间：2026-10-22T09:52:11Z；审阅提交：9429ba2c51d9。
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/overview.md)；评估时间：2026-11-15T03:17:04Z；审阅提交：747f1900a697。
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
-机制：桥接环境机器 ID 透传：remoteControlMachineId 为 UUID，在注册远程控制桥环境时原样发送到 POST /v1/environments/bridge。
+机制：桥接环境机器 ID 透传：remoteControlMachineId（UUID）在 POST /v1/environments/bridge 中原样发送。
 
-完整触发条件：注册远程控制桥环境并调用 POST /v1/environments/bridge 时，remoteControlMachineId 以 UUID 原样发送。
+完整触发条件：当客户端实际发起 POST /v1/environments/bridge 注册桥接环境时触发；默认未启用远程控制时不产生该请求。
 
 方向：云端 CLI → 服务端；触发：默认关闭／不触发；网关处理：不经过网关。
 
-当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
+当前有效性：当前配置不触发。历史评估结论：当前配置不触发。
 
-Bridge 通道：注册 POST /v1/environments/bridge 需远程控制；默认 tengu&#95;cobalt&#95;harbor=false，网关以 -p 打印模式启动且未启用远程控制，故默认不发送 remoteControlMachineId。若显式启用，该请求由 CLI 直连，不经过网关。
+默认远程控制未开：tengu&#95;cobalt&#95;harbor 默认 false，Unbundle 固定参数也未启用远程或桥接，不会发起 POST /v1/environments/bridge；若发起，属 CLI 自发请求，不经过网关。
 
 发现时间：2026-10-14（上游报告提交日期）。
 
@@ -564,23 +560,19 @@ Bridge 通道：注册 POST /v1/environments/bridge 需远程控制；默认 ten
 
 > The NEW &#96;remoteControlMachineId&#96; (a UUID) is sent raw on &#96;POST /v1/environments/bridge&#96;.
 
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/overview.md)
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/overview.md)
 
 > The NEW &#96;remoteControlMachineId&#96; (a UUID) is sent raw on &#96;POST /v1/environments/bridge&#96;.
 
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/feature-flags.md)
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/feature-flags.md)
 
 > &#124; &#96;tengu&#95;cobalt&#95;harbor&#96; &#124; &#96;false&#96; &#124; k &#124; kept &#124; &#96;:290108&#96; &#124; Default Remote Control ON at startup (a6o()) &#42;(2.1.197 desc.)&#42; &#124;
 
-代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L104)
+代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/747f1900a6973ea9c6ffa1bc6bdd4e4ac19c2fca/model-gateway/engine.mjs#L104)
 
-> const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,
+> const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', discovery.builtin, '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;caller&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', String(discovery.enabled ? discovery.maxCalls + 2 : 2), '--model', model, '--system-prompt-file', promptFile&#93;;
 
-代码：[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L112)
-
-> child = spawnProcess(cli, args, { env, cwd, detached: group, windowsHide: true, stdio: &#91;'pipe', 'pipe', 'pipe'&#93; });
-
-依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/cloud-server.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/server.mjs
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/messages.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs、model-gateway/session-entry.mjs
 
 <a id="mechanism-bridge-owner-account-env"></a>
 ## 桥接所有者账号环境标记
@@ -793,7 +785,7 @@ Bridge 通道：注册 POST /v1/environments/bridge 需远程控制；默认 ten
 > const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;omp&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', '2', '--model', model, '--system-prompt-file', promptFile&#93;;
 
 <a id="mechanism-device-bind-attestation"></a>
-## 会话设备绑定证明
+## 每账号 ECDSA P-256 设备密钥注册留存
 
 机制 ID：device-bind-attestation
 
@@ -886,6 +878,50 @@ Bridge 通道：注册 POST /v1/environments/bridge 需远程控制；默认 ten
 代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/10e3b5ed3047a73a00285e472bb253e41d6d833e/model-gateway/engine.mjs#L104)
 
 > const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;omp&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', '2', '--model', model, '--system-prompt-file', promptFile&#93;;
+
+### 当前报告来源 · 2.1.300 · 每账号 ECDSA P-256 设备密钥注册留存
+
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/overview.md)；评估时间：2026-11-15T03:17:04Z；审阅提交：747f1900a697。
+
+评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
+
+机制：设备绑定密钥注册留存：按账号生成 ECDSA P-256 设备密钥并在服务端注册，注销后仍保留。
+
+完整触发条件：当为账号注册 ECDSA P-256 设备密钥时触发；该注册在注销后仍保留。
+
+方向：云端 CLI → 服务端；触发：待核实；网关处理：待核实。
+
+当前有效性：待核实。历史评估结论：待核实。
+
+报告只称每账号 ECDSA P-256 设备密钥在服务端注册并跨注销保留，未给出默认触发条件或控制开关；Unbundle 默认是否注册无法判定。网关只启动 CLI，不处理该出站注册。
+
+发现时间：2026-10-14（上游报告提交日期）。
+
+报告原文（mechanism）：
+
+> The NEW per-account ECDSA P-256 device key is registered server-side and &#42;&#42;survives logout&#42;&#42;.
+
+报告原文（trigger）：
+
+> The NEW per-account ECDSA P-256 device key is registered server-side and &#42;&#42;survives logout&#42;&#42;.
+
+报告原文（version）：
+
+> &#42;&#42;Version&#42;&#42;: 2.1.300
+
+报告原文（direction）：
+
+> The NEW per-account ECDSA P-256 device key is registered server-side and &#42;&#42;survives logout&#42;&#42;.
+
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/overview.md)
+
+> The NEW per-account ECDSA P-256 device key is registered server-side and &#42;&#42;survives logout&#42;&#42;.
+
+代码：[model-gateway/engine.mjs:113](https://github.com/KKBK-233/unbundle/blob/747f1900a6973ea9c6ffa1bc6bdd4e4ac19c2fca/model-gateway/engine.mjs#L113)
+
+> child = spawnProcess(cli, args, { env, cwd, detached: group, windowsHide: true, stdio: &#91;'pipe', 'pipe', 'pipe'&#93; });
+
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/messages.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs、model-gateway/session-entry.mjs
 
 <a id="mechanism-environment-context-attachment"></a>
 ## 环境附件工作目录与主机画像
@@ -1158,7 +1194,7 @@ feature&#95;name 仅随 CLI 的 tengu&#95;feature&#95;ok/bad/sad 遥测发出。
 依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-compat.mjs、model-gateway/cli-events.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs、model-gateway/transport-check.mjs、model-gateway/wire-probe.mjs
 
 <a id="mechanism-install-user-id-metadata"></a>
-## 安装 userID 原样外发
+## 持久 userID 原样透传至 Messages 元数据及遥测
 
 机制 ID：install-user-id-metadata
 
@@ -1200,21 +1236,21 @@ feature&#95;name 仅随 CLI 的 tengu&#95;feature&#95;ok/bad/sad 遥测发出。
 
 > child = spawnProcess(cli, args, { env, cwd, detached: group, windowsHide: true, stdio: &#91;'pipe', 'pipe', 'pipe'&#93; });
 
-### 当前报告来源 · 2.1.300 · 安装 userID 原样外发
+### 当前报告来源 · 2.1.300 · 持久 userID 原样透传至 Messages 元数据及遥测
 
-[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/overview.md)；评估时间：2026-10-22T09:52:11Z；审阅提交：9429ba2c51d9。
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/overview.md)；评估时间：2026-11-15T03:17:04Z；审阅提交：747f1900a697。
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
-机制：持久安装用户标识透传：随机生成并持久化的 64 位十六进制 userID 作为 Messages API 的 metadata.user&#95;id 原样发出，并进入 1P 事件、GrowthBook 和 OTel。
+机制：安装用户标识 metadata 透传：userID 作为 Messages API 的 metadata.user&#95;id 原样发出，并进入 1P 事件、GrowthBook 和 OTel。
 
-完整触发条件：当持久化配置中的 userID 由 randomBytes(32) 生成并经过 64 位十六进制校验后，在 Messages API、1P 事件、GrowthBook、OTel 中作为 metadata.user&#95;id 或标识原样外发。
+完整触发条件：当本地已有或首次生成并持久化 userID 后，发起 Messages API 请求或 1P/GrowthBook/OTel 上报时触发。
 
-方向：云端 CLI → 服务端；触发：默认触发；网关处理：不经过网关。
+方向：多条路径（见证据）；触发：默认触发；网关处理：不经过网关。
 
-当前有效性：待核实（代码已变化）。历史评估结论：未过滤。
+当前有效性：未过滤。历史评估结论：未过滤。
 
-Messages 通道默认由持凭据的 CLI 直接出站，网关只经 stdio 启动子进程、不代理该请求，metadata.user&#95;id 原样发送；CLI 自发路径，满足报告触发条件时未经过网关过滤。1P/GrowthBook 因注入 DISABLE&#95;NONESSENTIAL&#95;TRAFFIC=1 关闭，OTel 默认关闭，均不触发。
+Messages 路径：默认 CLI 自发请求携带 metadata.user&#95;id，网关仅经 stdio 启动独立 CLI，不介入出站，满足报告条件时未经过网关过滤。1P/GrowthBook 因默认设置禁用非必要流量而不发送；用户 OTel 默认未启用。
 
 发现时间：2026-10-14（上游报告提交日期）。
 
@@ -1224,7 +1260,7 @@ Messages 通道默认由持凭据的 CLI 直接出站，网关只经 stdio 启�
 
 报告原文（trigger）：
 
-> (&#96;:115596&#96;) each produce &#96;randomBytes(32).toString("hex")&#96;, validated as 64-hex and persisted to the
+> &#96;userID&#96; still leaves raw (Messages API &#96;metadata.user&#95;id&#96;, 1P events, GrowthBook, OTel).
 
 报告原文（version）：
 
@@ -1234,27 +1270,23 @@ Messages 通道默认由持凭据的 CLI 直接出站，网关只经 stdio 启�
 
 > &#96;userID&#96; still leaves raw (Messages API &#96;metadata.user&#95;id&#96;, 1P events, GrowthBook, OTel).
 
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/overview.md)
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/overview.md)
 
 > &#96;userID&#96; still leaves raw (Messages API &#96;metadata.user&#95;id&#96;, 1P events, GrowthBook, OTel).
 
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/telemetry.md)
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/telemetry.md)
 
 > &#124; &#96;DISABLE&#95;TELEMETRY&#96; / &#96;DO&#95;NOT&#95;TRACK&#96; / &#96;CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC&#96; &#124; Disable 1P, Datadog, error tracking, GrowthBook (via &#96;Oj&#96;), BigQuery metrics (via &#96;LD&#96;), and the plugin telemetry mod &#124; &#96;:10162&#96;, &#96;:22061&#96;, &#96;:142788&#96;, &#96;:1470484&#96;, &#96;:1534612&#96; &#124;
 
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/telemetry.md)
+代码：[model-gateway/engine.mjs:94](https://github.com/KKBK-233/unbundle/blob/747f1900a6973ea9c6ffa1bc6bdd4e4ac19c2fca/model-gateway/engine.mjs#L94)
 
-> &#124; &#42;&#42;OpenTelemetry (user 3P)&#42;&#42; (module 1771) &#124; Metrics, logs and traces to the operator's own collector &#124; &#96;OTEL&#95;EXPORTER&#95;OTLP&#95;&#42;&#96;; &#42;&#42;NEW&#42;&#42; CCR relay &#96;/v1/code/sessions/{id}/worker/otlp/…&#96; (&#96;:194015&#96;) &#124; &#42;&#42;OFF&#42;&#42; &#124; &#96;CLAUDE&#95;CODE&#95;ENABLE&#95;TELEMETRY&#96; (&#96;isTelemetryEnabled&#96; &#96;Nt&#96;, &#96;:1470670&#96;) plus the &#96;OTEL&#95;&#42;&#96; family &#124;
+> Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE&#95;CONFIG&#95;DIR: configDir,       CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',       ENABLE&#95;TOOL&#95;SEARCH: discovery.environment, MCP&#95;TOOL&#95;TIMEOUT: String(timeoutMs &#124;&#124; 2147483647), CLAUDE&#95;CODE&#95;MAX&#95;OUTPUT&#95;TOKENS: String(maxOutputTokens) });
 
-代码：[model-gateway/engine.mjs:93](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L93)
-
-> CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',
-
-代码：[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L112)
+代码：[model-gateway/engine.mjs:113](https://github.com/KKBK-233/unbundle/blob/747f1900a6973ea9c6ffa1bc6bdd4e4ac19c2fca/model-gateway/engine.mjs#L113)
 
 > child = spawnProcess(cli, args, { env, cwd, detached: group, windowsHide: true, stdio: &#91;'pipe', 'pipe', 'pipe'&#93; });
 
-依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/cloud-server.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/server.mjs
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/messages.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs、model-gateway/session-entry.mjs
 
 <a id="mechanism-low-priority-slow-protocol-headers"></a>
 ## 低优先级慢速通道协议头
@@ -1273,7 +1305,7 @@ Messages 通道默认由持凭据的 CLI 直接出站，网关只经 stdio 启�
 
 方向：多条路径（见证据）；触发：默认关闭／不触发；网关处理：不经过网关。
 
-当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
+当前有效性：待重评（报告核验未完成）。历史评估结论：当前配置不触发。
 
 该头在 CLI 激活低优先级后由其直连上游发送；但默认 engine 以 -p 非交互方式启动，报告要求交互会话且 flag/treatment 才触发，故默认不发送。网关只经 stdio 与 CLI 交互，不介入该出站头。
 
@@ -1314,7 +1346,7 @@ Messages 通道默认由持凭据的 CLI 直接出站，网关只经 stdio 启�
 依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-compat.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/wire-probe.mjs
 
 <a id="mechanism-machine-id-error-prefix"></a>
-## machineID 错误报告截断
+## machineID 12 字符前缀随错误报告外发
 
 机制 ID：machine-id-error-prefix
 
@@ -1360,21 +1392,21 @@ Messages 通道默认由持凭据的 CLI 直接出站，网关只经 stdio 启�
 
 > const env = {};     for (const k of &#91;'PATH', 'Path', 'SystemRoot', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP', 'LANG'&#93;) if (process.env&#91;k&#93;) env&#91;k&#93; = process.env&#91;k&#93;;     Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE&#95;CONFIG&#95;DIR: configDir,       CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',       ENABLE&#95;TOOL&#95;SEARCH: 'false', MCP&#95;TOOL&#95;TIMEOUT: String(timeoutMs &#124;&#124; 2147483647), CLAUDE&#95;CODE&#95;MAX&#95;OUTPUT&#95;TOKENS: String(maxOutputTokens) });
 
-### 当前报告来源 · 2.1.300 · machineID 错误报告截断
+### 当前报告来源 · 2.1.300 · machineID 12 字符前缀随错误报告外发
 
-[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/overview.md)；评估时间：2026-10-22T09:52:11Z；审阅提交：9429ba2c51d9。
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/overview.md)；评估时间：2026-11-15T03:17:04Z；审阅提交：747f1900a697。
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
-机制：机器标识截断透传：持久化的随机 machineID 仅以 12 字符前缀出现在错误报告中。
+机制：机器标识截断透传：machineID 仅以 12 字符前缀出现在错误报告中。
 
-完整触发条件：发生错误报告时，持久化的随机 machineID 仅截取前 12 字符作为前缀随错误报告发送。
+完整触发条件：当本地已有持久化 machineID 且产生并发送错误报告时触发；普通请求不携带完整 machineID。
 
 方向：云端 CLI → 服务端；触发：默认关闭／不触发；网关处理：不经过网关。
 
-当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
+当前有效性：当前配置不触发。历史评估结论：当前配置不触发。
 
-错误报告通道：Datadog error tracking 默认 OFF，tengu&#95;orford&#95;ness 默认 !1；网关注入 DISABLE&#95;NONESSENTIAL&#95;TRAFFIC=1 使 TMs 所需的 !iy() 不成立，machineID 前缀默认不发送。若显式开启，报告由 CLI 直连，不经网关过滤。
+默认 Datadog 错误跟踪的 tengu&#95;orford&#95;ness 为 false，且 Unbundle 设置 CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC，默认不发送错误报告，machineID 前缀不外发；若启用，属 CLI 自发上报，不经过网关。
 
 发现时间：2026-10-14（上游报告提交日期）。
 
@@ -1394,27 +1426,19 @@ Messages 通道默认由持凭据的 CLI 直接出站，网关只经 stdio 启�
 
 > &#96;machineID&#96; leaves only as a 12-character prefix in error reports.
 
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/overview.md)
-
-> &#96;machineID&#96; leaves only as a 12-character prefix in error reports.
-
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/telemetry.md)
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/telemetry.md)
 
 > &#124; &#42;&#42;Datadog error tracking&#42;&#42; (modules 331/333/334) &#124; Crash and &#96;logError&#96; reports with stack, fingerprint, frames &#124; &#96;https://browser-intake-us5-datadoghq.com/api/v2/logs&#96; (&#96;:349907&#96;), query &#96;dd-api-key&#96; (&#96;:349926&#96;) &#124; &#42;&#42;OFF&#42;&#42; &#124; flag &#96;tengu&#95;orford&#95;ness&#96; (default &#96;!1&#96;, &#96;:349389&#96;); &#96;DISABLE&#95;ERROR&#95;REPORTING&#96;; org restriction &#96;allow&#95;error&#95;reporting&#96;; min version &#96;2.1.193&#96; &#124;
 
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/telemetry.md)
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/telemetry.md)
 
-> - &#96;!iy()&#96;
+> &#124; &#96;DISABLE&#95;TELEMETRY&#96; / &#96;DO&#95;NOT&#95;TRACK&#96; / &#96;CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC&#96; &#124; Disable 1P, Datadog, error tracking, GrowthBook (via &#96;Oj&#96;), BigQuery metrics (via &#96;LD&#96;), and the plugin telemetry mod &#124; &#96;:10162&#96;, &#96;:22061&#96;, &#96;:142788&#96;, &#96;:1470484&#96;, &#96;:1534612&#96; &#124;
 
-代码：[model-gateway/engine.mjs:93](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L93)
+代码：[model-gateway/engine.mjs:94](https://github.com/KKBK-233/unbundle/blob/747f1900a6973ea9c6ffa1bc6bdd4e4ac19c2fca/model-gateway/engine.mjs#L94)
 
-> CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',
+> Object.assign(env, { HOME: home, USERPROFILE: home, CLAUDE&#95;CONFIG&#95;DIR: configDir,       CLAUDE&#95;CODE&#95;DISABLE&#95;NONESSENTIAL&#95;TRAFFIC: '1', CLAUDE&#95;CODE&#95;DISABLE&#95;AUTO&#95;MEMORY: '1', DISABLE&#95;AUTOUPDATER: '1',       ENABLE&#95;TOOL&#95;SEARCH: discovery.environment, MCP&#95;TOOL&#95;TIMEOUT: String(timeoutMs &#124;&#124; 2147483647), CLAUDE&#95;CODE&#95;MAX&#95;OUTPUT&#95;TOKENS: String(maxOutputTokens) });
 
-代码：[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L112)
-
-> child = spawnProcess(cli, args, { env, cwd, detached: group, windowsHide: true, stdio: &#91;'pipe', 'pipe', 'pipe'&#93; });
-
-依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/cloud-server.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/server.mjs
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/messages.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs、model-gateway/session-entry.mjs
 
 <a id="mechanism-otel-user-email"></a>
 ## OTel user email
@@ -1476,7 +1500,7 @@ Messages 通道默认由持凭据的 CLI 直接出站，网关只经 stdio 启�
 
 方向：服务端 → CLI；触发：条件触发；网关处理：不经过网关。
 
-当前有效性：待核实（代码已变化）。历史评估结论：未过滤。
+当前有效性：待重评（报告核验未完成）。历史评估结论：未过滤。
 
 该值是服务端响应头，不是客户端上传字段；CLI 直连上游时在进程内解析。网关仅用 stdio 启动并读取 CLI，不代理或过滤该响应头；默认是否出现取决于服务端返回，触发为条件性。
 
@@ -1572,7 +1596,7 @@ Messages 通道默认由持凭据的 CLI 直接出站，网关只经 stdio 启�
 
 方向：组件内部传递；触发：默认关闭／不触发；网关处理：移除。
 
-当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
+当前有效性：待重评（报告核验未完成）。历史评估结论：当前配置不触发。
 
 默认 engine 仅复制少量系统 env 并显式赋值，未传入 CLAUDE&#95;CODE&#95;SUBSCRIPTION&#95;TYPE/RATE&#95;LIMIT&#95;TIER；即使 CLI 凭据存在，这两个覆盖变量为空，默认不触发。网关重建子进程环境，属移除而非请求字段过滤。
 
@@ -1815,25 +1839,25 @@ x-cc-tender-quilt 是 CLI 在安全拒绝后切换模型时自行附加的出站
 依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/cli-output-audit.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/messages.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
 
 <a id="mechanism-server-side-arbiter-beta-header"></a>
-## 服务端仲裁器 beta 头
+## 服务端仲裁器 beta 头协议指纹
 
 机制 ID：server-side-arbiter-beta-header
 
-### 当前报告来源 · 2.1.300 · 服务端仲裁器 beta 头
+### 当前报告来源 · 2.1.300 · 服务端仲裁器 beta 头协议指纹
 
-[原报告](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)；评估时间：2026-10-22T10:03:06Z；审阅提交：9429ba2c51d9。
+[原报告](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/security-model.md)；评估时间：2026-11-15T03:26:33Z；审阅提交：747f1900a697。
 
 评估基准：假设云端使用报告版本，并接受报告描述的 CLI 行为。
 
 机制：服务端仲裁器 beta 头协议指纹：arbiter 请求携带 dangerous-tool-use-2026-09-03 beta 头，标识服务端分类器调用。
 
-完整触发条件：自动模式调用服务端分类器（arbiter）时。
+完整触发条件：当 cE(tool) 选择 arbiter 或 arbiterWithLocalFallback 路径并发送服务端分类器请求时，请求携带 dangerous-tool-use-2026-09-03 beta 头。
 
 方向：云端 CLI → 服务端；触发：默认关闭／不触发；网关处理：不经过网关。
 
-当前有效性：待核实（代码已变化）。历史评估结论：当前配置不触发。
+当前有效性：当前配置不触发。历史评估结论：当前配置不触发。
 
-默认 &#96;--permission-mode dontAsk&#96; 不进入 &#96;auto&#96;，服务端仲裁器不会被调用，&#96;dangerous-tool-use-2026-09-03&#96; beta 头不发送；若进入 auto，该头由 CLI 自行向服务端请求，不经过网关过滤。
+报告将 arbiter 描述为自动模式危险工具复核；默认 dontAsk 且 setting-sources 为空，未启用自动模式，cE(tool) 的 arbiter 请求条件不成立。CLI 自发上游请求不经过网关。
 
 发现时间：2026-10-14（上游报告提交日期）。
 
@@ -1843,7 +1867,7 @@ x-cc-tender-quilt 是 CLI 在安全拒绝后切换模型时自行附加的出站
 
 报告原文（trigger）：
 
-> &#96;cE(tool)&#96; (&#96;:431829&#96;) returns &#96;"off"&#96;, &#96;"arbiter"&#96; (first party) or &#96;"arbiterWithLocalFallback"&#96; (third-party planes: bedrock, mantle, vertex, foundry, anthropicAws, anthropicGoogleCloud, gateway; &#96;j3()&#96; &#96;:431810&#96;).
+> &#96;cE(tool)&#96; (&#96;:431829&#96;) returns &#96;"off"&#96;, &#96;"arbiter"&#96; (first party) or &#96;"arbiterWithLocalFallback"&#96;
 
 报告原文（version）：
 
@@ -1851,29 +1875,25 @@ x-cc-tender-quilt 是 CLI 在安全拒绝后切换模型时自行附加的出站
 
 报告原文（direction）：
 
-> The API beta &#96;dangerous-tool-use-2026-09-03&#96; (&#96;YC&#96;, &#96;:92316&#96;) and the response field &#96;safeguard&#95;results&#96; (&#96;:96445&#96;) carry an &#96;evaluated{outcome:"flagged"&#124;"not&#95;flagged"}&#96; / &#96;skipped&#96; / &#96;unavailable&#96; verdict (&#96;AEo&#96;, &#96;:431576&#96;).
-
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)
-
 > The API beta &#96;dangerous-tool-use-2026-09-03&#96; (&#96;YC&#96;, &#96;:92316&#96;)
 
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/security-model.md)
 
 > &#96;cE(tool)&#96; (&#96;:431829&#96;) returns &#96;"off"&#96;, &#96;"arbiter"&#96; (first party) or &#96;"arbiterWithLocalFallback"&#96; (third-party planes: bedrock, mantle, vertex, foundry, anthropicAws, anthropicGoogleCloud, gateway; &#96;j3()&#96; &#96;:431810&#96;).
 
-关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/068b7a24325bbf92af5f024bdb9525a654251155/versions/2.1.300/security-model.md)
+关联报告：[原文](https://github.com/wtfwhs/tengu-decoded/blob/7ede2930a00ed591cdc44aeb7d1e903e3d7adc0a/versions/2.1.300/security-model.md)
 
-> Six external modes, unchanged: &#96;TD = &#91;"acceptEdits","auto","bypassPermissions","default","dontAsk","plan"&#93;&#96; (&#96;:25394&#96;).
+> User-facing copy: &#42;"Auto mode held this command for the server-side classifier to review"&#42; (&#96;Ddn&#96;, &#96;:25531&#96;).
 
-代码：[model-gateway/engine.mjs:104](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L104)
+代码：[model-gateway/engine.mjs:105](https://github.com/KKBK-233/unbundle/blob/747f1900a6973ea9c6ffa1bc6bdd4e4ac19c2fca/model-gateway/engine.mjs#L105)
 
-> const args = &#91;'-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--strict-mcp-config', '--mcp-config', mcp,       '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',       '--allowedTools', 'mcp&#95;&#95;omp&#95;&#95;&#42;', '--no-session-persistence', '--max-turns', '2', '--model', model, '--system-prompt-file', promptFile&#93;;
+> '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--permission-mode', 'dontAsk',
 
-代码：[model-gateway/engine.mjs:112](https://github.com/KKBK-233/unbundle/blob/9429ba2c51d9845f9b6278145ca54d98b4be64e7/model-gateway/engine.mjs#L112)
+代码：[model-gateway/engine.mjs:113](https://github.com/KKBK-233/unbundle/blob/747f1900a6973ea9c6ffa1bc6bdd4e4ac19c2fca/model-gateway/engine.mjs#L113)
 
 > child = spawnProcess(cli, args, { env, cwd, detached: group, windowsHide: true, stdio: &#91;'pipe', 'pipe', 'pipe'&#93; });
 
-依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-compat.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-client.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
+依赖文件：model-gateway/anthropic.mjs、model-gateway/cli-events.mjs、model-gateway/cloud-probe.mjs、model-gateway/context.mjs、model-gateway/engine.mjs、model-gateway/messages.mjs、model-gateway/request-body.mjs、model-gateway/request.mjs、model-gateway/server.mjs
 
 <a id="mechanism-summon-sid-hmac"></a>
 ## Summon SID HMAC
